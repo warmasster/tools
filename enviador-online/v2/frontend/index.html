@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enviador</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <header class="titlebar">
+    <div class="brand"><img src="logo.svg" alt="" width="22" height="22"><span>Enviador</span><em>v2</em></div>
+    <div class="pills" id="pills"></div>
+    <div class="winbtns">
+      <button class="wb" id="wb-act" title="Actividad y conexión"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></button>
+      <button class="wb" id="wb-settings" title="Ajustes"><svg viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <span class="wsep"></span>
+      <button class="wb" id="wb-min" title="Minimizar"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button class="wb" id="wb-max" title="Maximizar"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
+      <button class="wb close" id="wb-close" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+  </header>
+
+  <div class="layout" id="layout">
+    <!-- lista de chats -->
+    <aside class="side">
+      <div class="side-top">
+        <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input id="q" placeholder="Buscar chats" autocomplete="off"></label>
+        <button class="newbtn" id="new-room" title="Nuevo chat"><svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+      </div>
+      <div class="rooms" id="rooms"></div>
+    </aside>
+
+    <!-- conversación -->
+    <section class="chat">
+      <div class="welcome" id="welcome">
+        <div class="drop">
+          <div class="drop-art"><div class="ring r1"></div><div class="ring r2"></div><div class="drop-ic"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 10h.01"/><path d="M12 10h.01"/><path d="M16 10h.01"/></svg></div></div>
+          <h1>Suelta archivos para empezar un chat</h1>
+          <p>O crea un chat vacío y pásale el enlace a quien quieras: podréis escribiros y mandaros archivos de cualquier tamaño en los dos sentidos.</p>
+          <div class="drop-btns">
+            <button class="btn primary" id="w-new"><svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Nuevo chat</button>
+            <button class="btn ghost" id="w-files"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Enviar archivos</button>
+            <button class="btn ghost" id="w-folder"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>Enviar carpeta</button>
+          </div>
+        </div>
+        <div class="howto">
+          <div class="step"><span class="n">1</span><b>Crea un chat</b><p>Soltando archivos o vacío. Cada chat tiene su enlace.</p></div>
+          <div class="step"><span class="n">2</span><b>Pasa el enlace</b><p>Se abre en el navegador, sin instalar nada. Puede entrar una persona o un grupo.</p></div>
+          <div class="step"><span class="n">3</span><b>Archivos en los dos sentidos</b><p>Lo que te manden aparece en el chat y tú decides cuándo descargarlo.</p></div>
+        </div>
+      </div>
+
+      <div class="room" id="room" hidden>
+        <header class="room-head">
+          <div class="av big" id="r-av"></div>
+          <div class="rh-txt">
+            <b id="r-name" title="Doble clic para renombrar"></b>
+            <span id="r-sub"></span>
+          </div>
+          <div class="r-members" id="r-members"></div>
+          <button class="btn primary sm" id="r-invite"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Invitar</button>
+          <button class="ibtn" id="r-menu" title="Opciones del chat"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+        </header>
+        <div class="msgs" id="msgs"></div>
+        <div class="typing" id="typing"></div>
+        <footer class="composer">
+          <div class="att-wrap">
+            <button class="cbtn" id="att" title="Enviar archivos"><svg viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+            <div class="popmenu up" id="att-menu" hidden>
+              <button data-pick="files"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Archivos</button>
+              <button data-pick="folder"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>Carpeta</button>
+            </div>
+          </div>
+          <textarea id="text" rows="1" maxlength="4000" placeholder="Escribe un mensaje…"></textarea>
+          <button class="cbtn send" id="send" title="Enviar (Intro)"><svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
+        </footer>
+      </div>
+    </section>
+
+    <!-- actividad -->
+    <aside class="act" id="act">
+      <div class="panel speed">
+        <div class="sp-row">
+          <div><span class="label up">↑ Subida</span><div class="big"><span id="sp-up">0</span><small id="sp-up-u">MB/s</small></div></div>
+          <div><span class="label down">↓ Bajada</span><div class="big"><span id="sp-down">0</span><small id="sp-down-u">MB/s</small></div></div>
+        </div>
+        <canvas id="spark" height="70"></canvas>
+      </div>
+      <div class="panel">
+        <div class="panel-top"><span class="label">Transferencias</span><span class="tag" id="tx-count"></span></div>
+        <div id="transfers" class="transfers"></div>
+      </div>
+      <div class="panel net">
+        <div class="panel-top"><span class="label">Conexión</span></div>
+        <div id="net"></div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- popovers -->
+  <div class="pop" id="invite" hidden>
+    <div class="pop-head"><b>Invitar a este chat</b><span>Comparte un enlace. Quien lo abra pondrá su nombre y entrará.</span></div>
+    <div id="inv-links"></div>
+    <button class="btn primary wide" id="inv-msg"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Copiar invitación</button>
+    <p class="pop-note" id="inv-note"></p>
+  </div>
+  <div class="pop menu" id="rmenu" hidden>
+    <div class="menu-title">Recibir archivos automáticamente</div>
+    <button data-auto=""><i></i><span>Como en Ajustes <em id="auto-def"></em></span></button>
+    <button data-auto="on"><i></i><span>Siempre en este chat</span></button>
+    <button data-auto="off"><i></i><span>Nunca: preguntar siempre</span></button>
+    <div class="menu-sep"></div>
+    <button data-rm="rename"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Renombrar chat</button>
+    <button data-rm="recv"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>Abrir carpeta de recibidos</button>
+    <button data-rm="delete" class="danger"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Eliminar chat</button>
+  </div>
+
+  <div class="dropveil" id="veil"><div class="veil-box"><div class="veil-ic"><svg viewBox="0 0 24 24"><path d="M12 13v8"/><path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/><path d="m8 17 4-4 4 4"/></svg></div><h2 id="veil-t">Suelta para enviar</h2><p id="veil-p">Todo lo que sueltes a la vez irá en un mismo envío</p></div></div>
+  <div class="busy" id="busy"><div class="spinner"></div><span>Preparando envío…</span></div>
+  <div class="toasts" id="toasts"></div>
+
+  <!-- ajustes -->
+  <div class="modal" id="settings" hidden>
+    <div class="modal-card">
+      <div class="modal-head"><h2>Ajustes</h2><button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+      <div class="modal-body">
+        <h3>General</h3>
+        <div class="row"><div><b>Tu nombre</b><span>Es lo que verán los demás en el chat.</span></div><input class="txt" id="s-name" maxlength="40"></div>
+        <label class="row toggle"><div><b>Sonidos</b><span>Un aviso suave cuando llega un mensaje y no estás mirando.</span></div><input type="checkbox" id="s-sounds"><i></i></label>
+
+        <h3>Lo que te envían</h3>
+        <div class="row"><div><b>Carpeta de recepción</b><span id="s-recv" class="path"></span></div><div class="btnrow"><button class="btn ghost sm" id="s-recv-pick">Cambiar</button><button class="btn ghost sm" id="s-recv-open">Abrir</button></div></div>
+        <label class="row toggle"><div><b>Descargar automáticamente</b><span>Si está apagado, lo que te manden aparece en el chat y tú decides cuándo bajarlo.</span></div><input type="checkbox" id="s-auto"><i></i></label>
+        <div class="row" id="s-limit-row"><div><b>Límite de la descarga automática</b><span>Si es más grande, te pregunta. 0 = sin límite.</span></div><div class="unit"><input type="number" class="num" id="s-limit" min="0" step="1"><em>GB</em></div></div>
+
+        <h3>Conexión</h3>
+        <label class="row toggle"><div><b>Túnel de Cloudflare</b><span>Enlace HTTPS que funciona desde cualquier red, sin abrir puertos.</span></div><input type="checkbox" id="s-tunnel"><i></i></label>
+        <label class="row toggle"><div><b>Abrir puerto con UPnP</b><span>Pide al router que abra el puerto para el enlace directo ⚡ (el más rápido).</span></div><input type="checkbox" id="s-upnp"><i></i></label>
+        <label class="row toggle"><div><b>Ofrecer el enlace directo en la página de Cloudflare</b><span>Quien entre por Cloudflare verá un botón para pasarse al directo. Mostrará tu IP pública.</span></div><input type="checkbox" id="s-showdirect"><i></i></label>
+        <label class="row toggle"><div><b>Forzar enlace directo</b><span>Si has abierto el puerto a mano en el router y UPnP no funciona.</span></div><input type="checkbox" id="s-force"><i></i></label>
+        <div class="row"><div><b>Conexiones turbo</b><span>Tramos que se descargan en paralelo en Chrome/Edge.</span></div><div class="range"><input type="range" id="s-conns" min="1" max="16"><output id="s-conns-v"></output></div></div>
+        <div class="row"><div><b>Puerto</b><span>Se aplica al reiniciar Enviador.</span></div><input type="number" class="num" id="s-port" min="1024" max="65535"></div>
+
+        <h3>Dominio propio <span class="opt">opcional</span></h3>
+        <p class="hint">Con tu dominio en Cloudflare, los enlaces de los chats no cambian al reiniciar. Si lo dejas vacío o falla, se usa el enlace temporal.</p>
+        <div class="row col"><b>Dirección pública</b><input class="txt wide" id="s-host" placeholder="enviar.tudominio.com" spellcheck="false"></div>
+        <div class="row col"><b>Token del túnel</b><div class="tokrow"><input class="txt wide" id="s-token" type="password" placeholder="eyJhIjoi…" spellcheck="false" autocomplete="off"><button class="btn ghost sm" id="s-token-show">Ver</button></div></div>
+        <details class="howto-dom">
+          <summary>Cómo conseguir el token (2 minutos)</summary>
+          <ol>
+            <li>Entra en <b>dash.cloudflare.com</b> → <b>Zero Trust</b> → <b>Networks</b> → <b>Tunnels</b> → <b>Create a tunnel</b>.</li>
+            <li>Elige <b>Cloudflared</b>, ponle de nombre <i>enviador</i> y guarda.</li>
+            <li>En la pantalla de instalación, copia el texto largo que va detrás de <code>--token</code> (o de <code>install</code>) y pégalo arriba. No hace falta instalar nada: Enviador ya trae cloudflared.</li>
+            <li>En <b>Public hostname</b> pon el subdominio (por ejemplo <i>enviar</i>) y tu dominio. En <b>Service</b> elige <b>HTTP</b> y escribe <code id="s-svc">localhost:47831</code>.</li>
+            <li>Escribe esa dirección arriba (por ejemplo <i>enviar.tudominio.com</i>) y pulsa Guardar.</li>
+          </ol>
+        </details>
+
+        <div class="row btnrow">
+          <button class="btn ghost sm" id="s-log">Ver registro del túnel</button>
+          <button class="btn ghost sm" id="s-data">Abrir carpeta de datos</button>
+        </div>
+      </div>
+      <div class="modal-foot"><span class="ver">Enviador 2.0</span><button class="btn primary sm" id="s-save">Guardar</button></div>
+    </div>
+  </div>
+
+  <div class="modal" id="logm" hidden>
+    <div class="modal-card wide">
+      <div class="modal-head"><h2>Registro de Cloudflare</h2><button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+      <pre class="log" id="log"></pre>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

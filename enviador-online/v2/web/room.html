@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0a0b12">
+<title>Chat · Enviador</title>
+<link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/room.css">
+</head>
+<body>
+<div class="aurora" aria-hidden="true"><span class="a1"></span><span class="a2"></span><span class="a3"></span></div>
+
+<div class="shell" id="shell">
+  <header class="top">
+    <div class="who">
+      <div class="av big host" id="host-av">·</div>
+      <div class="who-txt">
+        <b id="title">Cargando…</b>
+        <span id="sub"><i class="dot"></i><span id="sub-txt">conectando…</span></span>
+      </div>
+    </div>
+    <div class="members" id="members"></div>
+    <a class="boost" id="boost" hidden rel="noreferrer"><svg viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg><span>Conexión directa</span></a>
+  </header>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <main class="msgs" id="msgs" aria-live="polite">
+    <div class="skel"><span></span><span class="r"></span><span></span></div>
+  </main>
+
+  <div class="typing" id="typing"></div>
+
+  <footer class="composer" id="composer">
+    <div class="att-wrap">
+      <button class="cbtn" id="att" title="Enviar archivos"><svg viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+      <div class="att-menu" id="att-menu" hidden>
+        <button data-pick="files"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Archivos</button>
+        <button data-pick="dir"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>Carpeta</button>
+      </div>
+    </div>
+    <textarea id="text" rows="1" maxlength="4000" placeholder="Escribe un mensaje…" disabled></textarea>
+    <button class="cbtn send" id="send" title="Enviar" disabled><svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
+  </footer>
+</div>
+
+<div class="veil" id="veil"><div class="veil-box"><div class="veil-ic"><svg viewBox="0 0 24 24"><path d="M12 13v8"/><path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/><path d="m8 17 4-4 4 4"/></svg></div><h2 id="veil-t">Suelta para enviar</h2><p>Puedes soltar archivos y carpetas enteras</p></div></div>
+
+<div class="modal" id="join" hidden>
+  <form class="join-card" id="join-form">
+    <img src="/assets/logo.svg" alt="" width="54" height="54">
+    <h1 id="join-t">Únete al chat</h1>
+    <p id="join-p">Podréis pasaros archivos de cualquier tamaño y escribiros, directamente entre navegador y PC.</p>
+    <input id="join-name" maxlength="32" placeholder="¿Cómo te llamas?" autocomplete="nickname" required>
+    <button class="btn primary" type="submit">Entrar</button>
+  </form>
+</div>
+
+<input type="file" id="f-files" multiple hidden>
+<input type="file" id="f-dir" webkitdirectory multiple hidden>
+<div class="toasts" id="toasts"></div>
+
+<script src="/assets/lib.js"></script>
+<script src="/assets/room.js"></script>
+</body>
+</html>

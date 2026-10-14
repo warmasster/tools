@@ -1,0 +1,11 @@
+# Ejecutables y artefactos de compilación (los .exe van en las Releases)
+*.exe
+**/build/bin/
+**/frontend/wailsjs/
+*.syso
+*.tmp
+
+# Sistema
+Thumbs.db
+desktop.ini
+.DS_Store

@@ -1,0 +1,127 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
+	"unicode"
+
+	"golang.org/x/sys/windows"
+)
+
+// Settings son las preferencias persistentes de la app.
+type Settings struct {
+	HostName           string  `json:"hostName"`
+	Port               int     `json:"port"`
+	Tunnel             bool    `json:"tunnel"`
+	UPnP               bool    `json:"upnp"`
+	ShowDirectOnTunnel bool    `json:"showDirectOnTunnel"`
+	ForceDirect        bool    `json:"forceDirect"`
+	Connections        int     `json:"connections"`
+	RecvDir            string  `json:"recvDir"`
+	AutoAccept         bool    `json:"autoAccept"`
+	AutoLimitGB        float64 `json:"autoLimitGB"` // 0 = sin límite
+	Sounds             bool    `json:"sounds"`
+	// Dominio propio (túnel con nombre de Cloudflare). Vacío = túnel temporal.
+	TunnelToken string `json:"tunnelToken"`
+	TunnelHost  string `json:"tunnelHost"`
+}
+
+func defaultSettings() Settings {
+	return Settings{
+		HostName:           defaultHostName(),
+		Port:               47831,
+		Tunnel:             true,
+		UPnP:               true,
+		ShowDirectOnTunnel: true,
+		Connections:        4,
+		RecvDir:            filepath.Join(downloadsDir(), "Enviador"),
+		Sounds:             true,
+	}
+}
+
+func (s *Settings) normalize() {
+	if s.Port < 1024 || s.Port > 65535 {
+		s.Port = 47831
+	}
+	if s.Connections < 1 {
+		s.Connections = 1
+	}
+	if s.Connections > 16 {
+		s.Connections = 16
+	}
+	s.HostName = strings.TrimSpace(s.HostName)
+	if s.HostName == "" {
+		s.HostName = defaultHostName()
+	}
+	if len([]rune(s.HostName)) > 40 {
+		s.HostName = string([]rune(s.HostName)[:40])
+	}
+	if strings.TrimSpace(s.RecvDir) == "" {
+		s.RecvDir = filepath.Join(downloadsDir(), "Enviador")
+	}
+	if s.AutoLimitGB < 0 {
+		s.AutoLimitGB = 0
+	}
+	s.TunnelToken = strings.TrimSpace(s.TunnelToken)
+	h := strings.TrimSpace(s.TunnelHost)
+	h = strings.TrimPrefix(strings.TrimPrefix(h, "https://"), "http://")
+	s.TunnelHost = strings.TrimRight(h, "/")
+}
+
+func defaultHostName() string {
+	if u, err := user.Current(); err == nil {
+		n := u.Username
+		if i := strings.LastIndex(n, `\`); i >= 0 {
+			n = n[i+1:]
+		}
+		if n != "" {
+			r := []rune(n)
+			r[0] = unicode.ToUpper(r[0])
+			return string(r)
+		}
+	}
+	return "Yo"
+}
+
+func downloadsDir() string {
+	if p, err := windows.KnownFolderPath(windows.FOLDERID_Downloads, 0); err == nil && p != "" {
+		return p
+	}
+	h, _ := os.UserHomeDir()
+	return filepath.Join(h, "Downloads")
+}
+
+// dataDir devuelve %APPDATA%\EnviadorV2, creándolo si hace falta.
+func dataDir() string {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		base = os.TempDir()
+	}
+	dir := filepath.Join(base, "EnviadorV2")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+func loadJSON(path string, v any) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
+}
+
+// saveJSON escribe de forma atómica (archivo temporal + rename).
+func saveJSON(path string, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}

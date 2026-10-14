@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enviador</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <header class="titlebar">
+    <div class="brand">
+      <img src="logo.svg" alt="" width="22" height="22">
+      <span>Enviador</span>
+    </div>
+    <div class="pills" id="pills"></div>
+    <div class="winbtns">
+      <button class="wb" id="wb-settings" title="Ajustes"><svg viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <span class="wsep"></span>
+      <button class="wb" id="wb-min" title="Minimizar"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button class="wb" id="wb-max" title="Maximizar"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
+      <button class="wb close" id="wb-close" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="main" id="main">
+      <div class="drop" id="drop">
+        <div class="drop-art">
+          <div class="ring r1"></div><div class="ring r2"></div>
+          <div class="drop-ic"><svg viewBox="0 0 24 24"><path d="M12 13v8"/><path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/><path d="m8 17 4-4 4 4"/></svg></div>
+        </div>
+        <div class="drop-txt">
+          <h1>Arrastra aquí lo que quieras enviar</h1>
+          <p>Archivos o carpetas enteras, del tamaño que sea. Se crea un enlace al instante.</p>
+        </div>
+        <div class="drop-btns">
+          <button class="btn primary" id="pick-files"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>Elegir archivos</button>
+          <button class="btn ghost" id="pick-folder"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>Elegir carpeta</button>
+        </div>
+      </div>
+
+      <div class="howto">
+        <div class="step"><span class="n">1</span><b>Suelta lo que quieras</b><p>Archivos sueltos o carpetas enteras, sin límite de tamaño.</p></div>
+        <div class="step"><span class="n">2</span><b>Copia el mensaje</b><p>Lleva el enlace directo ⚡ y el de Cloudflare por si el rápido no va.</p></div>
+        <div class="step"><span class="n">3</span><b>Descargan desde el navegador</b><p>Sin instalar nada. En Chrome y Edge, con modo turbo y verificación.</p></div>
+      </div>
+
+      <div class="list-head" id="list-head">
+        <h2>Tus envíos</h2>
+        <span class="count" id="count"></span>
+      </div>
+      <div class="shares" id="shares"></div>
+    </section>
+
+    <aside class="side">
+      <div class="panel speed">
+        <div class="panel-top">
+          <span class="label">Subida ahora</span>
+          <span class="live" id="live"><i></i>en directo</span>
+        </div>
+        <div class="big"><span id="speed">0</span><small id="speed-u">MB/s</small></div>
+        <canvas id="spark" height="70"></canvas>
+        <div class="sub" id="speed-sub">Nadie está descargando ahora</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-top"><span class="label">Descargas</span><span class="tag" id="tx-count"></span></div>
+        <div id="transfers" class="transfers"></div>
+      </div>
+
+      <div class="panel net">
+        <div class="panel-top"><span class="label">Conexión</span></div>
+        <div id="net"></div>
+      </div>
+    </aside>
+  </main>
+
+  <div class="dropveil" id="veil">
+    <div class="veil-box">
+      <div class="veil-ic"><svg viewBox="0 0 24 24"><path d="M12 13v8"/><path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/><path d="m8 17 4-4 4 4"/></svg></div>
+      <h2>Suelta para crear un envío</h2>
+      <p>Todo lo que sueltes a la vez irá en el mismo enlace</p>
+    </div>
+  </div>
+
+  <div class="busy" id="busy"><div class="spinner"></div><span>Preparando envío…</span></div>
+  <div class="toasts" id="toasts"></div>
+
+  <div class="modal" id="settings" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Ajustes</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <label class="row toggle"><div><b>Túnel de Cloudflare</b><span>Enlace HTTPS que funciona desde cualquier red, sin abrir puertos.</span></div><input type="checkbox" id="s-tunnel"><i></i></label>
+        <label class="row toggle"><div><b>Abrir puerto con UPnP</b><span>Pide al router que abra el puerto para el enlace directo ⚡ (el más rápido).</span></div><input type="checkbox" id="s-upnp"><i></i></label>
+        <label class="row toggle"><div><b>Ofrecer enlace directo en la página de Cloudflare</b><span>Quien descargue por Cloudflare verá un botón para pasarse al directo. Mostrará tu IP pública.</span></div><input type="checkbox" id="s-showdirect"><i></i></label>
+        <label class="row toggle"><div><b>Forzar enlace directo</b><span>Si has abierto el puerto a mano en el router y UPnP no funciona.</span></div><input type="checkbox" id="s-force"><i></i></label>
+        <div class="row"><div><b>Conexiones turbo</b><span>Bloques que se descargan en paralelo en Chrome/Edge. Más ayuda a larga distancia.</span></div><div class="range"><input type="range" id="s-conns" min="1" max="16"><output id="s-conns-v"></output></div></div>
+        <div class="row"><div><b>Puerto</b><span>Se aplica al reiniciar Enviador.</span></div><input type="number" class="num" id="s-port" min="1024" max="65535"></div>
+        <div class="row btnrow">
+          <button class="btn ghost sm" id="s-log">Ver registro del túnel</button>
+          <button class="btn ghost sm" id="s-data">Abrir carpeta de datos</button>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <span class="ver">Enviador 1.0</span>
+        <button class="btn primary sm" id="s-save">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="logm" hidden>
+    <div class="modal-card wide">
+      <div class="modal-head">
+        <h2>Registro de Cloudflare</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <pre class="log" id="log"></pre>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

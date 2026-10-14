@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "Enviador",
+  "outputfilename": "Enviador",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "",
+  "author": {
+    "name": "Fernando",
+    "email": ""
+  },
+  "info": {
+    "companyName": "Enviador",
+    "productName": "Enviador",
+    "productVersion": "1.0.0",
+    "copyright": "Fernando",
+    "comments": "Envía archivos por Cloudflare o directo por tu IP"
+  }
+}
