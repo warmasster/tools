@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "TurboDL",
+  "version": "1.0.0",
+  "description": "Gestor de descargas multiconexión dentro de Chrome: descarga por partes en paralelo, pausa, reanuda y sobrevive a cerrar el navegador.",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "TurboDL",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "downloads",
+    "downloads.open",
+    "offscreen",
+    "storage",
+    "unlimitedStorage",
+    "contextMenus",
+    "cookies",
+    "declarativeNetRequestWithHostAccess",
+    "notifications"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "commands": {
+    "toggle-interception": {
+      "suggested_key": { "default": "Alt+Shift+T" },
+      "description": "Activar o desactivar la interceptación de descargas"
+    }
+  }
+}

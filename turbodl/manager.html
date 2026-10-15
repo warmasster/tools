@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TurboDL · Descargas</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="ui/theme.css">
+  <link rel="stylesheet" href="ui/manager.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">
+      <img class="logo" src="icons/icon48.png" alt="">
+      <div>
+        <h1>TurboDL</h1>
+        <span class="sub">Gestor de descargas</span>
+      </div>
+    </div>
+    <div class="stats">
+      <div><span class="num" id="total-speed">—</span><span class="cap">velocidad total</span></div>
+      <div><span class="num" id="active-count">0</span><span class="cap">activas</span></div>
+    </div>
+    <div class="bar-actions">
+      <label class="toggle">
+        <span id="enabled-text">Interceptar</span>
+        <span class="switch"><input id="enabled" type="checkbox" aria-label="Interceptar descargas"><span></span></span>
+      </label>
+      <button class="btn" id="settings-btn" aria-expanded="false" aria-controls="settings-panel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+        Ajustes
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section id="settings-panel" class="panel settings" hidden>
+      <div class="panel-head"><h2>Ajustes</h2><span class="saved">Guardado</span></div>
+      <div id="settings" class="fields"></div>
+    </section>
+
+    <form id="add-form" class="add" autocomplete="off">
+      <input id="add-url" type="url" placeholder="Pega un enlace para descargarlo con TurboDL" aria-label="Enlace a descargar" required>
+      <button class="btn primary" type="submit">Descargar</button>
+    </form>
+    <p id="add-msg" class="add-msg" role="status"></p>
+
+    <section>
+      <div class="section-head"><h2>En curso</h2></div>
+      <div id="active-list" class="list"></div>
+      <div id="active-empty" class="empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        <p>No hay descargas en curso.</p>
+        <p class="faint">Haz clic en un enlace de descarga y TurboDL se encargará si el servidor permite descargar por partes.</p>
+      </div>
+    </section>
+
+    <section id="history-section">
+      <div class="section-head">
+        <h2>Terminadas</h2>
+        <button class="btn ghost" id="clear-history">Limpiar lista</button>
+      </div>
+      <div id="history-list" class="list"></div>
+    </section>
+  </main>
+
+  <template id="card-tpl">
+    <article class="card">
+      <div class="file-icon"></div>
+      <div class="body">
+        <div class="row1">
+          <h3 class="name"></h3>
+          <span class="pill"></span>
+        </div>
+        <div class="meta"></div>
+        <div class="progress">
+          <canvas class="segbar" height="10"></canvas>
+        </div>
+        <div class="figures">
+          <span class="pct"></span>
+          <span class="bytes"></span>
+          <span class="speed"></span>
+          <span class="eta"></span>
+          <span class="conns"></span>
+        </div>
+        <p class="notice" hidden></p>
+        <p class="err-msg" hidden></p>
+      </div>
+      <div class="actions"></div>
+    </article>
+  </template>
+
+  <script type="module" src="ui/manager.js"></script>
+</body>
+</html>

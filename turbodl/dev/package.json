@@ -1,0 +1,6 @@
+{
+  "name": "turbodl-dev",
+  "private": true,
+  "type": "module",
+  "description": "Herramientas de desarrollo de TurboDL (sin dependencias)"
+}
