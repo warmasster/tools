@@ -2,6 +2,7 @@
 // chrome.storage, así que el SW le pasa una copia con cada orden).
 
 export const PER_HOST_MAX = 6; // Chrome no abre más de 6 conexiones HTTP/1.1 por servidor.
+export const NATIVE_MAX = 64; // el motor nativo (Go) no tiene ese límite
 
 export const DEFAULTS = {
   enabled: true,
@@ -9,6 +10,9 @@ export const DEFAULTS = {
   connections: 6, // por descarga (1-6)
   maxTotalConnections: 12, // entre todas las descargas
   excludedDomains: [],
+  engine: 'auto', // 'auto' = motor nativo si está instalado; 'browser' = siempre el del navegador
+  nativeConnections: 16,
+  nativeDir: '', // vacío = carpeta Descargas del usuario
 };
 
 export async function getSettings() {
@@ -33,6 +37,9 @@ function normalize(s) {
     minSizeMB: Math.max(0, Number(s.minSizeMB) || 0),
     connections: clampInt(s.connections, 1, PER_HOST_MAX, DEFAULTS.connections),
     maxTotalConnections: clampInt(s.maxTotalConnections, 1, 64, DEFAULTS.maxTotalConnections),
+    engine: s.engine === 'browser' ? 'browser' : 'auto',
+    nativeConnections: clampInt(s.nativeConnections, 1, NATIVE_MAX, DEFAULTS.nativeConnections),
+    nativeDir: String(s.nativeDir || ''),
     excludedDomains: (Array.isArray(s.excludedDomains) ? s.excludedDomains : String(s.excludedDomains || '').split(/[\s,]+/))
       .map((d) => d.trim().toLowerCase()).filter(Boolean),
   };

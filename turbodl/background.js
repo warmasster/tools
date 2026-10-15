@@ -1,19 +1,19 @@
 // Service worker de TurboDL.
 //
-// Intercepta descargas, decide si se encarga TurboDL, orquesta el backend (que hace
-// el trabajo pesado en el documento offscreen), entrega el archivo final a Descargas
-// y mantiene el badge. No descarga nada él mismo: MV3 lo duerme a los 30 s.
+// Intercepta descargas, decide si se encarga TurboDL, orquesta el motor que hace el
+// trabajo pesado (el del navegador en el documento offscreen, o el nativo en Go si
+// está instalado), entrega el archivo final y mantiene el badge. No descarga nada él
+// mismo: MV3 lo duerme a los 30 s.
 
 import * as db from './lib/db.js';
 import { getSettings, setSettings } from './lib/settings.js';
-import { createBackend, ensureOffscreen } from './lib/backend.js';
+import { createBackends, NativeBackend, ensureOffscreen } from './lib/backend.js';
 import { probe } from './lib/probe.js';
 import { installHeaderRule, removeHeaderRule, cookieHeaderFor } from './lib/net-rules.js';
 import {
   MiB, hostOf, domainMatches, sanitizeFilename, basename, filenameFromUrl, formatBytes,
 } from './lib/util.js';
 
-const backendReady = createBackend();
 const ui = new BroadcastChannel('turbodl');
 const ACTIVE = ['queued', 'downloading', 'ready', 'delivering'];
 
@@ -22,13 +22,51 @@ const deliveryNames = new Map(); // blob URL → nombre, para el onDeterminingFi
 const deliveries = new Map(); // id de chrome.downloads → id de TurboDL
 const delivering = new Set(); // ids con una entrega en marcha (evita entregar dos veces)
 
+// ================================================================= motores
+
+// El del navegador existe siempre; el nativo (turbodl-native.exe) solo si está instalado.
+const backendsReady = createBackends().then((b) => { onNativeDetected(b.native); return b; });
+let nativeCheck = null; // { at, backend }
+
+function onNativeDetected(n) {
+  nativeCheck = { at: Date.now(), backend: n };
+  if (n) wireNative(n);
+  chrome.storage.local.set({ engine: n ? { native: true, ...n.info } : { native: false } });
+}
+
+/** El motor nativo, volviendo a buscarlo si no estaba (por si se instaló después). */
+async function getNative() {
+  await backendsReady;
+  if (!nativeCheck.backend && Date.now() - nativeCheck.at > 15_000) {
+    nativeCheck.at = Date.now();
+    onNativeDetected(await NativeBackend.detect());
+  }
+  return nativeCheck.backend;
+}
+
+async function getBrowser() { return (await backendsReady).browser; }
+
+/** Motor para las descargas nuevas. */
+async function preferredBackend(s) {
+  return (s.engine !== 'browser' && (await getNative())) || getBrowser();
+}
+
+/** Motor de una descarga existente (sigue con el que empezó). */
+async function backendFor(rec) {
+  if (rec.backend !== 'native') return getBrowser();
+  const n = await getNative();
+  if (!n) throw new Error('El motor nativo no está instalado. Instálalo o usa «Descargar con Chrome normal».');
+  return n;
+}
+
 // ================================================================= arranque
 
 chrome.runtime.onInstalled.addListener(async () => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: 'turbodl-link', title: 'Descargar con TurboDL', contexts: ['link'] });
   });
-  await setSettings({}); // guarda los valores por defecto si no había ajustes
+  // Valores por defecto solo si no había ajustes (si no, una actualización los pisaría).
+  if (!(await chrome.storage.local.get('settings')).settings) await setSettings({});
   await boot();
 });
 
@@ -39,7 +77,7 @@ chrome.runtime.onStartup.addListener(boot);
  * abrir Chrome y al instalar/actualizar la extensión.
  */
 async function boot() {
-  const backend = await backendReady;
+  const backend = await getBrowser();
   await ensureOffscreen();
   const all = await db.getAll('downloads');
   const ids = new Set(all.map((r) => r.id));
@@ -98,10 +136,12 @@ async function intercept(item, release) {
   if (/^text\/html/i.test(item.mime || '')) return; // casi seguro una página de login o un POST
 
   const referer = item.referrer || (await activeTabUrl());
+  const backend = await preferredBackend(s);
   const plan = await evaluate(url, {
     referer,
     expectedSize: item.totalBytes > 0 ? item.totalBytes : null,
     minBytes: s.minSizeMB * MiB,
+    native: backend.kind === 'native',
   });
   if (!plan.ok) {
     if (plan.reason) console.info(`TurboDL deja la descarga a Chrome: ${plan.reason}`, url);
@@ -113,7 +153,7 @@ async function intercept(item, release) {
   await chrome.downloads.cancel(item.id).catch(() => {});
   release();
   await chrome.downloads.erase({ id: item.id }).catch(() => {});
-  await createDownload(plan, { filename: basename(item.filename), originalUrl: item.url, mime: item.mime });
+  await createDownload(plan, { filename: basename(item.filename), originalUrl: item.url, mime: item.mime, backend });
 }
 
 /**
@@ -121,13 +161,13 @@ async function intercept(item, release) {
  * forced = true viene del menú contextual o del gestor: se ignora el tamaño mínimo
  * y, si el servidor no admite Range, se descarga con una sola conexión.
  */
-async function evaluate(url, { referer, expectedSize = null, minBytes = 0, forced = false }) {
+async function evaluate(url, { referer, expectedSize = null, minBytes = 0, forced = false, native = false }) {
   const id = await nextId();
   // La regla del Referer tiene que estar puesta antes del sondeo para que cuente.
   await installHeaderRule(id, { url, referer });
   let info;
   let useCookies = false;
-  const releaseSlot = await (await backendReady).reserveSlot(new URL(url).origin);
+  const releaseSlot = await (await getBrowser()).reserveSlot(new URL(url).origin);
   try {
     info = await probe(url);
     // Con credentials:'include' las cookies normalmente llegan solas. Si la respuesta
@@ -164,8 +204,9 @@ async function evaluate(url, { referer, expectedSize = null, minBytes = 0, force
     mode = 'single';
   }
 
-  // Hace falta ~2x el tamaño: el archivo en OPFS y su copia en Descargas.
-  if (info.size > 0) {
+  // Hace falta ~2x el tamaño: el archivo en OPFS y su copia en Descargas. (El motor
+  // nativo escribe directamente en la carpeta final y comprueba el espacio él mismo.)
+  if (info.size > 0 && !native) {
     const { quota = 0, usage = 0 } = await navigator.storage.estimate();
     if (quota - usage < info.size * 2) {
       return fail('sin espacio', `No hay espacio suficiente (hacen falta ${formatBytes(info.size * 2)}). La descarga sigue con Chrome.`);
@@ -183,8 +224,10 @@ function looksDenied(info) {
   return info.status === 401 || info.status === 403 || /^text\/html/.test(info.contentType);
 }
 
-async function createDownload(plan, { filename, originalUrl, mime }) {
+async function createDownload(plan, { filename, originalUrl, mime, backend }) {
   const s = await getSettings();
+  backend ??= await preferredBackend(s);
+  const native = backend.kind === 'native';
   const name = sanitizeFilename(filename || plan.filename || filenameFromUrl(plan.url) || 'descarga');
   const rec = {
     id: plan.id,
@@ -199,20 +242,27 @@ async function createDownload(plan, { filename, originalUrl, mime }) {
     mode: plan.mode,
     resumable: plan.mode === 'multi',
     useCookies: plan.useCookies,
-    connections: s.connections,
+    backend: backend.kind,
+    connections: native ? s.nativeConnections : s.connections,
     opfsName: `dl-${plan.id}.part`,
     status: 'queued',
     error: null,
     errorKind: null,
-    notice: plan.mode === 'single' ? 'El servidor no permite descargar por partes: una sola conexión y sin reanudación.' : null,
+    notice: plan.mode === 'single' && !native ? 'El servidor no permite descargar por partes: una sola conexión y sin reanudación.' : null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
   await db.put('downloads', rec);
-  // Tras redirecciones el dominio final puede ser otro: rehacer la regla con la URL final.
-  await installHeaderRule(rec.id, rec);
   ui.postMessage({ type: 'changed', id: rec.id });
-  await (await backendReady).start(rec.id, s);
+  if (native) {
+    // El motor nativo no pasa por la red de Chrome: Cookie y Referer van en la orden.
+    await removeHeaderRule(rec.id);
+    await backend.start(rec.id, s, rec, await nativeHeaders(rec));
+  } else {
+    // Tras redirecciones el dominio final puede ser otro: rehacer la regla con la URL final.
+    await installHeaderRule(rec.id, rec);
+    await backend.start(rec.id, s);
+  }
   notify(`turbodl-start-${rec.id}`, 'Descargando con TurboDL', `${name}${rec.size ? ` · ${formatBytes(rec.size)}` : ''}`);
   updateBadge();
   return rec.id;
@@ -224,19 +274,28 @@ async function createDownload(plan, { filename, originalUrl, mime }) {
  */
 async function addUrl(url, referer = '') {
   if (!/^https?:\/\//i.test(url || '')) throw new Error('Solo se pueden descargar enlaces http o https.');
-  const plan = await evaluate(url, { referer, forced: true });
+  const s = await getSettings();
+  const backend = await preferredBackend(s);
+  const plan = await evaluate(url, { referer, forced: true, native: backend.kind === 'native' });
   if (!plan.ok) {
     // Si no hay espacio, que lo intente Chrome directamente.
     if (plan.reason === 'sin espacio') chrome.downloads.download({ url });
     throw new Error(plan.notify || 'No se pudo descargar ese enlace.');
   }
-  return createDownload(plan, { originalUrl: url });
+  return createDownload(plan, { originalUrl: url, backend });
 }
 
 // ================================================================= control
 
 async function pause(id) {
-  await (await backendReady).pause(id);
+  const rec = await db.get('downloads', id);
+  if (!rec) return;
+  await (await backendFor(rec)).pause(id);
+  if (rec.backend === 'native') {
+    // Si el motor no la tenía en marcha (p. ej. tras reiniciar) no avisará: marcarla aquí.
+    await db.patch('downloads', id, (cur) => (cur.status === 'error' ? {} : { status: 'paused' }));
+    ui.postMessage({ type: 'changed', id });
+  }
   await removeHeaderRule(id);
   updateBadge();
 }
@@ -244,16 +303,23 @@ async function pause(id) {
 async function resume(id) {
   const rec = await db.get('downloads', id);
   if (!rec) return;
-  if (rec.errorKind === 'delivery' || rec.status === 'ready') return deliver(id);
+  if (rec.backend !== 'native' && (rec.errorKind === 'delivery' || rec.status === 'ready')) return deliver(id);
+  const backend = await backendFor(rec);
   await db.patch('downloads', id, { status: 'queued', error: null, errorKind: null });
   ui.postMessage({ type: 'changed', id });
-  await installHeaderRule(id, rec);
-  await (await backendReady).resume(id, await getSettings());
+  const s = await getSettings();
+  if (rec.backend === 'native') {
+    await backend.resume(id, s, rec, await nativeHeaders(rec));
+  } else {
+    await installHeaderRule(id, rec);
+    await backend.resume(id, s);
+  }
   updateBadge();
 }
 
 async function cancel(id) {
-  await (await backendReady).cancel(id).catch((e) => console.warn(e));
+  const rec = await db.get('downloads', id);
+  if (rec) await (await backendFor(rec)).cancel(id, rec).catch((e) => console.warn(e));
   await removeHeaderRule(id);
   await db.del('segments', id);
   await db.del('downloads', id);
@@ -278,7 +344,7 @@ async function deliver(id) {
   try {
     const rec = await db.get('downloads', id);
     if (!rec) return;
-    const url = await (await backendReady).fileUrl(id);
+    const url = await (await getBrowser()).fileUrl(id);
     deliveryNames.set(url, rec.filename);
     const deliveryId = await chrome.downloads.download({
       url, filename: rec.filename, conflictAction: 'uniquify', saveAs: false,
@@ -318,7 +384,7 @@ async function complete(id, deliveryId) {
   for (const [url, name] of deliveryNames) if (name === rec.filename) deliveryNames.delete(url);
   deliveries.delete(deliveryId);
   // revokeObjectURL + borrar de OPFS, y fuera de las descargas activas.
-  await (await backendReady).finalize(id).catch((e) => console.warn(e));
+  await (await getBrowser()).finalize(id).catch((e) => console.warn(e));
   await db.put('history', {
     id,
     filename: basename(item?.filename) || rec.filename,
@@ -366,7 +432,23 @@ const commands = {
     ui.postMessage({ type: 'changed' });
   },
   openManager: () => openManager(),
+  // Archivos guardados por el motor nativo (no están en chrome.downloads).
+  openPath: async (m) => (await requireNative()).open(m.path),
+  showPath: async (m) => (await requireNative()).show(m.path),
+  statPath: async (m) => (await requireNative()).stat(m.path),
+  detectNative: async () => {
+    await backendsReady;
+    nativeCheck.at = 0;
+    const n = await getNative();
+    return n ? n.info : null;
+  },
 };
+
+async function requireNative() {
+  const n = await getNative();
+  if (!n) throw new Error('El motor nativo no está instalado.');
+  return n;
+}
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.target !== 'background') return;
@@ -397,13 +479,100 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   updateBadge();
   // Solo si el motor ya existe: no merece la pena crearlo para un cambio de ajustes.
   const ctx = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
-  if (ctx.length) (await backendReady).updateSettings(await getSettings()).catch(() => {});
+  const s = await getSettings();
+  if (ctx.length) (await getBrowser()).updateSettings(s).catch(() => {});
+  nativeCheck?.backend?.updateSettings(s).catch(() => {});
 });
 
 chrome.notifications.onClicked.addListener((nid) => {
   chrome.notifications.clear(nid);
   openManager();
 });
+
+// ================================================================= motor nativo
+
+const segSavedAt = new Map();
+
+function wireNative(n) {
+  n.on('progress', (p) => {
+    ui.postMessage({ type: 'progress', ...p });
+    // Copia de los segmentos para que el gestor pinte la barra aunque esté en pausa.
+    const now = Date.now();
+    if (now - (segSavedAt.get(p.id) || 0) > 2000) {
+      segSavedAt.set(p.id, now);
+      db.put('segments', {
+        id: p.id, bytesDone: p.bytesDone, updatedAt: now,
+        segments: p.segments.map(([start, end, pos]) => ({ start, end, pos })),
+      }).catch(() => {});
+    }
+  });
+  n.on('info', async (i) => {
+    await db.patch('downloads', i.id, {
+      nativePartPath: i.partPath,
+      nativeFinalPath: i.finalPath,
+      filename: basename(i.finalPath),
+      mode: i.rangeOK ? 'multi' : 'single',
+      resumable: i.rangeOK,
+      ...(i.size >= 0 ? { size: i.size } : {}),
+    });
+    ui.postMessage({ type: 'changed', id: i.id });
+  });
+  n.on('notice', async (m) => {
+    await db.patch('downloads', m.id, { notice: m.message });
+    ui.postMessage({ type: 'changed', id: m.id });
+  });
+  n.on('status', onNativeStatus);
+}
+
+async function onNativeStatus({ id, status, path, size, error, lost }) {
+  const rec = await db.get('downloads', id);
+  if (!rec) return;
+  if (status === 'done') {
+    await completeNative(rec, path, size);
+  } else if (status === 'downloading') {
+    await db.patch('downloads', id, { status: 'downloading', error: null, errorKind: null });
+  } else if (status === 'paused') {
+    await db.patch('downloads', id, (cur) => (cur.status === 'error' ? {} : {
+      status: 'paused',
+      ...(lost ? { notice: 'El motor nativo se cerró: pulsa Reanudar para seguir donde iba.' } : {}),
+    }));
+  } else if (status === 'error') {
+    await db.patch('downloads', id, { status: 'error', error, errorKind: null });
+    notify(`turbodl-err-${id}`, 'Error en la descarga', `${rec.filename}\n${error || ''}`);
+  }
+  ui.postMessage({ type: 'changed', id });
+  updateBadge();
+}
+
+async function completeNative(rec, path, size) {
+  await db.put('history', {
+    id: rec.id,
+    filename: basename(path) || rec.filename,
+    path,
+    size: size || rec.size,
+    url: rec.originalUrl || rec.url,
+    deliveryId: null,
+    native: true,
+    createdAt: rec.createdAt,
+    completedAt: Date.now(),
+  });
+  await db.del('segments', rec.id);
+  await db.del('downloads', rec.id);
+  segSavedAt.delete(rec.id);
+  ui.postMessage({ type: 'changed', id: rec.id });
+  chrome.notifications.clear(`turbodl-start-${rec.id}`);
+  notify(`turbodl-done-${rec.id}`, 'Descarga terminada', basename(path) || rec.filename);
+  updateBadge();
+}
+
+/** Cabeceras que el navegador habría mandado y que el motor nativo tiene que poner a mano. */
+async function nativeHeaders(rec) {
+  const h = { 'User-Agent': navigator.userAgent };
+  if (rec.referer) h.Referer = rec.referer;
+  const cookie = await cookieHeaderFor(rec.url);
+  if (cookie) h.Cookie = cookie;
+  return h;
+}
 
 // ================================================================= varios
 
@@ -458,6 +627,7 @@ self.turbodl = {
   list: async () => ({
     downloads: await db.getAll('downloads'), history: await db.getAll('history'), segs: await db.getAll('segments'),
   }),
-  jobs: async () => (await backendReady).send('jobs'),
+  jobs: async () => (await getBrowser()).send('jobs'),
+  native: async () => { const n = await getNative(); return n ? n.info : null; },
   rules: () => chrome.declarativeNetRequest.getSessionRules(),
 };

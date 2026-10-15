@@ -27,7 +27,7 @@ main { max-width: 980px; margin: 0 auto; padding: 18px 16px 60px; display: grid;
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .panel h2 { margin: 0; font-size: 14px; }
 .settings .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px 22px; }
-.settings .fields .field:last-child { grid-column: 1 / -1; }
+.settings .fields .span-2 { grid-column: 1 / -1; }
 .unit { color: var(--muted); font-size: 12.5px; }
 .range-row input[type=number] { width: 110px; }
 

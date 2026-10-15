@@ -16,6 +16,18 @@ document.getElementById('open-manager').addEventListener('click', async () => {
   window.close();
 });
 
+async function showEngine() {
+  const [{ engine }, { settings }] = await Promise.all([chrome.storage.local.get('engine'), chrome.storage.local.get('settings')]);
+  const native = engine?.native && settings?.engine !== 'browser';
+  document.getElementById('engine-text').textContent = native
+    ? `Motor nativo (Go) ${engine.version} · ${settings?.nativeConnections ?? 16} conexiones`
+    : 'Motor del navegador · máx. 6 conexiones por servidor';
+}
+showEngine();
+chrome.storage.onChanged.addListener((c, area) => { if (area === 'local' && (c.engine || c.settings)) showEngine(); });
+// Por si se acaba de instalar el motor: pedir al SW que lo vuelva a buscar.
+chrome.runtime.sendMessage({ target: 'background', cmd: 'detectNative' }).catch(() => {});
+
 const key = await shortcutText();
 document.getElementById('shortcut').innerHTML = key
   ? `Atajo para activar/desactivar: <kbd>${key}</kbd>`

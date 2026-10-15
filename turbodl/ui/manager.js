@@ -106,7 +106,10 @@ function fillActive(el, rec) {
   const pill = el.querySelector('.pill');
   pill.textContent = label;
   pill.className = `pill ${cls}`;
-  const mode = rec.mode === 'single' ? '1 conexión, sin reanudación' : `hasta ${rec.connections || 6} conexiones`;
+  const engine = rec.backend === 'native' ? 'motor nativo · ' : '';
+  const mode = rec.mode === 'single'
+    ? `${engine}1 conexión${rec.backend === 'native' ? '' : ', sin reanudación'}`
+    : `${engine}hasta ${rec.connections || 6} conexiones`;
   setText(el, '.meta', `${hostOf(rec.url)} · ${rec.size ? formatBytes(rec.size) : 'tamaño desconocido'} · ${mode}`);
   el.querySelector('.meta').title = rec.originalUrl || rec.url;
 
@@ -195,14 +198,18 @@ function fillHistory(el, h) {
   if (el.dataset.ready) return;
   el.dataset.ready = '1';
 
-  const open = button('Abrir', 'open', () => chrome.downloads.open(h.deliveryId));
-  const show = button('Mostrar en carpeta', 'folder', () => chrome.downloads.show(h.deliveryId));
+  // Lo guardado por el motor nativo no está en chrome.downloads: lo abre el propio motor.
+  const open = button('Abrir', 'open', () => (h.native ? send('openPath', { path: h.path }) : chrome.downloads.open(h.deliveryId)));
+  const show = button('Mostrar en carpeta', 'folder', () => (h.native ? send('showPath', { path: h.path }) : chrome.downloads.show(h.deliveryId)));
   const remove = button('Quitar de la lista', 'x', () => send('removeHistory', { id: h.id }), { cls: 'ghost', iconOnly: true });
   el.querySelector('.actions').replaceChildren(open, show, remove);
 
   // ¿Sigue existiendo el archivo?
-  chrome.downloads.search({ id: h.deliveryId }).then(([item]) => {
-    if (item && item.state === 'complete' && item.exists !== false) return;
+  const exists = h.native
+    ? send('statPath', { path: h.path }).then((r) => r?.exists, () => true)
+    : chrome.downloads.search({ id: h.deliveryId }).then(([item]) => item && item.state === 'complete' && item.exists !== false);
+  exists.then((ok) => {
+    if (ok) return;
     el.classList.add('missing');
     open.disabled = show.disabled = true;
     setText(el, '.meta', `${meta} · archivo movido o borrado`);

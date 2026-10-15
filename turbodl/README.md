@@ -2,6 +2,15 @@
 
 Gestor de descargas multiconexión que funciona **entero dentro de Chrome**, sin programas externos. Cuando haces clic en un enlace de descarga, TurboDL la intercepta y la baja por trozos en paralelo (HTTP Range). Guarda los trozos en el almacenamiento privado de la extensión (OPFS) y, al terminar, deja el archivo en tu carpeta de Descargas.
 
+**Opcional: motor nativo en Go** ([`native/`](native/)). Si instalas `turbodl-native.exe` (doble clic), la extensión le pasa las descargas a él:
+
+- hasta 64 conexiones, sin el límite de 6 por servidor de Chrome;
+- una conexión TCP por trabajador, aunque el servidor sea HTTP/2;
+- reparte las conexiones entre las IPs del servidor;
+- escribe directamente en la carpeta final, sin copia.
+
+Todo lo demás (interceptación, gestor, pausa y reanudación) funciona igual.
+
 - **Hasta 6 conexiones por descarga**, con reparto dinámico: cuando una conexión acaba su trozo, parte por la mitad el trozo pendiente más grande y se pone con esa mitad.
 - **Pausar y reanudar**, también tras cerrar Chrome (o si se cuelga): al volver a abrirlo sigue donde iba.
 - **Reintentos por trozo** (hasta 5, con espera creciente) sin afectar al resto.
@@ -31,6 +40,7 @@ Necesita Chrome 116 o posterior. No hay que compilar nada.
   - botón para abrir el gestor.
 - **Atajo**: `Alt+Mayús+T` activa o desactiva la interceptación. Se cambia en `chrome://extensions/shortcuts`. Con la interceptación desactivada, el icono muestra `OFF`.
 - **Gestor**: pausar, reanudar, cancelar, reintentar, abrir el archivo y mostrarlo en la carpeta. Si una descarga falla, el botón **Descargar con Chrome normal** sirve de plan B.
+- **Motor**: en los ajustes se elige entre **Nativo si está instalado** y **Solo el del navegador**. El popup muestra cuál se está usando.
 
 ## Cómo funciona
 
@@ -56,7 +66,7 @@ BroadcastChannel('turbodl') ← progreso en vivo → manager.html / popup.html
   - siempre se llama a `suggest()`.
 - **Cookies y Referer**: `fetch` no deja fijarlos, así que se ponen con reglas de sesión de `declarativeNetRequest`. Se limitan a `tabIds: [-1]` y al dominio de la descarga, y se borran al pausar o terminar. Las cookies solo se fuerzan si con `credentials: 'include'` el servidor responde como si no hubieran llegado.
 - **Entrega**: se crea un blob URL sobre el archivo de OPFS (sin copiarlo a memoria) y se pasa a `chrome.downloads.download`. Cuando se completa, se borra el temporal y el estado.
-- **Capa de backend** (`lib/backend.js`): `InBrowserBackend` es la implementación actual. `NativeBackend` es el hueco para un futuro programa nativo (`com.turbodl.native`) y activarlo es cambiar una línea de `createBackend()`.
+- **Capa de backend** (`lib/backend.js`): `InBrowserBackend` (offscreen, workers y OPFS) y `NativeBackend` (Native Messaging con `com.turbodl.native`) tienen la misma interfaz. Las descargas nuevas van al nativo si está instalado; las que ya existían siguen con el motor con el que empezaron. Detalles del motor nativo en [native/README.md](native/README.md).
 
 ## Servidor de pruebas
 
@@ -109,15 +119,19 @@ Opciones:
 | `cookies` | Descarga que necesita cookie de sesión y Referer. |
 | `skip` | Un archivo pequeño, una página HTML, `blob:` y `data:` se quedan en Chrome. |
 | `noloop` | Las entregas finales no se vuelven a interceptar. |
+| `native-speed` | Con el motor nativo instalado: 16 conexiones nativas frente a las 6 del navegador. Hash correcto. |
+| `native-pause` | Pausar y reanudar con el motor nativo. |
+| `native-restart` | Cerrar Chrome a mitad: el motor guarda el estado y, al volver, sigue donde iba. |
+| `native-cookies` | La cookie de sesión y el Referer llegan al motor nativo. |
 | `cleanup` | Al final no quedan reglas de red ni archivos temporales. |
 
 `dev/make-icons.js` regenera los iconos.
 
 ## Limitaciones conocidas
 
-- **Máximo 6 conexiones por servidor.** Es el límite de Chrome para HTTP/1.1 por origen, y lo comparten todas las descargas de ese servidor. TurboDL las reparte por orden de llegada y respeta además el tope global que pongas.
-- **Poca o ninguna mejora en servidores HTTP/2 o HTTP/3.** Chrome mete todas las peticiones a un mismo servidor en una sola conexión multiplexada. Si ese servidor limita la velocidad por conexión, abrir varias no ayuda. La mejora se nota en servidores HTTP/1.1 que limitan por conexión.
-- **Hace falta ~2 veces el tamaño del archivo en disco**: uno para el temporal de OPFS y otro para la copia en Descargas. TurboDL lo comprueba antes de empezar y, si no hay sitio, deja la descarga a Chrome.
+- **Máximo 6 conexiones por servidor (motor del navegador).** Es el límite de Chrome para HTTP/1.1 por origen, y lo comparten todas las descargas de ese servidor. TurboDL las reparte por orden de llegada y respeta además el tope global que pongas.
+- **Poca o ninguna mejora en servidores HTTP/2 o HTTP/3 con el motor del navegador.** Chrome mete todas las peticiones a un mismo servidor en una sola conexión multiplexada. Si ese servidor limita la velocidad por conexión, abrir varias no ayuda. La mejora se nota en servidores HTTP/1.1 que limitan por conexión.
+- **Con el motor del navegador hace falta ~2 veces el tamaño del archivo en disco**: uno para el temporal de OPFS y otro para la copia en Descargas. TurboDL lo comprueba antes de empezar y, si no hay sitio, deja la descarga a Chrome.
 - **La copia final no es instantánea**: con archivos de varios GB, pasar de OPFS a Descargas tarda unos segundos (es una copia en disco).
 - **Sin soporte de Range no hay reanudación**: con una sola conexión, pausar o reiniciar Chrome hace que vuelva a empezar.
 - **Descargas que dependen de un POST** (formularios) no se pueden repetir con GET. TurboDL las detecta (el servidor devuelve HTML o un tamaño distinto) y las deja a Chrome.

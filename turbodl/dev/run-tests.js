@@ -135,6 +135,8 @@ async function timedDownload(b, base, connections) {
   await b.openAndClick(`${base}/file.bin`);
   const id = await waitNewDownload(b, before);
   const t0 = Date.now();
+  const rec0 = (await state(b)).downloads.find((x) => x.id === id);
+  if (rec0 && rec0.backend !== 'browser') throw new Error(`Se esperaba el motor del navegador y se usó ${rec0.backend}`);
   // Fin del trabajo de red: el motor marca "ready" y pasa a la entrega.
   await waitFor(async () => {
     const s = await state(b);
@@ -173,12 +175,25 @@ async function main() {
   await b.launch();
   const extId = await b.loadExtension();
   log(`Extensión cargada: ${extId}`);
-  await b.evalSW('turbodl.getSettings()');
+  // Las pruebas de siempre son del motor del navegador; las "native-*" activan el nativo.
+  // onInstalled guarda los ajustes por defecto al cargar: esperar a que lo haga para
+  // que no pise el nuestro, y comprobarlo.
+  // nativeDir también aquí: si algo se colara por el motor nativo, que no acabe en
+  // la carpeta Descargas real del usuario.
+  const nativeDir = join(profile, 'Nativo');
+  mkdirSync(nativeDir);
+  await sleep(1000);
+  await b.evalSW(`turbodl.setSettings({ engine: 'browser', nativeDir: ${JSON.stringify(nativeDir)} })`);
+  if ((await b.evalSW('turbodl.getSettings()')).engine !== 'browser') throw new Error('No se pudo fijar el motor del navegador');
+  const nativeInfo = await b.evalSW('turbodl.native()');
+  log(nativeInfo ? `Motor nativo ${nativeInfo.version} detectado` : 'Motor nativo no instalado: se saltan las pruebas native-*');
+  let browserSixSecs = null;
 
   await test('speed', async () => {
     const one = await timedDownload(b, A.base, 1);
     const six = await timedDownload(b, A.base, 6);
     const ratio = one.secs / six.secs;
+    browserSixSecs = six.secs;
     const msg = `1 conexión ${one.secs.toFixed(1)} s · 6 conexiones ${six.secs.toFixed(1)} s · ${ratio.toFixed(1)}x · hash OK`;
     if (ratio < 4) throw new Error(`Mejora insuficiente: ${msg}`);
     return msg;
@@ -337,6 +352,71 @@ async function main() {
     const how = rec?.useCookies ? 'cookie puesta por regla DNR' : 'cookie con credentials:include';
     return `Referer por regla DNR (${st.referers.at(-1)}), ${how}, hash OK`;
   });
+
+  if (nativeInfo) {
+    const useNative = (conns = 16) => b.evalSW(`turbodl.setSettings({ engine: 'auto', nativeConnections: ${conns}, nativeDir: ${JSON.stringify(nativeDir)} })`);
+
+    await test('native-speed', async () => {
+      await useNative(16);
+      const before = await knownIds(b);
+      await b.openAndClick(`${A.base}/file.bin`);
+      const id = await waitNewDownload(b, before);
+      const t0 = Date.now();
+      const rec = (await state(b)).downloads.find((x) => x.id === id);
+      if (rec?.backend !== 'native') throw new Error(`Se usó el motor ${rec?.backend}`);
+      const h = await waitHistory(b, id);
+      const secs = (Date.now() - t0) / 1000;
+      await checkHash(A.base, h.path);
+      if (!h.path.startsWith(nativeDir)) throw new Error(`Guardado fuera de la carpeta pedida: ${h.path}`);
+      const vs = browserSixSecs ? ` · navegador (6) ${browserSixSecs.toFixed(1)} s → ${(browserSixSecs / secs).toFixed(1)}x` : '';
+      return `16 conexiones nativas ${secs.toFixed(1)} s${vs} · hash OK`;
+    });
+
+    await test('native-pause', async () => {
+      await useNative(2); // lento a propósito: tiene que dar tiempo a pausar a mitad
+      const before = await knownIds(b);
+      await b.openAndClick(`${A.base}/file.bin`);
+      const id = await waitNewDownload(b, before);
+      await waitFor(async () => (await bytesDone(b, id)) > SIZE * 0.3, { what: '30 %' });
+      await b.evalSW(`turbodl.pause(${id})`);
+      await waitStatus(b, id, ['paused'], 15_000);
+      await sleep(1500);
+      await b.evalSW(`turbodl.resume(${id})`);
+      const h = await waitHistory(b, id);
+      await checkHash(A.base, h.path);
+      return 'pausado y reanudado con el motor nativo, hash OK';
+    });
+
+    await test('native-restart', async () => {
+      await useNative(2); // lento a propósito: tiene que dar tiempo a cerrar Chrome a mitad
+      const before = await knownIds(b);
+      await b.openAndClick(`${A.base}/file.bin`);
+      const id = await waitNewDownload(b, before);
+      await waitFor(async () => (await bytesDone(b, id)) > SIZE * 0.3, { what: '30 %' });
+      const at = await bytesDone(b, id);
+      await b.close(); // el host recibe EOF, pausa y guarda el estado
+      b = attachConsole(new Browser(profile, { headed: flag('--headed') }));
+      await b.launch();
+      b.extId = extId;
+      try { await b.sw(); } catch { await b.loadExtension(); }
+      const h = await waitHistory(b, id);
+      await checkHash(A.base, h.path);
+      return `Chrome cerrado con ${(at / MB).toFixed(1)} MB, el motor nativo siguió desde ahí, hash OK`;
+    });
+
+    await test('native-cookies', async () => {
+      await useNative(16);
+      await fetch(`${A.base}/__reset`);
+      const before = await knownIds(b);
+      await b.openAndClick(`${A.base}/login`, '#protected');
+      const id = await waitNewDownload(b, before);
+      const h = await waitHistory(b, id);
+      await checkHash(A.base, h.path, { size: Math.min(SIZE, 64 * MB) });
+      return 'Cookie y Referer pasados al motor nativo, hash OK';
+    });
+
+    await b.evalSW("turbodl.setSettings({ engine: 'browser' })");
+  }
 
   await test('skip', async () => {
     const before = await knownIds(b);
