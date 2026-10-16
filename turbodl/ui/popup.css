@@ -35,13 +35,18 @@ body.off .sub { color: var(--muted); }
   color: var(--accent); background: var(--surface-3); border-radius: 4px; padding: 3px 4px;
 }
 .dl-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dl .copy {
+.dl .act {
   flex: none; width: 24px; height: 24px; padding: 0; display: grid; place-items: center;
   border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer;
+  transition: background .12s, color .12s;
 }
-.dl .copy:hover { background: var(--surface-3); color: var(--text); }
+.dl .act:hover { background: var(--surface-3); color: var(--text); }
+.dl .act:disabled { opacity: .4; cursor: default; }
+.dl .act svg { width: 14px; height: 14px; }
+.dl .act.go { color: var(--accent); }
+.dl .act.danger:hover { color: #ff9c9c; }
+.dl .act.danger.confirm { background: var(--danger); color: #fff; }
 .dl .copy.copied { color: var(--ok); }
-.dl .copy svg { width: 14px; height: 14px; }
 .bar { height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; border-radius: 3px;
   background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .4s; }

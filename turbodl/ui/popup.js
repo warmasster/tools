@@ -1,7 +1,7 @@
 import * as db from '../lib/db.js';
 import { formatBytes, formatSpeed, formatEta, formatDuration, activeMsOf } from '../lib/util.js';
 import { mountSettingsForm, bindEnabledToggle, shortcutText } from './settings-form.js';
-import { fileType, copyButton, metricsText } from './common.js';
+import { fileType, copyButton, metricsText, svg } from './common.js';
 
 const $ = (id) => document.getElementById(id);
 const ACTIVE = ['queued', 'downloading', 'ready', 'delivering'];
@@ -50,6 +50,51 @@ $('shortcut').innerHTML = key
 
 const STATUS_TEXT = { queued: 'En cola', paused: 'En pausa', ready: 'Guardando…', delivering: 'Guardando en Descargas…' };
 
+function send(cmd, id) {
+  return chrome.runtime.sendMessage({ target: 'background', cmd, id });
+}
+
+function iconButton(icon, title, onClick, cls = '') {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = `act ${cls}`;
+  b.title = title;
+  b.setAttribute('aria-label', title);
+  b.innerHTML = svg(icon);
+  b.addEventListener('click', (e) => {
+    e.stopPropagation(); // la fila entera abre el gestor
+    onClick(b);
+  });
+  return b;
+}
+
+/** Pausar / reanudar / reintentar y cancelar, según el estado. */
+function actionButtons(rec) {
+  const out = [];
+  if (rec.status === 'downloading' || rec.status === 'queued') {
+    out.push(iconButton('pause', 'Pausar', (b) => { b.disabled = true; send('pause', rec.id); }));
+  } else if (rec.status === 'paused') {
+    out.push(iconButton('play', 'Reanudar', (b) => { b.disabled = true; send('resume', rec.id); }, 'go'));
+  } else if (rec.status === 'error') {
+    out.push(iconButton('retry', 'Reintentar', (b) => { b.disabled = true; send('retry', rec.id); }, 'go'));
+  }
+  if (rec.status !== 'ready' && rec.status !== 'delivering') {
+    // Cancelar borra lo descargado: hace falta un segundo clic para confirmarlo.
+    out.push(iconButton('x', 'Cancelar', (b) => {
+      if (b.classList.contains('confirm')) {
+        b.disabled = true;
+        send('cancel', rec.id);
+        return;
+      }
+      b.classList.add('confirm');
+      b.title = 'Pulsa otra vez para cancelar y borrar lo descargado';
+      clearTimeout(b.t);
+      b.t = setTimeout(() => { b.classList.remove('confirm'); b.title = 'Cancelar'; }, 3000);
+    }, 'danger'));
+  }
+  return out;
+}
+
 function rowFor(item) {
   const { rec, done } = item;
   const el = document.createElement('div');
@@ -58,7 +103,10 @@ function rowFor(item) {
   el.innerHTML = '<div class="dl-top"><span class="ft"></span><span class="dl-name"></span></div><div class="bar"><i></i></div><div class="dl-meta"></div>';
   el.querySelector('.ft').textContent = fileType(rec.filename);
   el.querySelector('.dl-name').textContent = rec.filename;
-  el.querySelector('.dl-top').append(copyButton(done ? rec.url : rec.originalUrl || rec.url, { cls: '' }));
+  el.querySelector('.dl-top').append(
+    ...(done ? [] : actionButtons(rec)),
+    copyButton(done ? rec.url : rec.originalUrl || rec.url, { cls: 'act' }),
+  );
   el.addEventListener('click', openManager);
   item.el = el;
   fillRow(item);

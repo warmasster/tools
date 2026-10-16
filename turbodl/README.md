@@ -18,7 +18,7 @@ Todo lo demás (interceptación, gestor, pausa y reanudación) funciona igual.
 - **Cookies y Referer** de la página original, para descargas que piden sesión.
 - **Gestor de descargas** en una pestaña, con barra de segmentos al estilo IDM, velocidad, tiempo restante y conexiones activas.
 - **Métricas:** cuánto lleva y cuánto tardó cada descarga (sin contar pausas ni cola), con la velocidad media. Salen en el gestor, en el popup y en el aviso de terminada.
-- **Vista rápida en el popup:** las 3 últimas descargas con su porcentaje, sin abrir el gestor.
+- **Vista rápida en el popup:** las 3 últimas descargas con su porcentaje, y botones para pausar, reanudar o cancelar sin abrir el gestor.
 - **Copiar enlace:** botón al lado de cada descarga.
 - Interfaz en español, tema oscuro y sin librerías externas.
 
@@ -36,7 +36,8 @@ Necesita Chrome 116 o posterior. No hay que compilar nada.
 - **Automático**: haz clic en cualquier enlace de descarga. Si el archivo pasa del tamaño mínimo (10 MB por defecto) y el servidor permite descargar por partes, se encarga TurboDL. Si no, la descarga sigue con Chrome como siempre.
 - **A la fuerza**: clic derecho en un enlace → **Descargar con TurboDL**. Así se ignora el tamaño mínimo y, si el servidor no admite Range, se descarga con una sola conexión. También puedes pegar un enlace en el gestor.
 - **Popup** (icono de la barra):
-  - vista previa de las 3 últimas descargas: porcentaje, velocidad, tiempo restante, lo que llevan o lo que tardaron, y botón para copiar el enlace (un clic en una fila abre el gestor);
+  - vista previa de las 3 últimas descargas: porcentaje, velocidad, tiempo restante, lo que llevan o lo que tardaron;
+  - en cada una, botones para pausar o reanudar, cancelar (pide un segundo clic para no borrar nada por error) y copiar el enlace; un clic en el resto de la fila abre el gestor;
   - activar o desactivar la interceptación;
   - tamaño mínimo;
   - conexiones por descarga (1-6) y conexiones totales;
