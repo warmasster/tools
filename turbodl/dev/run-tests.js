@@ -214,7 +214,10 @@ async function main() {
     await b.evalSW(`turbodl.resume(${id})`);
     const h = await waitHistory(b, id);
     await checkHash(A.base, h.path);
-    return `pausado en ${(p1 / MB).toFixed(1)} MB, reanudado, hash OK`;
+    // La métrica de tiempo no cuenta la pausa (2,5 s).
+    const wall = h.completedAt - h.createdAt;
+    if (!(h.activeMs > 0) || h.activeMs > wall - 2000) throw new Error(`Tiempo activo ${h.activeMs} ms con ${wall} ms en total`);
+    return `pausado en ${(p1 / MB).toFixed(1)} MB, reanudado, hash OK, ${(h.activeMs / 1000).toFixed(1)} s activos de ${(wall / 1000).toFixed(1)} s`;
   });
 
   await test('restart', async () => {

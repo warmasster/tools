@@ -2,8 +2,9 @@
 // motor por BroadcastChannel; las órdenes van al service worker.
 
 import * as db from '../lib/db.js';
-import { formatBytes, formatSpeed, formatEta, hostOf } from '../lib/util.js';
+import { formatBytes, formatSpeed, formatEta, formatDuration, activeMsOf, hostOf } from '../lib/util.js';
 import { mountSettingsForm, bindEnabledToggle } from './settings-form.js';
+import { svg, fileType, copyButton, metricsText } from './common.js';
 
 const $ = (id) => document.getElementById(id);
 const ACTIVE = ['queued', 'downloading', 'ready', 'delivering'];
@@ -33,16 +34,6 @@ async function send(cmd, data = {}) {
   return r?.result;
 }
 
-const ICONS = {
-  pause: '<path d="M8 5v14M16 5v14"/>',
-  play: '<path d="m7 4 13 8-13 8V4Z"/>',
-  x: '<path d="M18 6 6 18M6 6l12 12"/>',
-  retry: '<path d="M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.2L3 16M3 21v-5h5"/>',
-  open: '<path d="M14 3h7v7M21 3l-9 9M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>',
-  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>',
-  chrome: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><path d="M12 8.5h8.3M8.9 13.8 4.8 6.6M15 13.8l-4.2 7.1"/>',
-};
-
 function button(label, icon, onClick, { cls = '', iconOnly = false, disabled = false } = {}) {
   const b = document.createElement('button');
   b.className = `btn ${cls} ${iconOnly ? 'icon' : ''}`;
@@ -50,7 +41,7 @@ function button(label, icon, onClick, { cls = '', iconOnly = false, disabled = f
   b.title = label;
   b.setAttribute('aria-label', label);
   b.disabled = disabled;
-  b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[icon]}</svg>${iconOnly ? '' : `<span>${label}</span>`}`;
+  b.innerHTML = `${svg(icon)}${iconOnly ? '' : `<span>${label}</span>`}`;
   b.addEventListener('click', async () => {
     b.disabled = true;
     try { await onClick(); } catch (e) { alert(e.message); } finally { b.disabled = false; }
@@ -65,16 +56,18 @@ function actionsFor(rec) {
   const cancel = () => button('Cancelar', 'x', () => {
     if (confirm(`¿Cancelar «${rec.filename}»? Se borrará lo descargado.`)) return send('cancel', { id });
   }, { cls: 'danger', iconOnly: true });
+  const copy = () => copyButton(rec.originalUrl || rec.url);
   switch (rec.status) {
     case 'queued':
-    case 'downloading': return [pause(), cancel()];
-    case 'paused': return [resume(), cancel()];
+    case 'downloading': return [pause(), copy(), cancel()];
+    case 'paused': return [resume(), copy(), cancel()];
     case 'error': return [
       button('Reintentar', 'retry', () => send('retry', { id }), { cls: 'primary' }),
       button('Descargar con Chrome normal', 'chrome', () => send('fallback', { id })),
+      copy(),
       cancel(),
     ];
-    default: return [];
+    default: return [copy()];
   }
 }
 
@@ -85,11 +78,6 @@ function newCard(key) {
   el.dataset.key = key;
   cards.set(key, el);
   return el;
-}
-
-function fileType(name) {
-  const m = /\.([a-z0-9]{1,5})$/i.exec(name || '');
-  return m ? m[1].slice(0, 4) : 'bin';
 }
 
 function setText(el, sel, text) {
@@ -142,6 +130,9 @@ function fillProgress(el, rec) {
   setText(el, '.speed', fresh ? (p.waiting ? 'esperando al servidor…' : formatSpeed(p.speed)) : '');
   setText(el, '.eta', fresh && p.eta != null ? `quedan ${formatEta(p.eta)}` : '');
   setText(el, '.conns', fresh ? `${p.connections} ${p.connections === 1 ? 'conexión' : 'conexiones'}` : '');
+  // Tiempo que lleva descargando (sin contar pausas ni cola).
+  const ms = activeMsOf(rec);
+  setText(el, '.elapsed', ms >= 1000 ? `lleva ${formatDuration(ms)}` : '');
   drawSegments(el.querySelector('.segbar'), segments, size, done, finished, rec.status);
 }
 
@@ -155,7 +146,7 @@ function drawSegments(canvas, segments, size, done, finished, status) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
   const paused = status === 'paused' || status === 'error';
-  const base = finished ? '#2fbf71' : paused ? '#6b7385' : '#3f7cf0';
+  const base = finished ? '#2fbf71' : paused ? '#8b95a8' : '#3f7cf0';
   const bright = '#86b1ff';
 
   if (finished) { ctx.fillStyle = base; ctx.fillRect(0, 0, w, h); return; }
@@ -192,7 +183,8 @@ function fillHistory(el, h) {
   const pill = el.querySelector('.pill');
   pill.textContent = 'Terminada';
   pill.className = 'pill st-done';
-  const meta = `${formatBytes(h.size)} · ${hostOf(h.url)} · ${dateFmt.format(h.completedAt)}`;
+  const metrics = metricsText(h);
+  const meta = `${metrics || formatBytes(h.size)} · ${hostOf(h.url)} · ${dateFmt.format(h.completedAt)}`;
   setText(el, '.meta', meta);
   el.querySelector('.meta').title = h.url;
   if (el.dataset.ready) return;
@@ -202,7 +194,7 @@ function fillHistory(el, h) {
   const open = button('Abrir', 'open', () => (h.native ? send('openPath', { path: h.path }) : chrome.downloads.open(h.deliveryId)));
   const show = button('Mostrar en carpeta', 'folder', () => (h.native ? send('showPath', { path: h.path }) : chrome.downloads.show(h.deliveryId)));
   const remove = button('Quitar de la lista', 'x', () => send('removeHistory', { id: h.id }), { cls: 'ghost', iconOnly: true });
-  el.querySelector('.actions').replaceChildren(open, show, remove);
+  el.querySelector('.actions').replaceChildren(open, show, copyButton(h.url), remove);
 
   // ¿Sigue existiendo el archivo?
   const exists = h.native

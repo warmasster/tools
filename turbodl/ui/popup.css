@@ -19,6 +19,39 @@ body.off .sub { color: var(--muted); }
 
 .wide { width: 100%; height: 38px; }
 
+/* Vista previa de descargas */
+.recent-list { display: grid; gap: 6px; }
+.recent-empty { margin: 0; padding: 10px; text-align: center; font-size: 12.5px; color: var(--faint);
+  border: 1px dashed var(--border); border-radius: 10px; }
+.dl {
+  display: grid; gap: 5px; padding: 8px 10px; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  transition: border-color .12s;
+}
+.dl:hover { border-color: #3a4256; }
+.dl-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ft {
+  flex: none; font: 700 9px/1 var(--font); letter-spacing: .04em; text-transform: uppercase;
+  color: var(--accent); background: var(--surface-3); border-radius: 4px; padding: 3px 4px;
+}
+.dl-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl .copy {
+  flex: none; width: 24px; height: 24px; padding: 0; display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer;
+}
+.dl .copy:hover { background: var(--surface-3); color: var(--text); }
+.dl .copy.copied { color: var(--ok); }
+.dl .copy svg { width: 14px; height: 14px; }
+.bar { height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .4s; }
+.dl.paused .bar i, .dl.error .bar i { background: #6b7385; }
+.dl.done .bar i { background: var(--ok); }
+.dl-meta { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl.error .dl-meta { color: #ff9c9c; }
+.dl.done .dl-meta { color: var(--ok); }
+
 .settings {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
 }

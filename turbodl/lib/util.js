@@ -7,7 +7,7 @@ export function formatBytes(n) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
   while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
-  return `${n.toFixed(i === 0 ? 0 : n < 10 ? 2 : n < 100 ? 1 : 0)} ${units[i]}`;
+  return `${n.toFixed(i === 0 ? 0 : n < 10 ? 2 : n < 100 ? 1 : 0).replace('.', ',')} ${units[i]}`;
 }
 
 export function formatSpeed(bps) {
@@ -22,6 +22,20 @@ export function formatEta(seconds) {
   if (m < 60) return `${m} min ${String(s).padStart(2, '0')} s`;
   const h = Math.floor(m / 60);
   return `${h} h ${String(m % 60).padStart(2, '0')} min`;
+}
+
+/** Duración legible a partir de milisegundos ("850 ms", "32 s", "1 min 05 s"). */
+export function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
+  return formatEta(ms / 1000);
+}
+
+/** Tiempo descargando (sin pausas ni cola), contando el tramo en curso. */
+export function activeMsOf(rec, now = Date.now()) {
+  const running = rec.status === 'downloading' && rec.runningSince ? Math.max(0, now - rec.runningSince) : 0;
+  return (rec.activeMs || 0) + running;
 }
 
 export function hostOf(url) {

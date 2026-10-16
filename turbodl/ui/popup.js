@@ -1,25 +1,38 @@
 import * as db from '../lib/db.js';
-import { formatSpeed } from '../lib/util.js';
+import { formatBytes, formatSpeed, formatEta, formatDuration, activeMsOf } from '../lib/util.js';
 import { mountSettingsForm, bindEnabledToggle, shortcutText } from './settings-form.js';
+import { fileType, copyButton, metricsText } from './common.js';
 
+const $ = (id) => document.getElementById(id);
 const ACTIVE = ['queued', 'downloading', 'ready', 'delivering'];
-const speeds = new Map(); // id → {speed, t}
+const SHOWN = 3; // descargas en la vista previa
+const LIVE_TTL = 2500;
+const live = new Map(); // id → último progreso (+ t)
+let items = []; // lo que se está mostrando: { rec, done }
 
-await bindEnabledToggle(document.getElementById('enabled'), (on) => {
+await bindEnabledToggle($('enabled'), (on) => {
   document.body.classList.toggle('off', !on);
-  document.getElementById('state-text').textContent = on ? 'Interceptación activada' : 'Interceptación desactivada';
+  $('state-text').textContent = on ? 'Interceptación activada' : 'Interceptación desactivada';
 });
-await mountSettingsForm(document.getElementById('settings'), { saved: document.querySelector('.settings .saved') });
+await mountSettingsForm($('settings'), { saved: document.querySelector('.settings .saved') });
 
-document.getElementById('open-manager').addEventListener('click', async () => {
+const openManager = async () => {
   await chrome.runtime.sendMessage({ target: 'background', cmd: 'openManager' });
   window.close();
+};
+$('open-manager').addEventListener('click', openManager);
+
+// Los ajustes van plegados (la vista previa es lo principal); se recuerda si se abren.
+const box = $('settings-box');
+try { box.open = localStorage.getItem('turbodl.popup.settings') === 'open'; } catch { /* sin almacenamiento */ }
+box.addEventListener('toggle', () => {
+  try { localStorage.setItem('turbodl.popup.settings', box.open ? 'open' : 'closed'); } catch { /* da igual */ }
 });
 
 async function showEngine() {
   const [{ engine }, { settings }] = await Promise.all([chrome.storage.local.get('engine'), chrome.storage.local.get('settings')]);
   const native = engine?.native && settings?.engine !== 'browser';
-  document.getElementById('engine-text').textContent = native
+  $('engine-text').textContent = native
     ? `Motor nativo (Go) ${engine.version} · ${settings?.nativeConnections ?? 16} conexiones`
     : 'Motor del navegador · máx. 6 conexiones por servidor';
 }
@@ -29,28 +42,97 @@ chrome.storage.onChanged.addListener((c, area) => { if (area === 'local' && (c.e
 chrome.runtime.sendMessage({ target: 'background', cmd: 'detectNative' }).catch(() => {});
 
 const key = await shortcutText();
-document.getElementById('shortcut').innerHTML = key
+$('shortcut').innerHTML = key
   ? `Atajo para activar/desactivar: <kbd>${key}</kbd>`
   : 'Puedes asignar un atajo en chrome://extensions/shortcuts';
 
-async function refreshCount() {
-  const all = await db.getAll('downloads');
-  document.getElementById('active-count').textContent = all.filter((r) => ACTIVE.includes(r.status)).length;
+// ================================================================= vista previa
+
+const STATUS_TEXT = { queued: 'En cola', paused: 'En pausa', ready: 'Guardando…', delivering: 'Guardando en Descargas…' };
+
+function rowFor(item) {
+  const { rec, done } = item;
+  const el = document.createElement('div');
+  el.className = 'dl';
+  el.title = 'Abrir el gestor de descargas';
+  el.innerHTML = '<div class="dl-top"><span class="ft"></span><span class="dl-name"></span></div><div class="bar"><i></i></div><div class="dl-meta"></div>';
+  el.querySelector('.ft').textContent = fileType(rec.filename);
+  el.querySelector('.dl-name').textContent = rec.filename;
+  el.querySelector('.dl-top').append(copyButton(done ? rec.url : rec.originalUrl || rec.url, { cls: '' }));
+  el.addEventListener('click', openManager);
+  item.el = el;
+  fillRow(item);
+  return el;
+}
+
+function fillRow(item) {
+  const { rec, done, el, segs } = item;
+  const bar = el.querySelector('.bar i');
+  const meta = el.querySelector('.dl-meta');
+  el.classList.toggle('done', done);
+  el.classList.toggle('paused', !done && rec.status === 'paused');
+  el.classList.toggle('error', !done && rec.status === 'error');
+  if (done) {
+    bar.style.width = '100%';
+    meta.textContent = `✓ ${metricsText(rec) || formatBytes(rec.size)}`;
+    return;
+  }
+  const p = live.get(rec.id);
+  const fresh = p && Date.now() - p.t < LIVE_TTL && rec.status === 'downloading';
+  const size = (fresh ? p.size : rec.size) || 0;
+  const finished = rec.status === 'ready' || rec.status === 'delivering';
+  const bytes = finished ? size : fresh ? p.bytesDone : segs?.bytesDone ?? 0;
+  const pct = size ? Math.min(100, Math.floor((bytes / size) * 100)) : 0;
+  bar.style.width = `${pct}%`;
+  const parts = [size ? `${pct} %` : formatBytes(bytes)];
+  if (rec.status === 'error') {
+    parts[0] = `Error: ${rec.error || 'desconocido'}`;
+  } else if (STATUS_TEXT[rec.status]) {
+    parts.push(STATUS_TEXT[rec.status]);
+  } else if (fresh) {
+    parts.push(p.waiting ? 'esperando al servidor…' : formatSpeed(p.speed));
+    if (p.eta != null) parts.push(`quedan ${formatEta(p.eta)}`);
+  }
+  const ms = activeMsOf(rec);
+  if (rec.status !== 'error' && ms >= 1000) parts.push(`lleva ${formatDuration(ms)}`);
+  meta.textContent = parts.join(' · ');
+}
+
+async function renderRecent() {
+  const [downloads, history, segs] = await Promise.all([db.getAll('downloads'), db.getAll('history'), db.getAll('segments')]);
+  $('active-count').textContent = downloads.filter((r) => ACTIVE.includes(r.status)).length;
+  const segById = new Map(segs.map((s) => [s.id, s]));
+  // Primero las que están en marcha (las más nuevas arriba), luego las últimas terminadas.
+  const act = downloads.sort((a, b) => b.createdAt - a.createdAt).map((rec) => ({ rec, done: false, segs: segById.get(rec.id) }));
+  const fin = history.sort((a, b) => b.completedAt - a.completedAt).map((rec) => ({ rec, done: true }));
+  items = [...act, ...fin].slice(0, SHOWN);
+  $('recent-list').replaceChildren(...items.map(rowFor));
+  $('recent-empty').hidden = items.length > 0;
 }
 
 function refreshSpeed() {
   const now = Date.now();
   let total = 0;
-  for (const [id, s] of speeds) {
-    if (now - s.t > 2000) speeds.delete(id); else total += s.speed;
+  for (const [id, p] of live) {
+    if (now - p.t > LIVE_TTL) live.delete(id); else total += p.speed;
   }
-  document.getElementById('speed').textContent = formatSpeed(total);
+  $('speed').textContent = formatSpeed(total);
 }
 
 const channel = new BroadcastChannel('turbodl');
+let renderTimer;
 channel.onmessage = ({ data }) => {
-  if (data.type === 'progress') speeds.set(data.id, { speed: data.speed, t: Date.now() });
-  else if (data.type === 'changed') refreshCount();
+  if (data?.type === 'progress') {
+    live.set(data.id, { ...data, t: Date.now() });
+    const item = items.find((i) => !i.done && i.rec.id === data.id);
+    if (item) fillRow(item);
+  } else if (data?.type === 'changed') {
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(renderRecent, 80);
+  }
 };
-setInterval(refreshSpeed, 500);
-refreshCount();
+setInterval(() => {
+  refreshSpeed();
+  for (const item of items) if (!item.done) fillRow(item); // "lleva X s" y velocidades caducadas
+}, 1000);
+renderRecent();

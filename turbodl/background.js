@@ -12,6 +12,7 @@ import { probe } from './lib/probe.js';
 import { installHeaderRule, removeHeaderRule, cookieHeaderFor } from './lib/net-rules.js';
 import {
   MiB, hostOf, domainMatches, sanitizeFilename, basename, filenameFromUrl, formatBytes,
+  formatDuration, formatSpeed, activeMsOf,
 } from './lib/util.js';
 
 const ui = new BroadcastChannel('turbodl');
@@ -82,7 +83,19 @@ async function boot() {
   const all = await db.getAll('downloads');
   const ids = new Set(all.map((r) => r.id));
   await backend.cleanup([...ids]).catch((e) => console.warn('Limpieza OPFS:', e));
-  for (const s of await db.getAll('segments')) if (!ids.has(s.id)) await db.del('segments', s.id);
+  const segs = await db.getAll('segments');
+  for (const s of segs) if (!ids.has(s.id)) await db.del('segments', s.id);
+  // Lo que se cerró descargando sigue marcado así: el tiempo activo real llega hasta
+  // el último guardado de progreso, no hasta ahora (Chrome ha estado cerrado).
+  for (const rec of all) {
+    if (rec.status !== 'downloading' || !rec.runningSince) continue;
+    const last = segs.find((s) => s.id === rec.id)?.updatedAt || rec.runningSince;
+    await db.patch('downloads', rec.id, (cur) => ({
+      activeMs: (cur.activeMs || 0) + Math.max(0, Math.min(last, Date.now()) - cur.runningSince),
+      runningSince: null,
+    }));
+    rec.runningSince = null;
+  }
 
   for (const rec of all) {
     try {
@@ -385,7 +398,7 @@ async function complete(id, deliveryId) {
   deliveries.delete(deliveryId);
   // revokeObjectURL + borrar de OPFS, y fuera de las descargas activas.
   await (await getBrowser()).finalize(id).catch((e) => console.warn(e));
-  await db.put('history', {
+  const entry = {
     id,
     filename: basename(item?.filename) || rec.filename,
     path: item?.filename || '',
@@ -394,14 +407,30 @@ async function complete(id, deliveryId) {
     deliveryId,
     createdAt: rec.createdAt,
     completedAt: Date.now(),
-  });
+    ...metricsOf(rec),
+  };
+  await db.put('history', entry);
   await db.del('segments', id);
   await db.del('downloads', id);
   await removeHeaderRule(id);
   ui.postMessage({ type: 'changed', id });
   chrome.notifications.clear(`turbodl-start-${id}`);
-  notify(`turbodl-done-${id}`, 'Descarga terminada', basename(item?.filename) || rec.filename);
+  notify(`turbodl-done-${id}`, 'Descarga terminada', doneMessage(entry));
   updateBadge();
+}
+
+/** Métricas que se guardan en el historial. */
+function metricsOf(rec) {
+  return {
+    activeMs: activeMsOf(rec), // tiempo descargando (sin pausas ni cola)
+    connections: rec.connections,
+    backend: rec.backend || 'browser',
+  };
+}
+
+function doneMessage(h) {
+  const avg = h.activeMs > 0 && h.size ? formatSpeed((h.size * 1000) / h.activeMs) : '';
+  return `${h.filename}\n${formatBytes(h.size)} en ${formatDuration(h.activeMs)}${avg ? ` · media ${avg}` : ''}`;
 }
 
 // ================================================================= mensajes
@@ -545,7 +574,7 @@ async function onNativeStatus({ id, status, path, size, error, lost }) {
 }
 
 async function completeNative(rec, path, size) {
-  await db.put('history', {
+  const entry = {
     id: rec.id,
     filename: basename(path) || rec.filename,
     path,
@@ -555,13 +584,15 @@ async function completeNative(rec, path, size) {
     native: true,
     createdAt: rec.createdAt,
     completedAt: Date.now(),
-  });
+    ...metricsOf(rec),
+  };
+  await db.put('history', entry);
   await db.del('segments', rec.id);
   await db.del('downloads', rec.id);
   segSavedAt.delete(rec.id);
   ui.postMessage({ type: 'changed', id: rec.id });
   chrome.notifications.clear(`turbodl-start-${rec.id}`);
-  notify(`turbodl-done-${rec.id}`, 'Descarga terminada', basename(path) || rec.filename);
+  notify(`turbodl-done-${rec.id}`, 'Descarga terminada', doneMessage(entry));
   updateBadge();
 }
 

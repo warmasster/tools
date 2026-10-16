@@ -91,9 +91,10 @@ main { max-width: 980px; margin: 0 auto; padding: 18px 16px 60px; display: grid;
 .notice { background: var(--warn-soft); color: #f6cd7c; }
 .err-msg { background: var(--danger-soft); color: #ffb0b0; }
 
-.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 290px; }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 340px; }
 .actions .btn { height: 30px; padding: 0 10px; font-size: 13px; }
 .actions .btn.icon { width: 30px; padding: 0; }
+.btn.copy.copied { color: var(--ok); border-color: var(--ok); }
 
 /* Terminadas: tarjeta compacta */
 .card.history { grid-template-columns: 42px 1fr auto; align-items: center; padding: 10px 16px; }

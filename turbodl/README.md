@@ -17,6 +17,9 @@ Todo lo demás (interceptación, gestor, pausa y reanudación) funciona igual.
 - **Detecta si el archivo cambia en el servidor** (ETag / Last-Modified con If-Range) y en ese caso vuelve a empezar.
 - **Cookies y Referer** de la página original, para descargas que piden sesión.
 - **Gestor de descargas** en una pestaña, con barra de segmentos al estilo IDM, velocidad, tiempo restante y conexiones activas.
+- **Métricas:** cuánto lleva y cuánto tardó cada descarga (sin contar pausas ni cola), con la velocidad media. Salen en el gestor, en el popup y en el aviso de terminada.
+- **Vista rápida en el popup:** las 3 últimas descargas con su porcentaje, sin abrir el gestor.
+- **Copiar enlace:** botón al lado de cada descarga.
 - Interfaz en español, tema oscuro y sin librerías externas.
 
 ## Instalar (modo desarrollador)
@@ -33,13 +36,14 @@ Necesita Chrome 116 o posterior. No hay que compilar nada.
 - **Automático**: haz clic en cualquier enlace de descarga. Si el archivo pasa del tamaño mínimo (10 MB por defecto) y el servidor permite descargar por partes, se encarga TurboDL. Si no, la descarga sigue con Chrome como siempre.
 - **A la fuerza**: clic derecho en un enlace → **Descargar con TurboDL**. Así se ignora el tamaño mínimo y, si el servidor no admite Range, se descarga con una sola conexión. También puedes pegar un enlace en el gestor.
 - **Popup** (icono de la barra):
+  - vista previa de las 3 últimas descargas: porcentaje, velocidad, tiempo restante, lo que llevan o lo que tardaron, y botón para copiar el enlace (un clic en una fila abre el gestor);
   - activar o desactivar la interceptación;
   - tamaño mínimo;
   - conexiones por descarga (1-6) y conexiones totales;
   - dominios excluidos;
   - botón para abrir el gestor.
 - **Atajo**: `Alt+Mayús+T` activa o desactiva la interceptación. Se cambia en `chrome://extensions/shortcuts`. Con la interceptación desactivada, el icono muestra `OFF`.
-- **Gestor**: pausar, reanudar, cancelar, reintentar, abrir el archivo y mostrarlo en la carpeta. Si una descarga falla, el botón **Descargar con Chrome normal** sirve de plan B.
+- **Gestor**: pausar, reanudar, cancelar, reintentar, copiar el enlace, abrir el archivo y mostrarlo en la carpeta. Si una descarga falla, el botón **Descargar con Chrome normal** sirve de plan B.
 - **Motor**: en los ajustes se elige entre **Nativo si está instalado** y **Solo el del navegador**. El popup muestra cuál se está usando.
 
 ## Cómo funciona
@@ -109,7 +113,7 @@ Opciones:
 | Prueba | Qué comprueba |
 |---|---|
 | `speed` | 6 conexiones contra 1, con el mismo límite por conexión: al menos 4 veces más rápido. Hash correcto. |
-| `pause` | Pausa al 30 %: no se descarga nada mientras está en pausa; al reanudar termina con el hash correcto. |
+| `pause` | Pausa al 30 %: no se descarga nada mientras está en pausa; al reanudar termina con el hash correcto, y el tiempo medido no cuenta la pausa. |
 | `restart` | Cerrar Chrome a mitad y volver a abrirlo: continúa desde donde iba y el hash es correcto. |
 | `crash` | Igual, pero matando el proceso (sin cierre ordenado). |
 | `concurrent` | Dos descargas del mismo servidor: nunca más de 6 conexiones entre las dos y nombres distintos. |
