@@ -187,6 +187,7 @@ export class NativeBackend extends Backend {
         speed: p.speed,
         eta: p.eta >= 0 ? p.eta : null,
         connections: p.connections,
+        waiting: !!p.waiting,
         segments: (p.segments || []).map(([start, end, pos, active]) => [start, end >= 0 ? end : null, pos, active]),
       });
     } else if (m.type === 'status') {

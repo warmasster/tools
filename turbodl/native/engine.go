@@ -99,6 +99,7 @@ type Progress struct {
 	Speed       float64    `json:"speed"`
 	ETA         float64    `json:"eta"` // -1 si no se puede calcular
 	Connections int        `json:"connections"`
+	Waiting     bool       `json:"waiting"`  // ninguna conexión recibe datos: esperando al servidor
 	Segments    [][4]int64 `json:"segments"` // start, end, done, activo
 }
 
@@ -184,6 +185,7 @@ type Download struct {
 	OnProgress func(Progress)
 	OnInfo     func(Info)
 	OnNotice   func(string)
+	Logf       func(format string, args ...any)                         // opcional: diagnóstico (el host lo manda a native.log)
 	lookupIP   func(ctx context.Context, host string) ([]net.IP, error) // sustituible en pruebas
 
 	mu        sync.Mutex
@@ -259,6 +261,12 @@ func (d *Download) poke() {
 	select {
 	case d.wake <- struct{}{}:
 	default:
+	}
+}
+
+func (d *Download) logf(format string, args ...any) {
+	if d.Logf != nil {
+		d.Logf(format, args...)
 	}
 }
 
@@ -696,14 +704,11 @@ func (d *Download) handle(w *worker, seg *segment, err error, retries *int) bool
 		d.mu.Lock()
 		d.lastLimit = time.Now()
 		d.limited = true
-		if le.RetryAfter > 0 {
-			// El servidor dice cuánto esperar: nadie pide nada hasta entonces.
-			if until := time.Now().Add(min(le.RetryAfter, maxCooldown)); until.After(d.coolUntil) {
-				d.coolUntil = until
-			}
-		}
+		d.logf("límite del servidor: %d (Retry-After %s), otras %d, permitidas %d", le.Status, le.RetryAfter, others, d.cur)
 		if others > 0 {
-			// Hay otras conexiones funcionando: esta sobra.
+			// Hay otras conexiones funcionando: esta sobra y se retira. Su Retry-After
+			// no se aplica a las demás (si no, al final de la descarga, cuando todas
+			// piden tramo nuevo a menudo, se quedarían todas esperando).
 			if d.cur > others {
 				d.cur = others
 				go d.notice(fmt.Sprintf("El servidor limita las conexiones simultáneas: se usan %d.", others))
@@ -711,6 +716,12 @@ func (d *Download) handle(w *worker, seg *segment, err error, retries *int) bool
 			d.mu.Unlock()
 			d.release(w, seg)
 			return false
+		}
+		if le.RetryAfter > 0 {
+			// Somos la única: el servidor dice cuánto esperar y nadie pide nada antes.
+			if until := time.Now().Add(min(le.RetryAfter, maxCooldown)); until.After(d.coolUntil) {
+				d.coolUntil = until
+			}
 		}
 		noted := d.waitNoted
 		d.waitNoted = true
@@ -1291,6 +1302,11 @@ func (d *Download) emitProgress(speed float64) {
 	}
 	d.mu.Lock()
 	p := Progress{Size: d.size, Speed: speed, ETA: -1}
+	streaming := false
+	for _, w := range d.workers {
+		streaming = streaming || w.streaming
+	}
+	p.Waiting = time.Now().Before(d.coolUntil) || (len(d.workers) > 0 && !streaming)
 	for _, s := range d.segs {
 		active := int64(0)
 		if s.w != nil {
@@ -1359,6 +1375,7 @@ func (d *Download) evictSlow(window time.Duration) {
 	sort.Float64s(speeds)
 	median := speeds[len(speeds)/2]
 	if slowest.speed < median*0.2 && slowest.seg.end-slowest.seg.pos > 8*minSegment && slowest.cancel != nil {
+		d.logf("conexión lenta sustituida: %.0f KB/s frente a una mediana de %.0f KB/s", slowest.speed/1024, median/1024)
 		slowest.cancel(errSlow)
 	}
 }

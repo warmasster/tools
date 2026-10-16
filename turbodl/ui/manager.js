@@ -139,7 +139,7 @@ function fillProgress(el, rec) {
 
   setText(el, '.pct', size ? `${Math.floor(((finished ? size : done) / size) * 100)} %` : '');
   setText(el, '.bytes', size ? `${formatBytes(finished ? size : done)} de ${formatBytes(size)}` : formatBytes(done));
-  setText(el, '.speed', fresh ? formatSpeed(p.speed) : '');
+  setText(el, '.speed', fresh ? (p.waiting ? 'esperando al servidor…' : formatSpeed(p.speed)) : '');
   setText(el, '.eta', fresh && p.eta != null ? `quedan ${formatEta(p.eta)}` : '');
   setText(el, '.conns', fresh ? `${p.connections} ${p.connections === 1 ? 'conexión' : 'conexiones'}` : '');
   drawSegments(el.querySelector('.segbar'), segments, size, done, finished, rec.status);

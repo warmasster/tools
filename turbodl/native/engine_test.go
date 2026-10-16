@@ -28,6 +28,7 @@ type testServer struct {
 	maxConns  int          // >0: responder 403 por encima de N conexiones simultáneas
 	limitCode int          // código para el límite (403 por defecto)
 	busyUntil atomic.Int64 // hasta este instante (UnixNano) responde 429 a todo
+	retryAft  string       // valor de Retry-After en los rechazos ("1" por defecto)
 	version   atomic.Int32
 	active    atomic.Int32
 	maxActive atomic.Int32
@@ -76,7 +77,11 @@ func (s *testServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if code == 0 {
 			code = http.StatusForbidden
 		}
-		w.Header().Set("Retry-After", "1")
+		ra := s.retryAft
+		if ra == "" {
+			ra = "1"
+		}
+		w.Header().Set("Retry-After", ra)
 		http.Error(w, "demasiadas conexiones", code)
 		return
 	}
@@ -506,5 +511,30 @@ func TestLimit429(t *testing.T) {
 	}
 	if fileHash(t, p) != srv.hash(1) {
 		t.Fatal("hash distinto")
+	}
+}
+
+// Límite de conexiones con 429 y un Retry-After largo: las conexiones que ya funcionan
+// no deben quedarse esperando por el rechazo de la que sobra (parón al final).
+func TestLimitRetryAfterNoStall(t *testing.T) {
+	srv := newTestServer(48 << 20)
+	srv.rate = 4 << 20
+	srv.maxConns = 6
+	srv.limitCode = http.StatusTooManyRequests
+	srv.retryAft = "20"
+	url := srv.listen(t)
+	t0 := time.Now()
+	p, err, _ := run(t, Request{URL: url, Dir: t.TempDir(), Connections: 16}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fileHash(t, p) != srv.hash(1) {
+		t.Fatal("hash distinto")
+	}
+	el := time.Since(t0)
+	// 48 MB a 6 × 4 MB/s son ~2 s; con el parón serían más de 20.
+	t.Logf("%.1f s", el.Seconds())
+	if el > 10*time.Second {
+		t.Fatalf("se paró esperando el Retry-After de una conexión sobrante: %.1f s", el.Seconds())
 	}
 }

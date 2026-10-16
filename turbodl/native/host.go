@@ -23,6 +23,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -154,6 +155,14 @@ func (h *host) handle(m hostMsg) {
 	}
 }
 
+// redact quita la query de una URL para el log: suele llevar tokens de descarga.
+func redact(raw string) string {
+	if i := strings.IndexAny(raw, "?#"); i >= 0 {
+		return raw[:i] + "?…"
+	}
+	return raw
+}
+
 func sizeOf(fi os.FileInfo) int64 {
 	if fi == nil {
 		return 0
@@ -172,8 +181,12 @@ func (h *host) start(m hostMsg) error {
 	}
 	d := NewDownload(m.Request)
 	id := m.ID
+	d.Logf = func(format string, args ...any) { log.Printf("[%d] "+format, append([]any{id}, args...)...) }
 	d.OnInfo = func(i Info) { h.send(map[string]any{"type": "info", "id": id, "info": i}) }
-	d.OnNotice = func(s string) { h.send(map[string]any{"type": "notice", "id": id, "message": s}) }
+	d.OnNotice = func(s string) {
+		log.Printf("[%d] aviso: %s", id, s)
+		h.send(map[string]any{"type": "notice", "id": id, "message": s})
+	}
 	d.OnProgress = func(p Progress) {
 		h.send(map[string]any{"type": "progress", "id": id, "progress": p})
 	}
@@ -181,7 +194,7 @@ func (h *host) start(m hostMsg) error {
 	h.jobs[id] = j
 	h.mu.Unlock()
 
-	log.Printf("[%d] inicio %s (%d conexiones)", id, m.URL, d.Req.Connections)
+	log.Printf("[%d] inicio %s (%d conexiones)", id, redact(m.URL), d.Req.Connections)
 	h.send(map[string]any{"type": "status", "id": id, "status": "downloading"})
 	go func() {
 		defer close(j.done)
