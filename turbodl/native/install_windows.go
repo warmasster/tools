@@ -82,12 +82,13 @@ func uninstall() (string, error) {
 		registry.DeleteKey(registry.CURRENT_USER, b.key+hostName)
 	}
 	dir := AppDir()
+	os.RemoveAll(ExtensionDir())
 	os.Remove(filepath.Join(dir, hostName+".json"))
 	os.Remove(filepath.Join(dir, "turbodl-native.exe.old"))
 	if err := os.Remove(filepath.Join(dir, "turbodl-native.exe")); err != nil && !os.IsNotExist(err) {
 		return "Registro borrado. El programa sigue en uso; bórralo a mano de " + dir + " al cerrar Chrome.", nil
 	}
-	return "Motor nativo desinstalado.", nil
+	return "Motor nativo desinstalado. Quita también TurboDL en chrome://extensions.", nil
 }
 
 func copyFile(src, dst string) error {

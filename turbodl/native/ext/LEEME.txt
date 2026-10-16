@@ -1,0 +1,2 @@
+build.ps1 copia aquí la extensión antes de compilar para meterla dentro de TurboDL.exe.
+No hace falta tocar nada en esta carpeta.

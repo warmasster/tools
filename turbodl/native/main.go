@@ -19,10 +19,12 @@ import (
 )
 
 const (
-	version     = "1.0.0"
 	hostName    = "com.turbodl.native"
 	extensionID = "loafabaafjgjbfobghcldnkofbjjficn" // fijado con "key" en manifest.json
 )
+
+// version la pone build.ps1 a partir de manifest.json (-ldflags -X main.version=...).
+var version = "dev"
 
 func main() {
 	args := os.Args[1:]
@@ -33,12 +35,7 @@ func main() {
 	}
 	if len(args) == 0 {
 		if launchedByDoubleClick() {
-			msg, err := install(nil)
-			if err != nil {
-				messageBox("TurboDL", "No se pudo instalar el motor nativo:\n"+err.Error(), true)
-				os.Exit(1)
-			}
-			messageBox("TurboDL", msg+"\n\nRecarga la extensión en chrome://extensions para que lo use.", false)
+			setup() // motor + extensión + guía para cargarla en Chrome
 			return
 		}
 		usage()
@@ -61,6 +58,12 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println(msg)
+		if dir, err := installExtension(); err != nil {
+			fmt.Fprintln(os.Stderr, "No se pudo copiar la extensión:", err)
+		} else if dir != "" {
+			fmt.Println("Extensión copiada en", dir)
+			fmt.Println("Cárgala una vez en chrome://extensions → Modo de desarrollador → Cargar descomprimida.")
+		}
 	case "uninstall", "desinstalar":
 		msg, err := uninstall()
 		if err != nil {
@@ -68,6 +71,8 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println(msg)
+	case "status", "estado":
+		printStatus()
 	case "version", "--version":
 		fmt.Println("turbodl-native", version)
 	default:
@@ -81,8 +86,10 @@ func usage() {
 
 Uso:
   turbodl-native get [opciones] URL     descargar una URL
-  turbodl-native install                 registrar el motor para Chrome, Edge y Brave
-  turbodl-native uninstall               quitar el registro
+  TurboDL.exe (doble clic)               instalar el motor y dejar la extensión lista
+  turbodl-native install                 lo mismo desde la terminal
+  turbodl-native uninstall               quitar el motor (la extensión se quita en Chrome)
+  turbodl-native status                  ver qué está instalado y dónde
 
 Opciones de get:
   -c N            conexiones (por defecto 16, máximo 64)

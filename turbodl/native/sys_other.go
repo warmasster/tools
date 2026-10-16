@@ -50,3 +50,19 @@ func showInFolder(p string) error {
 func messageBox(title, text string, isError bool) { println(title + ": " + text) }
 
 func launchedByDoubleClick() bool { return false }
+
+// En Linux/macOS no hay instalación de doble clic: install deja todo y avisa.
+func setup() {
+	msg, err := install(nil)
+	if err != nil {
+		println("Error:", err.Error())
+		os.Exit(1)
+	}
+	dir, _ := installExtension()
+	println(msg)
+	if dir != "" {
+		println("Extensión copiada en " + dir + ": cárgala en chrome://extensions → Cargar descomprimida.")
+	}
+}
+
+func chromeExtensionPaths() []string { return nil }

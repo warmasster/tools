@@ -2,7 +2,7 @@
 
 Gestor de descargas multiconexión que funciona **entero dentro de Chrome**, sin programas externos. Cuando haces clic en un enlace de descarga, TurboDL la intercepta y la baja por trozos en paralelo (HTTP Range). Guarda los trozos en el almacenamiento privado de la extensión (OPFS) y, al terminar, deja el archivo en tu carpeta de Descargas.
 
-**Opcional: motor nativo en Go** ([`native/`](native/)). Si instalas `turbodl-native.exe` (doble clic), la extensión le pasa las descargas a él:
+**Opcional: motor nativo en Go** ([`native/`](native/)). Viene dentro de `TurboDL.exe` y, si está instalado, la extensión le pasa las descargas a él:
 
 - hasta 64 conexiones, sin el límite de 6 por servidor de Chrome;
 - una conexión TCP por trabajador, aunque el servidor sea HTTP/2;
@@ -22,14 +22,48 @@ Todo lo demás (interceptación, gestor, pausa y reanudación) funciona igual.
 - **Copiar enlace:** botón al lado de cada descarga.
 - Interfaz en español, tema oscuro y sin librerías externas.
 
-## Instalar (modo desarrollador)
+## Instalar
 
-1. Abre `chrome://extensions`.
-2. Activa **Modo de desarrollador** (arriba a la derecha).
-3. Pulsa **Cargar descomprimida** y elige esta carpeta (`turbodl/`, la que contiene `manifest.json`).
-4. Fija el icono de TurboDL en la barra para tener a mano el popup.
+### Fácil: `TurboDL.exe`
 
-Necesita Chrome 116 o posterior. No hay que compilar nada.
+Un único ejecutable lleva dentro la extensión y el motor nativo:
+
+1. **Doble clic en `TurboDL.exe`.** Sin permisos de administrador:
+   - instala el motor;
+   - copia la extensión a `%LOCALAPPDATA%\TurboDL\extension`;
+   - deja esa ruta en el portapapeles y abre `chrome://extensions`.
+2. En esa pestaña, activa **Modo de desarrollador** (arriba a la derecha).
+3. Pulsa **Cargar descomprimida**, pega la ruta (`Ctrl+V`) en la barra de la ventana y pulsa **Seleccionar carpeta**.
+
+Solo hay que hacerlo una vez. Para actualizar, doble clic en el `TurboDL.exe` nuevo y pulsa ↻ en TurboDL dentro de `chrome://extensions`. El propio instalador detecta si ya la tienes cargada y te dice qué hacer.
+
+Para ver qué hay instalado y dónde:
+
+```bash
+TurboDL.exe status
+```
+
+Para quitarlo todo:
+
+```bash
+TurboDL.exe uninstall
+```
+
+y luego quita TurboDL en `chrome://extensions`.
+
+`TurboDL.exe` se genera con `native/build.ps1` (necesita [Go](https://go.dev); el icono se genera sin descargar nada).
+
+**¿Por qué hay que dar el último paso a mano?** Chrome en Windows no deja que un programa instale extensiones que no vengan de la Chrome Web Store (salvo en equipos de empresa), y desde la versión 137 tampoco por línea de comandos. La única forma de instalar con un solo clic sería publicarla en la Chrome Web Store.
+
+### Manual (desarrollo)
+
+1. Abre `chrome://extensions` y activa **Modo de desarrollador**.
+2. Pulsa **Cargar descomprimida** y elige esta carpeta (`turbodl/`, la que contiene `manifest.json`).
+3. Para el motor nativo, ejecuta `native/build.ps1` y luego `TurboDL.exe install`.
+
+El ID de la extensión es siempre `loafabaafjgjbfobghcldnkofbjjficn`, se cargue desde donde se cargue: está fijado con `key` en el manifest, y el motor nativo solo acepta a esa extensión.
+
+Necesita Chrome 116 o posterior.
 
 ## Uso
 

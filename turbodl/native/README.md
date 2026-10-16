@@ -1,6 +1,6 @@
 # TurboDL · motor nativo (Go)
 
-`turbodl-native.exe` es un único ejecutable sin dependencias que hace las descargas fuera de Chrome. La extensión lo usa automáticamente si está instalado. También funciona solo desde la terminal.
+El motor nativo hace las descargas fuera de Chrome. Es un único ejecutable sin dependencias: `TurboDL.exe`, que además lleva la extensión dentro e instala ambas cosas con un doble clic. Al instalarse se copia como `%LOCALAPPDATA%\TurboDL\turbodl-native.exe`, que es el que arranca Chrome. La extensión lo usa automáticamente si está instalado. También funciona solo desde la terminal.
 
 ## Por qué es más rápido que el motor del navegador
 
@@ -36,14 +36,20 @@ Además, el motor nativo:
 
 ## Instalar
 
-1. Compila con `build.ps1` (necesita [Go](https://go.dev)), o usa un `turbodl-native.exe` ya compilado.
-2. **Doble clic en `turbodl-native.exe`.** Se copia a `%LOCALAPPDATA%\TurboDL` y se registra para Chrome, Edge, Brave y Chromium, sin permisos de administrador.
-3. Recarga TurboDL en `chrome://extensions`. El popup mostrará «Motor nativo (Go)».
+1. Compila con `build.ps1` (necesita [Go](https://go.dev)): genera `..\TurboDL.exe` con la extensión dentro, icono y versión.
+2. **Doble clic en `TurboDL.exe`.** Se copia a `%LOCALAPPDATA%\TurboDL` y se registra para Chrome, Edge, Brave y Chromium, sin permisos de administrador.
+3. Deja la extensión en `%LOCALAPPDATA%\TurboDL\extension`. Si aún no la tienes, abre `chrome://extensions` con la ruta copiada; si ya la tienes, te dice que la recargues.
 
-Para quitarlo:
+Cuando está instalado, el popup muestra «Motor nativo (Go)».
+
+Para comprobar o quitar la instalación:
 
 ```bash
-turbodl-native.exe uninstall
+TurboDL.exe status
+```
+
+```bash
+TurboDL.exe uninstall
 ```
 
 En el popup o en los ajustes del gestor puedes elegir el motor: **Nativo si está instalado** o **Solo el del navegador**. Ahí también se eligen las conexiones del nativo (1-64).
@@ -51,7 +57,7 @@ En el popup o en los ajustes del gestor puedes elegir el motor: **Nativo si est�
 ## Desde la terminal
 
 ```bash
-turbodl-native.exe get "https://servidor/archivo.zip"
+TurboDL.exe get "https://servidor/archivo.zip"
 ```
 
 | Opción | Qué hace |
