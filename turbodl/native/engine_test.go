@@ -22,13 +22,20 @@ import (
 
 type testServer struct {
 	size      int
-	rate      int          // bytes/s por conexión (0 = sin límite)
-	noRange   bool         // ignorar Range
-	failRate  float64      // probabilidad de cortar en cada bloque
-	maxConns  int          // >0: responder 403 por encima de N conexiones simultáneas
-	limitCode int          // código para el límite (403 por defecto)
-	busyUntil atomic.Int64 // hasta este instante (UnixNano) responde 429 a todo
-	retryAft  string       // valor de Retry-After en los rechazos ("1" por defecto)
+	rate      int           // bytes/s por conexión (0 = sin límite)
+	noRange   bool          // ignorar Range
+	failRate  float64       // probabilidad de cortar en cada bloque
+	maxConns  int           // >0: responder 403 por encima de N conexiones simultáneas
+	limitCode int           // código para el límite (403 por defecto)
+	busyUntil atomic.Int64  // hasta este instante (UnixNano) responde 429 a todo
+	retryAft  string        // valor de Retry-After en los rechazos ("1" por defecto)
+	reqLimit  int           // >0: máximo de peticiones por ventana (como megadl)
+	window    time.Duration // duración de la ventana
+	winMu     sync.Mutex
+	winT0     time.Time
+	winIdx    int64
+	winCount  int
+	rejected  atomic.Int32
 	version   atomic.Int32
 	active    atomic.Int32
 	maxActive atomic.Int32
@@ -65,6 +72,30 @@ func (s *testServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	n, _ := s.perAddr.LoadOrStore(host, new(atomic.Int32))
 	n.(*atomic.Int32).Add(1)
 
+	if s.reqLimit > 0 {
+		// Límite de peticiones por ventana fija: Retry-After es la cuenta atrás hasta
+		// que empieza la siguiente (lo que hace megadl).
+		s.winMu.Lock()
+		now := time.Now()
+		if s.winT0.IsZero() {
+			s.winT0 = now
+		}
+		idx := int64(now.Sub(s.winT0) / s.window)
+		if idx != s.winIdx {
+			s.winIdx, s.winCount = idx, 0
+		}
+		s.winCount++
+		over := s.winCount > s.reqLimit
+		reset := s.winT0.Add(time.Duration(idx+1) * s.window)
+		s.winMu.Unlock()
+		if over {
+			s.rejected.Add(1)
+			secs := int(time.Until(reset).Seconds() + 0.999)
+			w.Header().Set("Retry-After", strconv.Itoa(max(secs, 0)))
+			http.Error(w, "demasiadas peticiones", http.StatusTooManyRequests)
+			return
+		}
+	}
 	cur := s.active.Add(1)
 	defer s.active.Add(-1)
 	if time.Now().UnixNano() < s.busyUntil.Load() {
@@ -514,17 +545,16 @@ func TestLimit429(t *testing.T) {
 	}
 }
 
-// Límite de conexiones con 429 y un Retry-After largo: las conexiones que ya funcionan
-// no deben quedarse esperando por el rechazo de la que sobra (parón al final).
-func TestLimitRetryAfterNoStall(t *testing.T) {
-	srv := newTestServer(48 << 20)
+// Límite de PETICIONES por ventana (como megadl): no hay que quitar conexiones, solo
+// esperar a la ventana siguiente para pedir tramos nuevos.
+func TestRequestRateWindow(t *testing.T) {
+	srv := newTestServer(96 << 20)
 	srv.rate = 4 << 20
-	srv.maxConns = 6
-	srv.limitCode = http.StatusTooManyRequests
-	srv.retryAft = "20"
+	srv.reqLimit = 10
+	srv.window = 2 * time.Second
 	url := srv.listen(t)
 	t0 := time.Now()
-	p, err, _ := run(t, Request{URL: url, Dir: t.TempDir(), Connections: 16}, nil)
+	p, err, d := run(t, Request{URL: url, Dir: t.TempDir(), Connections: 16}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,9 +562,13 @@ func TestLimitRetryAfterNoStall(t *testing.T) {
 		t.Fatal("hash distinto")
 	}
 	el := time.Since(t0)
-	// 48 MB a 6 × 4 MB/s son ~2 s; con el parón serían más de 20.
-	t.Logf("%.1f s", el.Seconds())
+	// Con 1 conexión serían 24 s.
+	t.Logf("%.1f s · %d peticiones rechazadas · máx. simultáneas %d · permitidas al final %d",
+		el.Seconds(), srv.rejected.Load(), srv.maxActive.Load(), d.cur)
+	if d.cur < 8 {
+		t.Fatalf("redujo las conexiones a %d por un límite de peticiones", d.cur)
+	}
 	if el > 10*time.Second {
-		t.Fatalf("se paró esperando el Retry-After de una conexión sobrante: %.1f s", el.Seconds())
+		t.Fatalf("demasiado lento: %.1f s", el.Seconds())
 	}
 }

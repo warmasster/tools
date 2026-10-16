@@ -24,13 +24,12 @@ Además, el motor nativo:
 
 - **Arranca de forma gradual:** abre 4 conexiones y las duplica cada medio segundo mientras la velocidad suba más de un 10 %. Si una conexión ya llena tu línea, no abre más, y así no salta el antiabuso de los servidores que bloquean la IP cuando llegan 16 conexiones de golpe.
 - **Reutiliza las conexiones:** pide el archivo en tramos de 8 a 256 MB (unos 30 s cada uno) y solo reparte lo que nadie ha pedido todavía. Así ninguna respuesta se corta a medias y cada conexión TCP sirve para muchos tramos (keep-alive). En las pruebas, 8 conexiones simultáneas abren exactamente 8 conexiones TCP.
-- **Se adapta al límite del servidor:**
-  - si rechaza conexiones (403, 429, 503 o 509), baja a las que acepta;
-  - respeta `Retry-After` con una pausa común para todas las conexiones;
-  - con 429 o 503 la última conexión espera y reintenta, no se rinde;
-  - cada 30 s sin quejas del servidor prueba con una conexión más.
+- **Distingue los dos tipos de límite del servidor:**
+  - **Límite de peticiones** (429 o 503 con `Retry-After`, como megadl, donde el `Retry-After` es la cuenta atrás hasta la ventana siguiente): no quita conexiones. Las que descargan siguen, nadie pide tramos nuevos hasta que pase la espera, y los tramos se hacen más grandes para gastar menos peticiones.
+  - **Límite de conexiones** (403 o 509, o la misma conexión rechazada 3 veces seguidas): baja a las que acepta y, cada 30 s sin quejas, prueba con una más.
+  - Si solo queda una conexión y recibe 429 o 503, espera y reintenta: no se rinde.
 - **Reparte el trabajo:** cuando una conexión termina, parte por la mitad el trozo pendiente más grande. Al final, si no queda nada libre, parte el tramo en curso de otra conexión.
-- **Sustituye las conexiones lentas:** la que va a menos del 20 % de la mediana se reconecta, si puede a otra IP. No lo hace si el servidor está limitando, porque reconectar sería otro rechazo.
+- **Sustituye las conexiones lentas:** la que va a menos del 20 % de la mediana se reconecta, si puede a otra IP. No lo hace con conexiones de menos de 10 s (todavía están arrancando) ni si el servidor está limitando (sería otra petición rechazada).
 - **Reintenta los cortes:** cada trozo se reintenta por separado, con espera creciente, y la última conexión aguanta unos 2,5 minutos de cortes de red.
 - **Reanuda de forma segura:** guarda el estado (`archivo.turbodl.json`) después de `fsync`, y al reanudar comprueba con If-Range que el archivo del servidor no ha cambiado.
 - **No pierde viajes de ida y vuelta:** la primera petición ya es `Range: bytes=0-`, así que sirve de sondeo y empieza a descargar a la vez.

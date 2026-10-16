@@ -165,7 +165,9 @@ type worker struct {
 	bytes     atomic.Int64            // recibidos desde la última medición
 	speed     float64
 	retired   bool
-	streaming bool // recibiendo datos de una respuesta válida
+	streaming bool      // recibiendo datos de una respuesta válida
+	since     time.Time // desde cuándo recibe datos (para no sustituir conexiones recién abiertas)
+	limitHits int       // rechazos seguidos de esta conexión
 }
 
 type savedState struct {
@@ -200,7 +202,9 @@ type Download struct {
 	cur       int // conexiones permitidas ahora (arranque gradual / límite del servidor)
 	plateau   bool
 	lastLimit time.Time // último rechazo por límite del servidor
-	coolUntil time.Time // nadie hace peticiones hasta entonces (Retry-After)
+	coolUntil time.Time // nadie hace peticiones nuevas hasta entonces (Retry-After)
+	rateLimit bool      // el servidor limita peticiones por ventana de tiempo
+	rateNoted bool
 	waitNoted bool
 	flat      int // mediciones seguidas sin ganar velocidad
 	probes    int
@@ -537,7 +541,9 @@ func (d *Download) resolveIPs() {
 // ================================================================ trabajadores
 
 func (d *Download) newWorker() *worker {
-	w := &worker{id: d.nextID, buf: make([]byte, bufSize), chunk: 2 * minChunk}
+	// Tramo inicial grande (luego se ajusta a la velocidad): muchos servidores limitan
+	// las peticiones por minuto, y con tramos pequeños se gastan enseguida.
+	w := &worker{id: d.nextID, buf: make([]byte, bufSize), chunk: maxChunk}
 	d.nextID++
 	if len(d.ips) > 0 {
 		w.ip = d.ips[d.ipNext%len(d.ips)]
@@ -703,8 +709,27 @@ func (d *Download) handle(w *worker, seg *segment, err error, retries *int) bool
 		errors.As(err, &le)
 		d.mu.Lock()
 		d.lastLimit = time.Now()
+		w.limitHits++
+		d.logf("límite del servidor: %d (Retry-After %s), otras %d, permitidas %d, rechazos seguidos %d", le.Status, le.RetryAfter, others, d.cur, w.limitHits)
+		if (le.Status == 429 || le.Status == 503) && le.RetryAfter > 0 && w.limitHits <= 3 {
+			// Límite de PETICIONES por ventana de tiempo (p. ej. megadl: el Retry-After
+			// es la cuenta atrás hasta la ventana siguiente). No sobran conexiones: las
+			// que están descargando siguen, y nadie pide tramos nuevos hasta entonces.
+			// Si la misma conexión se rechaza 3 veces seguidas, sí es límite de conexiones.
+			d.rateLimit = true
+			if until := time.Now().Add(min(le.RetryAfter, maxCooldown)); until.After(d.coolUntil) {
+				d.coolUntil = until
+			}
+			first := !d.rateNoted
+			d.rateNoted = true
+			d.mu.Unlock()
+			if first {
+				go d.notice("El servidor limita cuántas peticiones se le hacen: se espera lo que pide y se sigue con todas las conexiones.")
+			}
+			d.release(w, seg)
+			return true // fetch espera a que pase el Retry-After
+		}
 		d.limited = true
-		d.logf("límite del servidor: %d (Retry-After %s), otras %d, permitidas %d", le.Status, le.RetryAfter, others, d.cur)
 		if others > 0 {
 			// Hay otras conexiones funcionando: esta sobra y se retira. Su Retry-After
 			// no se aplica a las demás (si no, al final de la descarga, cuando todas
@@ -779,7 +804,11 @@ func (d *Download) fetch(w *worker, seg *segment) error {
 	if d.rangeOK && to >= 0 {
 		// Un tramo acotado: al acabarlo la conexión queda libre para el siguiente. En
 		// archivos pequeños el tramo también se limita para que haya trabajo para todas.
-		chunk := min(w.chunk, max(2*minSegment, d.size/int64(2*max(d.target, 1))))
+		div := 2 * max(d.target, 1)
+		if d.rateLimit {
+			div = max(d.cur, 1) // con límite de peticiones, menos tramos y más grandes
+		}
+		chunk := min(w.chunk, max(2*minSegment, d.size/int64(div)))
 		to = min(to, from+chunk)
 		seg.reqEnd = to
 	}
@@ -845,6 +874,8 @@ func (d *Download) stream(w *worker, seg *segment, resp *http.Response, requeste
 	defer resp.Body.Close()
 	d.mu.Lock()
 	w.streaming = true
+	w.since = time.Now()
+	w.limitHits = 0
 	d.mu.Unlock()
 	defer func() {
 		d.mu.Lock()
@@ -1359,8 +1390,8 @@ func (d *Download) evictSlow(window time.Duration) {
 		if w.speed > 0 {
 			w.chunk = min(max(int64(w.speed*chunkSeconds), minChunk), maxChunk)
 		}
-		if w.retired || w.seg == nil || w.seg.w != w || w.seg.end < 0 {
-			continue
+		if w.retired || w.seg == nil || w.seg.w != w || w.seg.end < 0 || time.Since(w.since) < 10*time.Second {
+			continue // las recién abiertas aún están arrancando (TCP slow start)
 		}
 		speeds = append(speeds, w.speed)
 		if slowest == nil || w.speed < slowest.speed {
@@ -1369,7 +1400,7 @@ func (d *Download) evictSlow(window time.Duration) {
 	}
 	// Con pocas conexiones, o si el servidor está limitando (reconectar sería otro
 	// rechazo), no se sustituye ninguna.
-	if len(speeds) < 6 || slowest == nil || d.limited {
+	if len(speeds) < 6 || slowest == nil || d.limited || d.rateLimit {
 		return
 	}
 	sort.Float64s(speeds)
