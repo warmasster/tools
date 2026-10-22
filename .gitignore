@@ -13,3 +13,6 @@ desktop.ini
 # TurboDL: copia de la extensión que build.ps1 mete dentro de TurboDL.exe
 turbodl/native/ext/*
 !turbodl/native/ext/LEEME.txt
+
+# Salida local de .github/scripts/release.ps1 -OutDir dist
+dist/

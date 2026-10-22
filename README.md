@@ -1,13 +1,24 @@
-# tools
+# Turbo tools
 
-Herramientas propias: programas para Windows (un único `.exe` sin dependencias) y extensiones de Chrome, con interfaz cuidada.
+Programas para Windows hechos a medida: rápidos, en un solo `.exe` y con una interfaz cuidada.
 
-| Herramienta | Qué hace | Descarga |
-|---|---|---|
-| [TurboSEND](enviador-online/v2/) | Envía y recibe archivos de cualquier tamaño en chats, por Cloudflare o directo por tu IP (UPnP). El otro lado solo necesita el navegador. La [v1](enviador-online/) era solo para envíos sueltos. | [Releases](../../releases) (`TurboSEND.exe`) |
-| [TurboCUT](turbocut/) | Analiza el disco a toda velocidad (lee la MFT de NTFS en modo turbo), enseña qué ocupa más con lista y mapa, y ayuda a liberar espacio: temporales, cachés, papelera, descargas viejas. | [Releases](../../releases) |
-| [TurboDL](turbodl/) | Extensión de Chrome: gestor de descargas multiconexión que pausa, reanuda y sobrevive a cerrar el navegador. Con su [motor nativo en Go](turbodl/native/) opcional, hasta 64 conexiones. | [Releases](../../releases) (`TurboDL.exe`) |
+## Descargar
+
+**[⬇ TurboSETUP.exe](https://github.com/warmasster/tools/releases/download/apps/TurboSETUP.exe)**: ábrelo, elige qué herramientas quieres y las instala. También se encarga de las actualizaciones.
+
+> Windows puede avisar de que el programa no está firmado: *Más información → Ejecutar de todas formas*.
+
+## Herramientas
+
+| | Qué hace |
+|---|---|
+| [**TurboSEND**](turbosend/README.md) | Envía y recibe archivos de cualquier tamaño en chats. El otro lado solo necesita el navegador; va por Cloudflare o directo por tu IP. |
+| [**TurboCUT**](turbocut/README.md) | Analiza el disco en segundos (lee la MFT de NTFS) y te enseña qué ocupa más. Ayuda a liberar espacio: temporales, cachés, papelera, descargas viejas. |
+| [**TurboDL**](turbodl/README.md) | Extensión de Chrome que descarga por partes en paralelo, pausa, reanuda y sobrevive a cerrar el navegador. Con motor nativo, hasta 64 conexiones. |
+| [**TurboSETUP**](installer/README.md) | El instalador: descarga las herramientas de este repo y las mantiene al día. |
 
 ## Compilar
 
-Cada programa trae su `build.ps1`. Necesitan [Go](https://go.dev) y [Wails v2](https://wails.io). La extensión TurboDL no se compila: se carga tal cual en `chrome://extensions`; su motor nativo se compila con `turbodl/native/build.ps1` (solo Go).
+Cada carpeta tiene su `build.ps1`. Hace falta [Go](https://go.dev) y, para las apps con ventana, [Wails v2](https://wails.io).
+
+Las versiones se publican solas: al subir el número de versión de un programa y hacer push, GitHub Actions lo compila y lo sube a la Release. Más detalles en [TurboSETUP](installer/README.md#cómo-se-publica-una-versión).

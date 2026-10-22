@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TurboSETUP</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="titlebar">
+    <div class="brand">
+      <img src="logo.svg" alt="" width="22" height="22">
+      <span>Turbo<b>SETUP</b></span>
+    </div>
+    <span class="grow"></span>
+    <div class="winbtns">
+      <button class="wb" id="wb-refresh" title="Buscar actualizaciones"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+      <button class="wb" id="wb-folder" title="Abrir la carpeta de instalación"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg></button>
+      <span class="wsep"></span>
+      <button class="wb" id="wb-min" title="Minimizar"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button class="wb close" id="wb-close" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+  </header>
+
+  <main class="main">
+    <div class="inner">
+      <div class="hero">
+        <h1>Herramientas Turbo</h1>
+        <p>Elige qué instalar. Se descargan de GitHub y se actualizan desde aquí.</p>
+      </div>
+
+      <div class="banner self" id="self-banner" hidden>
+        <svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+        <div><b>Hay una versión nueva de TurboSETUP</b><span id="self-text"></span></div>
+        <button class="btn primary sm" id="self-go">Actualizar</button>
+      </div>
+
+      <div class="banner err" id="err-banner" hidden>
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5v.01"/></svg>
+        <div><b>No se pudo leer el catálogo de GitHub</b><span id="err-text"></span></div>
+        <button class="btn ghost sm" id="err-retry">Reintentar</button>
+      </div>
+
+      <div class="tools" id="tools"></div>
+
+      <div class="foot">
+        <label class="check"><input type="checkbox" id="desktop" checked><i></i>Crear acceso directo en el escritorio</label>
+        <span class="grow"></span>
+        <button class="btn primary" id="all" hidden></button>
+      </div>
+    </div>
+  </main>
+
+  <footer class="status">
+    <span class="where" id="where" title="Abrir la carpeta"></span>
+    <span class="grow"></span>
+    <a href="#" id="repo">Código en GitHub</a>
+    <span class="ver" id="ver"></span>
+  </footer>
+
+  <div class="toasts" id="toasts"></div>
+
+  <div class="modal" id="m-uninstall" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="un-title">¿Desinstalar?</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div class="modal-body"><p id="un-text"></p></div>
+      <div class="modal-foot">
+        <button class="btn ghost sm" data-close>Cancelar</button>
+        <button class="btn danger-solid sm" id="un-go">Desinstalar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

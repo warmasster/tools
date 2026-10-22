@@ -1,0 +1,40 @@
+{
+  "setup": {
+    "name": "TurboSETUP",
+    "build": "installer/build.ps1",
+    "output": "installer/TurboSETUP.exe",
+    "version": "installer/wails.json"
+  },
+  "tools": [
+    {
+      "id": "turbosend",
+      "name": "TurboSEND",
+      "kind": "app",
+      "dir": "turbosend",
+      "summary": "Envía y recibe archivos de cualquier tamaño en chats. El otro lado solo necesita el navegador.",
+      "build": "turbosend/build.ps1",
+      "output": "turbosend/TurboSEND.exe",
+      "version": "turbosend/wails.json"
+    },
+    {
+      "id": "turbocut",
+      "name": "TurboCUT",
+      "kind": "app",
+      "dir": "turbocut",
+      "summary": "Analiza el disco a toda velocidad, enseña qué ocupa más y te ayuda a liberar espacio.",
+      "build": "turbocut/build.ps1",
+      "output": "turbocut/TurboCUT.exe",
+      "version": "turbocut/wails.json"
+    },
+    {
+      "id": "turbodl",
+      "name": "TurboDL",
+      "kind": "setup",
+      "dir": "turbodl",
+      "summary": "Gestor de descargas multiconexión para Chrome, con motor nativo de hasta 64 conexiones.",
+      "build": "turbodl/native/build.ps1",
+      "output": "turbodl/TurboDL.exe",
+      "version": "turbodl/manifest.json"
+    }
+  ]
+}

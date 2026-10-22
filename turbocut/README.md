@@ -2,7 +2,7 @@
 
 Analiza un disco o una carpeta a toda velocidad, te enseña qué ocupa más y te ayuda a borrar lo que sobra. Es como WinDirStat o WizTree, pero con la misma interfaz que el resto de herramientas.
 
-- **`TurboCUT.exe`**: un único ejecutable (~12 MB). No necesita instalar nada.
+- **`TurboCUT.exe`**: un único ejecutable (~12 MB). Se instala con [TurboSETUP](../installer/) o se descarga suelto de la [Release](https://github.com/warmasster/tools/releases/tag/apps); no necesita instalar nada.
 - **Dos formas de escanear**:
   - **Modo normal** (sin permisos): recorre las carpetas en paralelo. Un disco de 600 GB con 1,3 millones de archivos tarda unos 25 s la primera vez y unos 5 s las siguientes, porque Windows ya tiene las carpetas en caché.
   - **⚡ Modo turbo** (como administrador): lee la MFT, el índice interno de NTFS, de un tirón, igual que WizTree. El mismo disco de 600 GB tarda unos 3-4 s, incluso la primera vez, y además ve las carpetas protegidas (`System Volume Information`, la papelera de otros usuarios…). Se activa con el botón «Reiniciar en modo turbo» o en Ajustes → «Abrir siempre en modo turbo».

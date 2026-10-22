@@ -42,6 +42,9 @@ func main() {
 		return
 	}
 	switch args[0] {
+	case "setup":
+		// Lo mismo que el doble clic; lo usa TurboSETUP, que lo lanza sin consola.
+		setup()
 	case "get", "descargar":
 		os.Exit(cliGet(args[1:]))
 	case "install", "instalar":

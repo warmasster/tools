@@ -24,7 +24,9 @@ Todo lo demás (interceptación, gestor, pausa y reanudación) funciona igual.
 
 ## Instalar
 
-### Fácil: `TurboDL.exe`
+### Fácil: con TurboSETUP o `TurboDL.exe`
+
+[TurboSETUP](../installer/) descarga `TurboDL.exe` y lo lanza; también puedes bajarlo tú de la [Release](https://github.com/warmasster/tools/releases/tag/apps).
 
 Un único ejecutable lleva dentro la extensión y el motor nativo:
 
@@ -35,7 +37,7 @@ Un único ejecutable lleva dentro la extensión y el motor nativo:
 2. En esa pestaña, activa **Modo de desarrollador** (arriba a la derecha).
 3. Pulsa **Cargar descomprimida**, pega la ruta (`Ctrl+V`) en la barra de la ventana y pulsa **Seleccionar carpeta**.
 
-Solo hay que hacerlo una vez. Para actualizar, doble clic en el `TurboDL.exe` nuevo y pulsa ↻ en TurboDL dentro de `chrome://extensions`. El propio instalador detecta si ya la tienes cargada y te dice qué hacer.
+Solo hay que hacerlo una vez. Para actualizar, pulsa **Actualizar** en TurboSETUP (o doble clic en el `TurboDL.exe` nuevo) y luego ↻ en TurboDL dentro de `chrome://extensions`. El propio instalador detecta si ya la tienes cargada y te dice qué hacer.
 
 Para ver qué hay instalado y dónde:
 

@@ -1,0 +1,46 @@
+# Cada push a main mira si ha cambiado la versión de algún programa
+# (wails.json o manifest.json). Si es así, lo compila y lo sube a la Release "apps".
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "installer/**"
+      - "turbosend/**"
+      - "turbocut/**"
+      - "turbodl/**"
+      - "tools.json"
+      - ".github/**"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Recompilar y subir todo aunque no cambie la versión"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: installer/go.mod
+          cache-dependency-path: "**/go.sum"
+
+      - name: Compilar y publicar lo que haya cambiado
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ("${{ inputs.force }}" -eq "true") { ./.github/scripts/release.ps1 -Force }
+          else { ./.github/scripts/release.ps1 }

@@ -75,6 +75,7 @@ func messageBox(title, text string, isError bool) {
 	if isError {
 		flags = 0x10 // MB_ICONERROR
 	}
+	flags |= 0x10000 // MB_SETFOREGROUND: que no quede detrás de TurboSETUP
 	proc.Call(0, uintptr(unsafe.Pointer(m)), uintptr(unsafe.Pointer(t)), flags)
 }
 
