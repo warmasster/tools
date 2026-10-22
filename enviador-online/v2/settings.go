@@ -37,7 +37,7 @@ func defaultSettings() Settings {
 		UPnP:               true,
 		ShowDirectOnTunnel: true,
 		Connections:        4,
-		RecvDir:            filepath.Join(downloadsDir(), "Enviador"),
+		RecvDir:            filepath.Join(downloadsDir(), "TurboSEND"),
 		Sounds:             true,
 	}
 }
@@ -60,7 +60,7 @@ func (s *Settings) normalize() {
 		s.HostName = string([]rune(s.HostName)[:40])
 	}
 	if strings.TrimSpace(s.RecvDir) == "" {
-		s.RecvDir = filepath.Join(downloadsDir(), "Enviador")
+		s.RecvDir = filepath.Join(downloadsDir(), "TurboSEND")
 	}
 	if s.AutoLimitGB < 0 {
 		s.AutoLimitGB = 0

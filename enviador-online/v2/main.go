@@ -17,7 +17,7 @@ var assets embed.FS
 func main() {
 	app := NewApp()
 	err := wails.Run(&options.App{
-		Title:            "Enviador",
+		Title:            "TurboSEND",
 		Width:            1320,
 		Height:           840,
 		MinWidth:         980,
@@ -42,8 +42,8 @@ func main() {
 		},
 	})
 	if err != nil {
-		t, _ := xwin.UTF16PtrFromString("Enviador")
-		m, _ := xwin.UTF16PtrFromString("No se pudo iniciar Enviador:\n\n" + err.Error())
+		t, _ := xwin.UTF16PtrFromString("TurboSEND")
+		m, _ := xwin.UTF16PtrFromString("No se pudo iniciar TurboSEND:\n\n" + err.Error())
 		xwin.MessageBox(0, m, t, xwin.MB_ICONERROR)
 	}
 }

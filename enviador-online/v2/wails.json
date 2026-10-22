@@ -1,15 +1,15 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "EnviadorV2",
-  "outputfilename": "EnviadorV2",
+  "name": "TurboSEND",
+  "outputfilename": "TurboSEND",
   "frontend:dir": "frontend",
   "frontend:install": "",
   "frontend:build": "",
   "wailsjsdir": "",
   "author": { "name": "Fernando", "email": "" },
   "info": {
-    "companyName": "Enviador",
-    "productName": "Enviador v2",
+    "companyName": "TurboSEND",
+    "productName": "TurboSEND",
     "productVersion": "2.0.0",
     "copyright": "Fernando",
     "comments": "Chats para enviar y recibir archivos por Cloudflare o directo por tu IP"

@@ -121,7 +121,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	res, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 		Type:          runtime.QuestionDialog,
 		Title:         "Hay descargas en curso",
-		Message:       "Si cierras Enviador, las descargas activas se cortarán. ¿Cerrar igualmente?",
+		Message:       "Si cierras TurboSEND, las descargas activas se cortarán. ¿Cerrar igualmente?",
 		Buttons:       []string{"Yes", "No"},
 		DefaultButton: "No",
 	})

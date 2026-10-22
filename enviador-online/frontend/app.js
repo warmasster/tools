@@ -313,7 +313,7 @@
     if (t.status === "online") tDesc = `<code>${esc(t.url.replace("https://", ""))}</code>${t.message ? "<br>" + esc(t.message) : ""}`;
     else if (t.status === "preparing") tDesc = esc(t.message) + `<div class="pbar"><i style="width:${Math.round((t.progress || 0) * 100)}%"></i></div>`;
     else tDesc = esc(t.message || (t.status === "off" ? "Desactivado en ajustes." : "Conectando…"));
-    if (t.status === "online" || t.status === "checking") tDesc += `<br><span style="color:var(--dim)">La dirección cambia cada vez que abres Enviador.</span>`;
+    if (t.status === "online" || t.status === "checking") tDesc += `<br><span style="color:var(--dim)">La dirección cambia cada vez que abres TurboSEND.</span>`;
 
     let dDesc = esc(d.message || "");
     if (d.publicIP && (d.status === "ok" || d.status === "verified" || d.status === "manual")) dDesc = `<code>${esc(d.publicIP)}:${d.extPort}</code><br>` + dDesc;
@@ -533,7 +533,7 @@
     try {
       await api.SaveSettings(s);
       modal.hidden = true;
-      toast(portChanged ? "Guardado. El puerto nuevo se usará al reiniciar Enviador." : "Ajustes guardados");
+      toast(portChanged ? "Guardado. El puerto nuevo se usará al reiniciar TurboSEND." : "Ajustes guardados");
     } catch (e) { toast(String(e), "error"); }
   });
   $("#s-log").addEventListener("click", openLog);

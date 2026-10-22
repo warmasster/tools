@@ -74,7 +74,7 @@ func uniqueName(dir, name string, taken map[string]bool) string {
 		if _, err := os.Stat(p); err == nil {
 			continue
 		}
-		if _, err := os.Stat(p + ".enviador-part"); err == nil {
+		if _, err := os.Stat(p + ".turbosend-part"); err == nil {
 			continue
 		}
 		return cand
@@ -208,7 +208,7 @@ func (a *App) AcceptIn(roomID, bid string) error {
 				err = e
 				return false
 			}
-			part := f.Final + ".enviador-part"
+			part := f.Final + ".turbosend-part"
 			fh, e := os.OpenFile(part, os.O_CREATE|os.O_WRONLY, 0o644)
 			if e != nil {
 				err = e
@@ -252,7 +252,7 @@ func (a *App) setInStatus(roomID, bid, status, errMsg string, cleanup bool) {
 		if cleanup {
 			for _, f := range b.Files {
 				if f.Final != "" && !f.Done {
-					parts = append(parts, f.Final+".enviador-part")
+					parts = append(parts, f.Final+".turbosend-part")
 				}
 			}
 		}
@@ -298,7 +298,7 @@ func (a *App) receiveChunk(roomID, bid string, fi int, off int64, data []byte) e
 	if err != nil {
 		return err
 	}
-	fh, e := os.OpenFile(final+".enviador-part", os.O_WRONLY, 0o644)
+	fh, e := os.OpenFile(final+".turbosend-part", os.O_WRONLY, 0o644)
 	if e != nil {
 		return fmt.Errorf("no se pudo abrir el archivo de destino: %v", e)
 	}
@@ -366,7 +366,7 @@ func (a *App) maybeFinish(roomID, bid string) {
 	}
 	var ferr error
 	for _, f := range moves {
-		part := f.Final + ".enviador-part"
+		part := f.Final + ".turbosend-part"
 		dst := f.Final
 		if _, err := os.Stat(dst); err == nil { // alguien creó ese nombre mientras tanto
 			dst = filepath.Join(filepath.Dir(dst), uniqueName(filepath.Dir(dst), filepath.Base(dst), nil))

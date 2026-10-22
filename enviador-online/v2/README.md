@@ -1,13 +1,13 @@
-# Enviador v2: chats
+# TurboSEND (v2): chats
 
-`EnviadorV2.exe` es independiente de la v1: usa su propio puerto (47831) y su propia carpeta de datos (`%APPDATA%\EnviadorV2`).
+`TurboSEND.exe` es independiente de la v1: usa su propio puerto (47831) y su propia carpeta de datos (`%APPDATA%\EnviadorV2`, nombre heredado).
 
 - **Cada enlace es un chat**, para una persona o un grupo. Quien entra pone su nombre y podéis escribiros y mandaros archivos en los dos sentidos.
 - **Lo que tú envías:** igual que en la v1. Turbo en Chrome/Edge, carpetas como carpeta o como ZIP, y bloques verificados con CRC32.
 - **Lo que te envían:**
   - Por defecto aparece en el chat y tú pulsas **Descargar**. La autodescarga se activa en Ajustes (con límite de tamaño opcional) o en cada chat desde el menú ⋯.
   - La subida va en bloques de 16 MB con CRC32, con varias conexiones a la vez, y se puede reanudar.
-  - Se guarda en `Descargas\Enviador\<chat>\`, marcada como descargada de Internet.
+  - Se guarda en `Descargas\TurboSEND\<chat>\`, marcada como descargada de Internet.
   - Quien envía tiene que tener el chat abierto. Si recarga la página, se le pide volver a elegir los archivos y continúa donde se quedó.
 - **Tiempo real por long-polling:** los túneles temporales de Cloudflare retienen SSE, así que se usa long-polling.
 - **Dominio propio (opcional):** en Ajustes pones la dirección (`enviar.tudominio.com`) y el token del túnel. Dentro de la app están los pasos. Si falla o lo dejas vacío, se usa el enlace temporal.

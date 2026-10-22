@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Enviador</title>
+<title>TurboSEND</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="app" id="app">
 
   <header class="titlebar">
-    <div class="brand"><img src="logo.svg" alt="" width="22" height="22"><span>Enviador</span><em>v2</em></div>
+    <div class="brand"><img src="logo.svg" alt="" width="22" height="22"><span>TurboSEND</span><em>v2</em></div>
     <div class="pills" id="pills"></div>
     <div class="winbtns">
       <button class="wb" id="wb-act" title="Actividad y conexión"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></button>
@@ -141,7 +141,7 @@
         <label class="row toggle"><div><b>Ofrecer el enlace directo en la página de Cloudflare</b><span>Quien entre por Cloudflare verá un botón para pasarse al directo. Mostrará tu IP pública.</span></div><input type="checkbox" id="s-showdirect"><i></i></label>
         <label class="row toggle"><div><b>Forzar enlace directo</b><span>Si has abierto el puerto a mano en el router y UPnP no funciona.</span></div><input type="checkbox" id="s-force"><i></i></label>
         <div class="row"><div><b>Conexiones turbo</b><span>Tramos que se descargan en paralelo en Chrome/Edge.</span></div><div class="range"><input type="range" id="s-conns" min="1" max="16"><output id="s-conns-v"></output></div></div>
-        <div class="row"><div><b>Puerto</b><span>Se aplica al reiniciar Enviador.</span></div><input type="number" class="num" id="s-port" min="1024" max="65535"></div>
+        <div class="row"><div><b>Puerto</b><span>Se aplica al reiniciar TurboSEND.</span></div><input type="number" class="num" id="s-port" min="1024" max="65535"></div>
 
         <h3>Dominio propio <span class="opt">opcional</span></h3>
         <p class="hint">Con tu dominio en Cloudflare, los enlaces de los chats no cambian al reiniciar. Si lo dejas vacío o falla, se usa el enlace temporal.</p>
@@ -151,8 +151,8 @@
           <summary>Cómo conseguir el token (2 minutos)</summary>
           <ol>
             <li>Entra en <b>dash.cloudflare.com</b> → <b>Zero Trust</b> → <b>Networks</b> → <b>Tunnels</b> → <b>Create a tunnel</b>.</li>
-            <li>Elige <b>Cloudflared</b>, ponle de nombre <i>enviador</i> y guarda.</li>
-            <li>En la pantalla de instalación, copia el texto largo que va detrás de <code>--token</code> (o de <code>install</code>) y pégalo arriba. No hace falta instalar nada: Enviador ya trae cloudflared.</li>
+            <li>Elige <b>Cloudflared</b>, ponle de nombre <i>turbosend</i> y guarda.</li>
+            <li>En la pantalla de instalación, copia el texto largo que va detrás de <code>--token</code> (o de <code>install</code>) y pégalo arriba. No hace falta instalar nada: TurboSEND ya trae cloudflared.</li>
             <li>En <b>Public hostname</b> pon el subdominio (por ejemplo <i>enviar</i>) y tu dominio. En <b>Service</b> elige <b>HTTP</b> y escribe <code id="s-svc">localhost:47831</code>.</li>
             <li>Escribe esa dirección arriba (por ejemplo <i>enviar.tudominio.com</i>) y pulsa Guardar.</li>
           </ol>
@@ -163,7 +163,7 @@
           <button class="btn ghost sm" id="s-data">Abrir carpeta de datos</button>
         </div>
       </div>
-      <div class="modal-foot"><span class="ver">Enviador 2.0</span><button class="btn primary sm" id="s-save">Guardar</button></div>
+      <div class="modal-foot"><span class="ver">TurboSEND 2.0</span><button class="btn primary sm" id="s-save">Guardar</button></div>
     </div>
   </div>
 

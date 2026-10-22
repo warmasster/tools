@@ -1,8 +1,10 @@
-# Enviador
+# TurboSEND v1
+
+Versión 1 (solo envíos sueltos). La versión actual, con chats, está en [v2/](v2/).
 
 Envía archivos y carpetas de cualquier tamaño desde tu PC. Quien los recibe solo abre un enlace en el navegador.
 
-- **`Enviador.exe`**: un único ejecutable (~13 MB). No necesita instalar nada y se puede pasar tal cual a otras personas.
+- **`TurboSEND-v1.exe`**: un único ejecutable (~13 MB). No necesita instalar nada y se puede pasar tal cual a otras personas.
 - **Tres enlaces por envío**:
   - **⚡ Directo**: `http://TU-IP:47821/...`. Abre el puerto en el router por UPnP y lo cierra al salir. Es el más rápido, pero no funciona si la operadora usa CG-NAT.
   - **☁️ Cloudflare**: `https://xxxx.trycloudflare.com/...`. Va por HTTPS y funciona siempre, sin abrir puertos. La dirección cambia cada vez que se abre la app.
@@ -17,14 +19,14 @@ Envía archivos y carpetas de cualquier tamaño desde tu PC. Quien los recibe so
 
 - **Crear un envío**:
   - arrastra archivos o carpetas a la ventana, o usa los botones;
-  - o arrastra archivos sobre el icono de `Enviador.exe`.
+  - o arrastra archivos sobre el icono de `TurboSEND-v1.exe`.
 - **Compartir**: «Copiar mensaje para enviar» copia un texto con los enlaces, listo para pegar en WhatsApp o Discord.
 - **Primera vez en otro PC**:
   - Windows SmartScreen avisará porque el ejecutable no está firmado: *Más información → Ejecutar de todas formas*.
   - El firewall pedirá permiso: pulsa *Permitir*, es necesario para el enlace directo.
-  - Si ese PC no tiene `cloudflared`, Enviador lo descarga de GitHub (oficial, se verifica que la firma sea de Cloudflare).
+  - Si ese PC no tiene `cloudflared`, TurboSEND lo descarga de GitHub (oficial, se verifica que la firma sea de Cloudflare).
 
-Los datos (envíos y ajustes) se guardan en `%APPDATA%\Enviador`.
+Los datos (envíos y ajustes) se guardan en `%APPDATA%\Enviador` (nombre heredado de cuando la app se llamaba Enviador).
 
 ## Compilar
 

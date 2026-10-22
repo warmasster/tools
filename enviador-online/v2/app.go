@@ -147,7 +147,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	res, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 		Type:          runtime.QuestionDialog,
 		Title:         "Hay transferencias en curso",
-		Message:       "Si cierras Enviador, las transferencias activas se cortarán (se podrán reanudar luego). ¿Cerrar igualmente?",
+		Message:       "Si cierras TurboSEND, las transferencias activas se cortarán (se podrán reanudar luego). ¿Cerrar igualmente?",
 		Buttons:       []string{"Yes", "No"},
 		DefaultButton: "No",
 	})
@@ -636,7 +636,7 @@ func (a *App) RetryDirect() {
 	}
 }
 
-func (a *App) FlashTaskbar() { flashWindow("Enviador") }
+func (a *App) FlashTaskbar() { flashWindow("TurboSEND") }
 
 func (a *App) SetTitle(t string) { runtime.WindowSetTitle(a.ctx, t) }
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "Enviador",
-  "outputfilename": "Enviador",
+  "name": "TurboSEND-v1",
+  "outputfilename": "TurboSEND-v1",
   "frontend:dir": "frontend",
   "frontend:install": "",
   "frontend:build": "",
@@ -11,8 +11,8 @@
     "email": ""
   },
   "info": {
-    "companyName": "Enviador",
-    "productName": "Enviador",
+    "companyName": "TurboSEND",
+    "productName": "TurboSEND v1",
     "productVersion": "1.0.0",
     "copyright": "Fernando",
     "comments": "Envía archivos por Cloudflare o directo por tu IP"

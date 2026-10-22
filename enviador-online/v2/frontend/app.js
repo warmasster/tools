@@ -155,7 +155,7 @@
     const el = $("#rooms");
     if (el._h !== html) { el.innerHTML = html; el._h = html; }
     const unread = S.rooms.reduce((a, r) => a + (r.id === active && document.hasFocus() ? 0 : r.unread), 0);
-    const title = (unread ? `(${unread}) ` : "") + "Enviador";
+    const title = (unread ? `(${unread}) ` : "") + "TurboSEND";
     if (document.title !== title) { document.title = title; api.SetTitle(title); }
   }
   $("#rooms").addEventListener("click", (e) => { const it = e.target.closest("[data-room]"); if (it) openRoom(it.dataset.room); });
@@ -443,7 +443,7 @@
     if (!pop.hidden) { pop.hidden = true; return; }
     loadRoom(false).then(() => {
       $("#inv-links").innerHTML = inviteHTML();
-      $("#inv-note").textContent = S.tunnel.mode === "domain" ? "Los enlaces de tu dominio no cambian." : "El enlace de Cloudflare cambia cada vez que abres Enviador. El directo ⚡ se mantiene mientras no cambie tu IP.";
+      $("#inv-note").textContent = S.tunnel.mode === "domain" ? "Los enlaces de tu dominio no cambian." : "El enlace de Cloudflare cambia cada vez que abres TurboSEND. El directo ⚡ se mantiene mientras no cambie tu IP.";
       pop.hidden = false;
       place(pop, $("#r-invite"));
     });
@@ -535,7 +535,7 @@
     const t = S.tunnel, d = S.direct;
     const [tc, tt] = tunnelBadge(t), [dc, dt] = directBadge(d);
     let td;
-    if (t.status === "online") td = `<code>${esc(t.url.replace("https://", ""))}</code>${t.mode === "domain" ? "" : "<br>Cambia cada vez que abres Enviador."}${t.message ? "<br>" + esc(t.message) : ""}`;
+    if (t.status === "online") td = `<code>${esc(t.url.replace("https://", ""))}</code>${t.mode === "domain" ? "" : "<br>Cambia cada vez que abres TurboSEND."}${t.message ? "<br>" + esc(t.message) : ""}`;
     else if (t.status === "preparing") td = esc(t.message) + `<div class="npb"><i style="width:${Math.round((t.progress || 0) * 100)}%"></i></div>`;
     else td = esc(t.message || (t.status === "off" ? "Desactivado en ajustes." : "Conectando…"));
     if (t.domainErr) td += `<br><span class="warn">${esc(t.domainErr)}</span>`;
@@ -627,7 +627,7 @@
     try {
       await api.SaveSettings(s);
       $("#settings").hidden = true;
-      toast(portChanged ? "Guardado. El puerto nuevo se usará al reiniciar Enviador." : domChanged ? "Guardado. Reconectando el túnel…" : "Ajustes guardados");
+      toast(portChanged ? "Guardado. El puerto nuevo se usará al reiniciar TurboSEND." : domChanged ? "Guardado. Reconectando el túnel…" : "Ajustes guardados");
     } catch (e) { toast(String(e), "error"); }
   });
   $("#s-log").addEventListener("click", openLog);

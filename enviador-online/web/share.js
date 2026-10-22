@@ -105,10 +105,10 @@
       if (r.status === 404) return showError("Este envío ya no existe", "Puede que quien te lo mandó lo haya borrado o que el enlace esté mal copiado.", false);
       if (!r.ok) throw new Error("HTTP " + r.status);
       info = await r.json();
-      document.title = info.name + " · Enviador";
+      document.title = info.name + " · TurboSEND";
       renderReady();
     } catch (e) {
-      showError("No se puede conectar", "El ordenador que envía los archivos no responde. Puede que esté apagado o que haya cerrado Enviador.", true, load);
+      showError("No se puede conectar", "El ordenador que envía los archivos no responde. Puede que esté apagado o que haya cerrado TurboSEND.", true, load);
     }
   }
 

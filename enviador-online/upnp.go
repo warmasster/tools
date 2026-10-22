@@ -260,7 +260,7 @@ func (g *igd) addMapping(ext, internal int, lease int) error {
 		{"NewInternalPort", fmt.Sprint(internal)},
 		{"NewInternalClient", g.localIP},
 		{"NewEnabled", "1"},
-		{"NewPortMappingDescription", "Enviador"},
+		{"NewPortMappingDescription", "TurboSEND"},
 		{"NewLeaseDuration", fmt.Sprint(lease)},
 	})
 	return err

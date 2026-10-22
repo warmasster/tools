@@ -19,7 +19,7 @@ func hideConsole(cmd *exec.Cmd) {
 
 var killJob windows.Handle
 
-// attachKillOnClose mete el proceso en un Job que Windows mata si Enviador muere.
+// attachKillOnClose mete el proceso en un Job que Windows mata si TurboSEND muere.
 func attachKillOnClose(pid int) {
 	if killJob == 0 {
 		h, err := windows.CreateJobObject(nil, nil)

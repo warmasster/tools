@@ -89,7 +89,7 @@
       data = await api("?mid=" + encodeURIComponent(mid));
     } catch (e) {
       if (String(e.message).includes("not_found")) return gone("Este chat ya no existe", "Puede que lo hayan borrado o que el enlace esté mal copiado.");
-      msgs.innerHTML = `<div class="sys">No se puede conectar con el ordenador de origen.<br>Puede que esté apagado o que haya cerrado Enviador.<br><br><button class="fbtn" id="rt">${svg("refresh")} Reintentar</button></div>`;
+      msgs.innerHTML = `<div class="sys">No se puede conectar con el ordenador de origen.<br>Puede que esté apagado o que haya cerrado TurboSEND.<br><br><button class="fbtn" id="rt">${svg("refresh")} Reintentar</button></div>`;
       $("#rt").onclick = boot;
       return;
     }
@@ -168,7 +168,7 @@
           online = false;
           errCount++;
           renderHeader();
-          if (errCount >= 2) setBanner(`${hostName()} está desconectado. En cuanto vuelva a abrir Enviador seguiréis por donde ibais.`);
+          if (errCount >= 2) setBanner(`${hostName()} está desconectado. En cuanto vuelva a abrir TurboSEND seguiréis por donde ibais.`);
           await new Promise((res) => setTimeout(res, Math.min(5000, 800 * errCount)));
         }
       }
@@ -181,7 +181,7 @@
     sendBtn.disabled = true;
     $("#composer").style.display = "none";
     msgs.innerHTML = `<div class="sys" style="margin:auto"><b style="font-size:17px">${esc(t)}</b><br>${esc(p)}</div>`;
-    $("#title").textContent = "Enviador";
+    $("#title").textContent = "TurboSEND";
     $("#sub-txt").textContent = "";
   }
 
@@ -205,7 +205,7 @@
     if (!S) return;
     const host = hostName();
     $("#title").textContent = host;
-    document.title = (hiddenUnread ? `(${hiddenUnread}) ` : "") + `${host} · Enviador`;
+    document.title = (hiddenUnread ? `(${hiddenUnread}) ` : "") + `${host} · TurboSEND`;
     $("#host-av").textContent = initial(host);
     const dot = $("#sub .dot");
     dot.className = "dot " + (online ? "on" : errCount >= 2 ? "off" : "wait");
