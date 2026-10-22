@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TurboCUT</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <header class="titlebar">
+    <div class="brand">
+      <img src="logo.svg" alt="" width="22" height="22">
+      <span>Turbo<b>CUT</b></span>
+    </div>
+    <div class="pills" id="pills"></div>
+    <div class="winbtns">
+      <button class="wb" id="wb-home" title="Analizar otra unidad"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></svg></button>
+      <button class="wb" id="wb-settings" title="Ajustes"><svg viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <span class="wsep"></span>
+      <button class="wb" id="wb-min" title="Minimizar"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button class="wb" id="wb-max" title="Maximizar"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
+      <button class="wb close" id="wb-close" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+  </header>
+
+  <!-- ===== inicio: elegir qué analizar ===== -->
+  <main class="view home" id="v-home">
+    <div class="home-inner">
+      <div class="hero">
+        <h1>¿Qué quieres analizar?</h1>
+        <p>Elige una unidad o una carpeta. TurboCUT te enseña qué ocupa más y qué puedes borrar sin miedo.</p>
+      </div>
+      <div class="drives" id="drives"></div>
+      <div class="home-row">
+        <button class="btn ghost" id="pick-folder"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>Elegir una carpeta…</button>
+        <span class="hint">o arrastra una carpeta a esta ventana</span>
+        <span class="grow"></span>
+        <button class="btn ghost" id="back-results" hidden><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>Volver a los resultados</button>
+      </div>
+      <div class="turbo-card" id="turbo-card"></div>
+    </div>
+  </main>
+
+  <!-- ===== escaneando ===== -->
+  <main class="view scan" id="v-scan">
+    <div class="scan-card">
+      <div class="scan-art">
+        <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+        <div class="scan-ic"><img src="logo.svg" alt="" width="44" height="44"></div>
+      </div>
+      <div class="scan-title"><h1 id="scan-title">Analizando…</h1><span class="chip" id="scan-mode"></span></div>
+      <div class="scan-nums">
+        <div><b id="sc-files">0</b><span>archivos</span></div>
+        <div><b id="sc-dirs">0</b><span>carpetas</span></div>
+        <div><b id="sc-bytes">0 B</b><span>encontrado</span></div>
+        <div><b id="sc-time">0,0 s</b><span>tiempo</span></div>
+      </div>
+      <div class="scan-bar" id="scan-bar"><i></i></div>
+      <div class="scan-cur" id="scan-cur">&nbsp;</div>
+      <button class="btn ghost sm" id="scan-cancel">Cancelar</button>
+    </div>
+  </main>
+
+  <!-- ===== resultados ===== -->
+  <main class="view results" id="v-results">
+    <section class="main">
+      <div class="toolbar">
+        <button class="ibtn" id="nav-back" title="Atrás (Alt+←)"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+        <button class="ibtn" id="nav-up" title="Subir un nivel (Retroceso)"><svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button>
+        <nav class="crumbs" id="crumbs"></nav>
+        <button class="ibtn copyp" id="copy-path" title="Copiar la ruta"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        <div class="search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" placeholder="Buscar aquí dentro" spellcheck="false" autocomplete="off">
+          <button class="x" id="q-clear" title="Borrar búsqueda"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
+        <button class="ibtn" id="refresh" title="Volver a leer esta carpeta"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+      </div>
+
+      <div class="tabs" id="tabs">
+        <button data-tab="explorar" class="on"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>Carpetas</button>
+        <button data-tab="grandes"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>Archivos más grandes</button>
+        <button data-tab="limpieza"><svg viewBox="0 0 24 24"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></svg>Limpieza<span class="badge" id="clean-badge"></span></button>
+        <button data-tab="crecido"><svg viewBox="0 0 24 24"><path d="M22 7 13.5 15.5 8.5 10.5 2 17"/><path d="M16 7h6v6"/></svg>Qué ha crecido</button>
+        <span class="grow"></span>
+        <button class="tbtn" id="t-select" title="Mostrar casillas para marcar varios elementos"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></svg>Seleccionar</button>
+        <button class="tbtn" id="t-map" title="Mostrar el mapa de la carpeta"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M3 12h9M12 8h9"/></svg>Mapa</button>
+      </div>
+
+      <div class="pane nomap" id="p-explorar">
+        <div class="listbox" id="list"></div>
+        <div class="splitter" id="splitter" title="Arrastra para cambiar el tamaño del mapa"><i></i></div>
+        <div class="tm-wrap" id="tm-wrap">
+          <canvas id="tm"></canvas>
+          <canvas id="tm-hl"></canvas>
+          <div class="tm-empty" id="tm-empty" hidden>Carpeta vacía</div>
+        </div>
+      </div>
+      <div class="pane" id="p-grandes" hidden>
+        <div class="pane-head" id="big-head"></div>
+        <div class="listbox" id="big"></div>
+      </div>
+      <div class="pane scroll" id="p-limpieza" hidden><div id="clean"></div></div>
+      <div class="pane scroll" id="p-crecido" hidden><div id="grow"></div></div>
+
+      <div class="selbar" id="selbar">
+        <div class="sel-info"><b id="sel-count"></b><span id="sel-size"></span></div>
+        <button class="btn ghost sm" id="sel-clear">Quitar selección</button>
+        <button class="btn danger-solid sm" id="sel-delete"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Borrar…</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="panel disk" id="disk"></div>
+      <div class="panel">
+        <div class="panel-top">
+          <span class="label">Por tipo</span>
+          <div class="seg mini-seg" id="types-mode"><button data-m="cat" class="on">Tipos</button><button data-m="ext">Extensiones</button></div>
+        </div>
+        <div id="types"></div>
+      </div>
+      <div class="panel quick" id="quick"></div>
+    </aside>
+  </main>
+
+  <div class="dropveil" id="veil">
+    <div class="veil-box">
+      <div class="veil-ic"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg></div>
+      <h2>Suelta para analizar esta carpeta</h2>
+      <p>TurboCUT la recorrerá entera</p>
+    </div>
+  </div>
+
+  <div class="ctx" id="ctx" hidden></div>
+  <div class="tip" id="tip" hidden></div>
+  <div class="busy" id="busy"><div class="spinner"></div><span id="busy-t">Trabajando…</span></div>
+  <div class="toasts" id="toasts"></div>
+
+  <!-- confirmar borrado -->
+  <div class="modal" id="m-delete" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="del-title">¿Borrar?</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="del-list" id="del-list"></div>
+        <div class="del-total" id="del-total"></div>
+        <div class="warn" id="del-warn" hidden></div>
+        <label class="row toggle" id="del-perm-row"><div><b>Borrar para siempre</b><span>No pasa por la papelera: el espacio se libera al momento, pero no se puede deshacer.</span></div><input type="checkbox" id="del-perm"><i></i></label>
+        <div class="note" id="del-note"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost sm" data-close>Cancelar</button>
+        <button class="btn danger-solid sm" id="del-go">Borrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- resultado con fallos -->
+  <div class="modal" id="m-result" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="res-title">Listo</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div class="modal-body" id="res-body"></div>
+      <div class="modal-foot"><span></span><button class="btn primary sm" data-close>Entendido</button></div>
+    </div>
+  </div>
+
+  <!-- ajustes -->
+  <div class="modal" id="m-settings" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Ajustes</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="row"><div><b>Cómo medir el tamaño</b><span>«En disco» es lo que de verdad ocupa: no cuenta los archivos de OneDrive que solo están en la nube y sí la compresión.</span></div>
+          <div class="seg" id="s-measure"><button data-v="alloc">En disco</button><button data-v="size">Tamaño real</button></div></div>
+        <label class="row toggle"><div><b>Mostrar archivos ocultos y del sistema</b><span>Como pagefile.sys, hiberfil.sys o la carpeta ProgramData.</span></div><input type="checkbox" id="s-hidden"><i></i></label>
+        <label class="row toggle"><div><b>Recordar escaneos para comparar</b><span>Guarda el tamaño de las carpetas grandes (unos 100 KB por disco, como mucho 30 análisis) para decirte la próxima vez qué ha crecido.</span></div><input type="checkbox" id="s-history"><i></i></label>
+        <label class="row toggle"><div><b>Marcar en la lista lo que ha crecido o bajado</b><span>Pone una flecha naranja o verde junto a cada carpeta que ha cambiado desde el análisis anterior.</span></div><input type="checkbox" id="s-deltas"><i></i></label>
+        <div class="row"><div><b>Cambios que se tienen en cuenta</b><span>Solo se avisa de carpetas que hayan cambiado al menos esto (en la lista y en «Qué ha crecido»).</span></div>
+          <div class="seg" id="s-deltamin"><button data-v="100">100 MB</button><button data-v="500">500 MB</button><button data-v="1024">1 GB</button><button data-v="5120">5 GB</button></div></div>
+        <label class="row toggle"><div><b>Abrir siempre en modo turbo</b><span>TurboCUT pedirá permiso de administrador al abrirse para leer la MFT directamente.</span></div><input type="checkbox" id="s-admin"><i></i></label>
+      </div>
+      <div class="modal-foot">
+        <span class="ver" id="s-ver"></span>
+        <button class="btn primary sm" id="s-save">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

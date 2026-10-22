@@ -1,0 +1,58 @@
+# TurboCUT
+
+Analiza un disco o una carpeta a toda velocidad, te enseña qué ocupa más y te ayuda a borrar lo que sobra. Es como WinDirStat o WizTree, pero con la misma interfaz que el resto de herramientas.
+
+- **`TurboCUT.exe`**: un único ejecutable (~12 MB). No necesita instalar nada.
+- **Dos formas de escanear**:
+  - **Modo normal** (sin permisos): recorre las carpetas en paralelo. Un disco de 600 GB con 1,3 millones de archivos tarda unos 25 s la primera vez y unos 5 s las siguientes, porque Windows ya tiene las carpetas en caché.
+  - **⚡ Modo turbo** (como administrador): lee la MFT, el índice interno de NTFS, de un tirón, igual que WizTree. El mismo disco de 600 GB tarda unos 3-4 s, incluso la primera vez, y además ve las carpetas protegidas (`System Volume Information`, la papelera de otros usuarios…). Se activa con el botón «Reiniciar en modo turbo» o en Ajustes → «Abrir siempre en modo turbo».
+- **Qué enseña**:
+  - **Carpetas**: lista ordenada por tamaño, con barras, número de archivos y fecha. Arriba se ve siempre la ruta entera, con un botón para copiarla.
+  - **Mapa** (botón «Mapa»): rectángulos (treemap) donde cada color es un tipo de archivo. Al pasar el ratón por encima dice qué es; con doble clic entras en esa carpeta. Sale oculto por defecto.
+  - **Archivos más grandes**: los 300 mayores de la carpeta actual y sus subcarpetas. Puedes filtrarlos por tipo pulsando en el panel «Por tipo».
+  - **Limpieza**: busca sola temporales, cachés de navegadores, de shaders, de apps y de programación, volcados de errores, la papelera, instaladores y ZIP viejos en Descargas, `node_modules` sin tocar, carpetas `target` de Rust y modelos de IA. Lo separa en «Seguro de borrar», «Revisa antes» y «Para que lo sepas» (`hiberfil.sys`, `pagefile.sys`).
+  - **Qué ha crecido**: compara con el análisis anterior de la misma unidad o carpeta y te dice qué carpetas han crecido o bajado. En Ajustes se puede activar una flecha en la lista para cada carpeta que haya cambiado, y elegir a partir de cuánto se avisa (100 MB por defecto).
+- **Borrar con seguridad**:
+  - Por defecto todo va a la papelera. Si algo no cabe en ella, Windows avisa antes de borrarlo para siempre.
+  - «Borrar para siempre» pide confirmación aparte.
+  - Si intentas borrar algo de Windows, de Archivos de programa o tu carpeta de usuario, TurboCUT avisa y no deja seguir hasta que marques «Sé lo que hago».
+  - Si un archivo está en uso, dice qué programa lo tiene abierto.
+  - Las cachés y los temporales de la pestaña Limpieza se borran directamente, porque mandarlos a la papelera no liberaría espacio. Lo que esté en uso se salta solo.
+
+## Uso
+
+- **Analizar**: pulsa una unidad, usa «Elegir una carpeta…» o arrastra una carpeta a la ventana.
+- **Moverse**: un clic en una carpeta para entrar (o Intro), Retroceso para subir, Alt+← para volver atrás, Ctrl+F para buscar por nombre. En los archivos, doble clic los abre.
+- **Borrar uno**: el icono de la papelera de cada fila, o Supr (Mayús+Supr lo borra para siempre).
+- **Seleccionar varios**: el botón «Seleccionar» enseña las casillas. También vale Ctrl+clic o Espacio.
+- **Botón derecho**: abrir, mostrar en el Explorador, copiar ruta, volver a leer la carpeta o borrar.
+- **«En disco» o «Tamaño real»** (Ajustes): «En disco» es lo que de verdad ocupa. No cuenta los archivos de OneDrive que solo están en la nube y sí tiene en cuenta la compresión.
+
+Los ajustes y el historial de análisis se guardan en `%APPDATA%\TurboCUT`. El historial solo guarda el tamaño de las carpetas de más de 32 MB (unos 100 KB por disco) y como mucho los últimos 30 análisis.
+
+## Compilar
+
+Necesita Go y Wails v2:
+
+```powershell
+.\build.ps1
+```
+
+Las pruebas incluyen un disco NTFS falso en memoria para probar el lector de la MFT sin ser administrador. Para medir un disco de verdad:
+
+```powershell
+$env:TURBOCUT_SCAN = "C:\"; go test -run Real -v .
+```
+
+Estructura:
+
+| Archivo | Qué hace |
+|---|---|
+| `walk.go` | Modo normal: lee carpetas en paralelo con `GetFileInformationByHandleEx` (tamaños y fechas de golpe). |
+| `mft.go` | Modo turbo: abre `\\.\C:`, lee la MFT y reconstruye el árbol en memoria. |
+| `tree.go` | El árbol en arrays planos (48 bytes por archivo) y sus operaciones. |
+| `cleanup.go` | Reglas de la pestaña Limpieza. |
+| `history.go` | Guarda las carpetas grandes de cada análisis y calcula qué ha crecido. |
+| `delete.go`, `winapi.go` | Papelera, borrado definitivo, vaciar papelera y quién tiene un archivo abierto (Restart Manager). |
+| `app.go` | Lo que llama la interfaz: listados, mapa, búsqueda, tipos… |
+| `frontend/` | Interfaz (HTML, CSS y JS sin dependencias). |

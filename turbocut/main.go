@@ -1,0 +1,51 @@
+package main
+
+import (
+	"embed"
+	"os"
+	"path/filepath"
+
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	xwin "golang.org/x/sys/windows"
+)
+
+//go:embed all:frontend
+var assets embed.FS
+
+func main() {
+	app := NewApp()
+
+	// "Abrir siempre en modo turbo": se vuelve a lanzar como administrador.
+	if s := app.getSettings(); s.AlwaysAdmin && !isAdmin() {
+		if err := relaunchAsAdmin(os.Args[1:]); err == nil {
+			return
+		}
+	}
+
+	err := wails.Run(&options.App{
+		Title:            "TurboCUT",
+		Width:            1320,
+		Height:           840,
+		MinWidth:         1020,
+		MinHeight:        660,
+		Frameless:        true,
+		BackgroundColour: &options.RGBA{R: 10, G: 11, B: 18, A: 255},
+		AssetServer:      &assetserver.Options{Assets: assets},
+		OnStartup:        app.startup,
+		Bind:             []interface{}{app},
+		DragAndDrop:      &options.DragAndDrop{EnableFileDrop: true},
+		Windows: &windows.Options{
+			Theme:               windows.Dark,
+			WebviewUserDataPath: filepath.Join(dataDir(), "webview"),
+			DisablePinchZoom:    true,
+		},
+	})
+	if err != nil {
+		t, _ := xwin.UTF16PtrFromString("TurboCUT")
+		m, _ := xwin.UTF16PtrFromString("No se pudo iniciar TurboCUT:\n\n" + err.Error())
+		xwin.MessageBox(0, m, t, xwin.MB_ICONERROR)
+	}
+}

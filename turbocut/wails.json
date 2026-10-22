@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "TurboCUT",
+  "outputfilename": "TurboCUT",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "",
+  "author": {
+    "name": "Fernando",
+    "email": ""
+  },
+  "info": {
+    "companyName": "TurboCUT",
+    "productName": "TurboCUT",
+    "productVersion": "1.0.0",
+    "copyright": "Fernando",
+    "comments": "Analiza el disco a toda velocidad y libera espacio"
+  }
+}
