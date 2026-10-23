@@ -10,12 +10,11 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unsafe"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const version = "1.0"
+const version = "1.1"
 
 type App struct {
 	ctx context.Context
@@ -35,6 +34,9 @@ type App struct {
 	scanning bool
 
 	startScan string
+
+	dupeMu     sync.Mutex
+	dupeCancel context.CancelFunc // búsqueda de duplicados en marcha
 }
 
 type ScanInfo struct {
@@ -554,55 +556,6 @@ func (a *App) TopFiles(id int32, cat int) ([]Item, error) {
 	return a.sortedItems(t, h, id, m), nil
 }
 
-func containsFold(s, sub string) bool {
-	if len(sub) == 0 {
-		return true
-	}
-	for i := 0; i+len(sub) <= len(s); i++ {
-		ok := true
-		for j := 0; j < len(sub); j++ {
-			c := s[i+j]
-			if c >= 'A' && c <= 'Z' {
-				c += 'a' - 'A'
-			}
-			if c != sub[j] {
-				ok = false
-				break
-			}
-		}
-		if ok {
-			return true
-		}
-	}
-	return false
-}
-
-func (a *App) Search(id int32, q string) ([]Item, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	t, err := a.treeFor(id)
-	if err != nil {
-		return nil, err
-	}
-	q = strings.ToLower(strings.TrimSpace(q))
-	if q == "" {
-		return []Item{}, nil
-	}
-	m := a.measureFn()
-	h := &itemHeap{}
-	t.preorder(id, func(n int32) bool {
-		nd := &t.Nodes[n]
-		if n != id {
-			name := t.names[nd.NameOff : nd.NameOff+uint32(nd.NameLen)]
-			if containsFold(unsafeString(name), q) {
-				h.offer(n, m(nd), 500)
-			}
-		}
-		return nd.dir()
-	})
-	return a.sortedItems(t, h, id, m), nil
-}
-
 type CatStat struct {
 	Cat   uint8 `json:"cat"`
 	Size  int64 `json:"size"`
@@ -853,5 +806,3 @@ func (a *App) Summary() (*ScanInfo, error) {
 	s := a.info
 	return &s, nil
 }
-
-func unsafeString(b []byte) string { return unsafe.String(unsafe.SliceData(b), len(b)) }

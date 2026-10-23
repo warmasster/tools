@@ -429,3 +429,116 @@ func TestPruneSnapshots(t *testing.T) {
 		t.Fatal("no debería borrar el más nuevo")
 	}
 }
+
+func testApp(t *testing.T, dir string) *App {
+	tr, err := walkScan(context.Background(), dir, &Progress{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := defaultSettings()
+	s.Measure = "size"
+	return &App{settings: s, tree: tr}
+}
+
+func TestFind(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Fotos", "Vacaciones Málaga.JPG"), 3000)
+	writeFile(t, filepath.Join(dir, "Fotos", "vacaciones-2.png"), 100)
+	writeFile(t, filepath.Join(dir, "Vídeos", "Vacaciones.mp4"), 9000)
+	writeFile(t, filepath.Join(dir, "notas.txt"), 10)
+	a := testApp(t, dir)
+	names := func(q FindQuery) []string {
+		r, err := a.Find(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, it := range r.Items {
+			out = append(out, it.Name)
+		}
+		return out
+	}
+	all := FindQuery{Scope: a.tree.Root, Cat: -1}
+	q := all
+	q.Text = "VACACIONES"
+	if got := fmt.Sprint(names(q)); got != "[Vacaciones.mp4 Vacaciones Málaga.JPG vacaciones-2.png]" {
+		t.Fatalf("por tamaño: %s", got)
+	}
+	q.Text = "vacaciones málaga" // dos palabras y una tilde en mayúsculas/minúsculas
+	if got := fmt.Sprint(names(q)); got != "[Vacaciones Málaga.JPG]" {
+		t.Fatalf("dos palabras: %s", got)
+	}
+	q.Text = `"vacaciones m"`
+	if got := fmt.Sprint(names(q)); got != "[Vacaciones Málaga.JPG]" {
+		t.Fatalf("comillas: %s", got)
+	}
+	q = all
+	q.Text = "vacaciones .mp4"
+	if got := fmt.Sprint(names(q)); got != "[Vacaciones.mp4]" {
+		t.Fatalf("extensión: %s", got)
+	}
+	q = all
+	q.Cat, q.MinSize = 2, 1000 // imágenes de 1000 bytes o más
+	if got := fmt.Sprint(names(q)); got != "[Vacaciones Málaga.JPG]" {
+		t.Fatalf("tipo y tamaño: %s", got)
+	}
+	q = all
+	q.Kind, q.Text = "dirs", "o"
+	if got := fmt.Sprint(names(q)); got != "[Vídeos Fotos]" {
+		t.Fatalf("carpetas: %s", got)
+	}
+	q = all
+	q.Sort = "name"
+	if got := fmt.Sprint(names(q)); got != "[Fotos notas.txt Vacaciones Málaga.JPG vacaciones-2.png Vacaciones.mp4 Vídeos]" {
+		t.Fatalf("por nombre: %s", got)
+	}
+}
+
+func TestDupes(t *testing.T) {
+	dir := t.TempDir()
+	content := make([]byte, 300<<10)
+	for i := range content {
+		content[i] = byte(i * 7)
+	}
+	put := func(rel string, b []byte) {
+		p := filepath.Join(dir, rel)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("a/foto.raw", content)
+	put("b/copia de foto.raw", content)
+	put("c/otra copia.raw", content)
+	casi := append([]byte(nil), content...)
+	casi[150<<10] ^= 1 // mismo tamaño, principio y final iguales, distinto por dentro
+	put("d/casi igual.raw", casi)
+	if err := os.Link(filepath.Join(dir, "a", "foto.raw"), filepath.Join(dir, "a", "enlace duro.raw")); err != nil {
+		t.Fatal(err)
+	}
+	put("e/pequeño1.txt", []byte("hola"))
+	put("e/pequeño2.txt", []byte("hola"))
+	put("node_modules/x/foto.raw", content) // se salta por defecto
+
+	a := testApp(t, dir)
+	res, err := a.findDupes(context.Background(), DupeOpts{Scope: a.tree.Root, MinSize: 1 << 10}, func(DupeProgress) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Groups) != 1 {
+		t.Fatalf("grupos: %+v", res.Groups)
+	}
+	g := res.Groups[0]
+	var got []string
+	for _, f := range g.Files {
+		got = append(got, f.Name)
+	}
+	sort.Strings(got)
+	// el enlace duro y foto.raw son el mismo archivo: solo cuenta uno de los dos
+	if len(got) != 3 || got[0] != "copia de foto.raw" || got[2] != "otra copia.raw" {
+		t.Fatalf("archivos: %v", got)
+	}
+	if g.Wasted != 2*int64(len(content)) || res.Wasted != g.Wasted {
+		t.Fatalf("liberable: %d", g.Wasted)
+	}
+}

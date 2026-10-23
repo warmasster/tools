@@ -24,6 +24,7 @@ type DeleteResult struct {
 	Deleted int       `json:"deleted"`
 	Kept    int       `json:"kept"` // elementos que no se pudieron borrar (en uso, sin permiso…)
 	Failed  []Failure `json:"failed"`
+	Removed []int32   `json:"removed"` // elementos que ya no existen
 	Info    ScanInfo  `json:"info"`
 }
 
@@ -102,6 +103,7 @@ func (a *App) Clean(groups []string) (*DeleteResult, error) {
 		total.Deleted += r.Deleted
 		total.Kept += r.Kept
 		total.Failed = append(total.Failed, r.Failed...)
+		total.Removed = append(total.Removed, r.Removed...)
 	}
 	a.mu.Lock()
 	a.afterChange()
@@ -170,7 +172,7 @@ func (a *App) deleteIDs(ids []int32, permanent, detail bool) (*DeleteResult, err
 	runtime.EventsEmit(a.ctx, "busy", "Actualizando…")
 	defer runtime.EventsEmit(a.ctx, "busy", "")
 
-	res := &DeleteResult{Failed: []Failure{}}
+	res := &DeleteResult{Failed: []Failure{}, Removed: []int32{}}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for i, id := range ids {
@@ -180,6 +182,7 @@ func (a *App) deleteIDs(ids []int32, permanent, detail bool) (*DeleteResult, err
 		if _, err := os.Lstat(paths[i]); errors.Is(err, fs.ErrNotExist) {
 			res.Freed += sizes[i]
 			res.Deleted++
+			res.Removed = append(res.Removed, id)
 			t.remove(id)
 			continue
 		}

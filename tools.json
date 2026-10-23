@@ -21,7 +21,7 @@
       "name": "TurboCUT",
       "kind": "app",
       "dir": "turbocut",
-      "summary": "Analiza el disco a toda velocidad, enseña qué ocupa más y te ayuda a liberar espacio.",
+      "summary": "Analiza el disco a toda velocidad, busca cualquier archivo al instante, encuentra duplicados y te ayuda a liberar espacio.",
       "build": "turbocut/build.ps1",
       "output": "turbocut/TurboCUT.exe",
       "version": "turbocut/wails.json"

@@ -73,7 +73,7 @@
         <button class="ibtn copyp" id="copy-path" title="Copiar la ruta"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
         <div class="search">
           <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          <input id="q" placeholder="Buscar aquí dentro" spellcheck="false" autocomplete="off">
+          <input id="q" placeholder="Buscar archivos y carpetas (Ctrl+F)" spellcheck="false" autocomplete="off">
           <button class="x" id="q-clear" title="Borrar búsqueda"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
         </div>
         <button class="ibtn" id="refresh" title="Volver a leer esta carpeta"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
@@ -81,12 +81,14 @@
 
       <div class="tabs" id="tabs">
         <button data-tab="explorar" class="on"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>Carpetas</button>
-        <button data-tab="grandes"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>Archivos más grandes</button>
+        <button data-tab="grandes"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>Más grandes</button>
+        <button data-tab="buscar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Buscar</button>
+        <button data-tab="duplicados"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M4 16V5a2 2 0 0 1 2-2h11"/></svg>Duplicados<span class="badge" id="dupe-badge"></span></button>
         <button data-tab="limpieza"><svg viewBox="0 0 24 24"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></svg>Limpieza<span class="badge" id="clean-badge"></span></button>
         <button data-tab="crecido"><svg viewBox="0 0 24 24"><path d="M22 7 13.5 15.5 8.5 10.5 2 17"/><path d="M16 7h6v6"/></svg>Qué ha crecido</button>
         <span class="grow"></span>
-        <button class="tbtn" id="t-select" title="Mostrar casillas para marcar varios elementos"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></svg>Seleccionar</button>
-        <button class="tbtn" id="t-map" title="Mostrar el mapa de la carpeta"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M3 12h9M12 8h9"/></svg>Mapa</button>
+        <button class="tbtn" id="t-select" title="Mostrar casillas para marcar varios elementos"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></svg><span>Seleccionar</span></button>
+        <button class="tbtn" id="t-map" title="Mostrar el mapa de la carpeta"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M3 12h9M12 8h9"/></svg><span>Mapa</span></button>
       </div>
 
       <div class="pane nomap" id="p-explorar">
@@ -102,6 +104,20 @@
         <div class="pane-head" id="big-head"></div>
         <div class="listbox" id="big"></div>
       </div>
+      <div class="pane" id="p-buscar" hidden>
+        <div class="filters">
+          <div class="seg mini-seg" id="f-scope" title="Dónde buscar"><button data-v="all" class="on">Todo</button><button data-v="here">Esta carpeta</button></div>
+          <select class="fsel" id="f-kind" title="Qué buscar"><option value="">Archivos y carpetas</option><option value="files">Solo archivos</option><option value="dirs">Solo carpetas</option></select>
+          <select class="fsel" id="f-cat" title="Tipo de archivo"><option value="-1">Cualquier tipo</option></select>
+          <select class="fsel" id="f-size" title="Tamaño"><option value="">Cualquier tamaño</option><option value="1m">Más de 1 MB</option><option value="100m">Más de 100 MB</option><option value="1g">Más de 1 GB</option><option value="10g">Más de 10 GB</option><option value="-1m">Menos de 1 MB</option></select>
+          <select class="fsel" id="f-date" title="Fecha de modificación"><option value="">Cualquier fecha</option><option value="1">Hoy</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="365">Último año</option><option value="-365">Hace más de un año</option></select>
+          <select class="fsel" id="f-sort" title="Orden"><option value="size">Más grandes primero</option><option value="name">Por nombre</option><option value="mtime">Más recientes primero</option></select>
+          <span class="grow"></span>
+          <span class="fstat" id="f-stat"></span>
+        </div>
+        <div class="listbox" id="found"></div>
+      </div>
+      <div class="pane scroll" id="p-duplicados" hidden><div id="dupes"></div></div>
       <div class="pane scroll" id="p-limpieza" hidden><div id="clean"></div></div>
       <div class="pane scroll" id="p-crecido" hidden><div id="grow"></div></div>
 

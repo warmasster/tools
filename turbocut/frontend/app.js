@@ -232,6 +232,8 @@
     S.sel.clear();
     S.cands = null; S.growth = null; S.cleanSel.clear(); S.openCards.clear();
     S.bigCat = -1; S.hlCat = -1;
+    DUP.state = "idle"; DUP.res = null; $("#dupe-badge").textContent = "";
+    $("#q").value = ""; FIND.last = null; $("#f-stat").textContent = "";
     S.tab = "explorar";
     setTab("explorar", true);
     if (info.note) toast(info.note, "error");
@@ -255,7 +257,7 @@
 
   // ---------- navegación ----------
   async function go(id, opt = {}) {
-    const { push = true, focus = null, keepSearch = false } = opt;
+    const { push = true, focus = null } = opt;
     if (push && S.cur != null && S.cur !== id) S.hist.push({ id: S.cur, path: S.curPath });
     let L;
     try { L = await api.Listing(id); }
@@ -272,12 +274,12 @@
     S.curPath = L.path;
     S.listing = L;
     S.focus = focus;
-    if (!keepSearch) clearSearch(false);
     renderCrumbs();
-    if (!S.search) mainList.set(L.items, { total: L.node.size, more: L.more, moreSize: L.moreSize, paths: false, focus });
+    mainList.set(L.items, { total: L.node.size, more: L.more, moreSize: L.moreSize, paths: false, focus });
     loadTreemap();
     loadTypes();
     if (S.tab === "grandes") loadBig();
+    if (S.tab === "buscar" && FIND.scope === "here") runFind();
     $("#nav-back").disabled = S.hist.length === 0;
     $("#nav-up").disabled = L.crumbs.length <= 1;
   }
@@ -322,7 +324,7 @@
     box.tabIndex = 0;
     box.innerHTML = `<div class="lhead"></div><div class="lscroll"><div class="lspace"></div></div>`;
     const head = $(".lhead", box), scroller = $(".lscroll", box), space = $(".lspace", box);
-    const L = { items: [], total: 0, max: 0, more: 0, moreSize: 0, paths: false, sort: opt.sort || "size", dir: -1, focus: -1, empty: opt.empty };
+    const L = { items: [], total: 0, max: 0, more: 0, moreSize: 0, paths: false, sort: opt.sort || "size", dir: -1, focus: -1, empty: opt.empty, onDir: opt.onDir };
 
     function sortItems() {
       const k = L.sort, d = L.dir;
@@ -340,6 +342,7 @@
         (L.paths ? "" : col("files", "Archivos", "r")) + col("mtime", "Modificado", "r") + `<span></span>`;
       $$("span[data-k]", head).forEach((s) => s.addEventListener("click", () => {
         const k = s.dataset.k;
+        if (opt.onSort && k !== "files") { opt.onSort(k); return; }
         if (L.sort === k) L.dir = -L.dir; else { L.sort = k; L.dir = k === "name" ? 1 : -1; }
         if (k === "name") L.dir = L.sort === k ? L.dir : 1;
         const fid = L.items[L.focus] ? L.items[L.focus].id : null;
@@ -452,7 +455,9 @@
         L.total = o.total || 0;
         L.more = o.more || 0; L.moreSize = o.moreSize || 0;
         L.paths = !!o.paths;
+        L.abs = !!o.abs;
         L.base = o.base || S.curPath;
+        if (o.sort) { L.sort = o.sort; L.dir = o.sort === "name" ? 1 : -1; }
         L.max = items.reduce((m, x) => Math.max(m, x.size), 0);
         if (!L.paths) L.max = Math.max(L.max, 1);
         if (L.sort !== "size" || L.dir !== -1) sortItems();
@@ -475,6 +480,7 @@
   function fullPath(it, L) {
     const base = (L && L.base) || S.curPath;
     const join = (a, b) => a.replace(/\\$/, "") + "\\" + b;
+    if (L && L.abs) return join(it.path, it.name);
     if (L && L.paths) return join(it.path ? join(base, it.path) : base, it.name);
     return join(base, it.name);
   }
@@ -485,7 +491,7 @@
   }
   function renderSelbar() {
     const n = S.sel.size;
-    $("#selbar").classList.toggle("on", n > 0 && (S.tab === "explorar" || S.tab === "grandes"));
+    $("#selbar").classList.toggle("on", n > 0 && ["explorar", "grandes", "buscar", "duplicados"].includes(S.tab));
     if (!n) return;
     let tot = 0;
     for (const v of S.sel.values()) tot += v.size;
@@ -494,44 +500,230 @@
   }
 
   function openItem(it, L) {
-    if (it.dir) go(it.id);
+    if (it.dir && L && L.onDir) L.onDir(it);
+    else if (it.dir) go(it.id);
     else api.Open(it.id).catch((e) => toast(String(e), "error"));
   }
 
   const mainList = makeList($("#list"), {
-    empty: () => S.search ? `${ic("alert")}<b>Nada coincide con «${esc(S.search)}»</b><p>Se busca por nombre dentro de la carpeta actual y todas sus subcarpetas.</p>` : `${ic("folder")}<b>Carpeta vacía</b>`,
+    empty: () => `${ic("folder")}<b>Carpeta vacía</b>`,
     onFocus: (it) => { TM.selected = it ? it.id : null; drawHL(); },
   });
   const bigList = makeList($("#big"), {
     empty: () => `${ic("file")}<b>No hay archivos aquí</b>`,
   });
 
-  // ---------- búsqueda ----------
-  const doSearch = debounce(async () => {
-    const q = $("#q").value.trim();
-    S.search = q;
-    $(".search").classList.toggle("has", !!q);
-    if (!q) { clearSearch(true); return; }
-    if (S.tab !== "explorar") setTab("explorar");
-    try {
-      const items = await api.Search(S.cur, q);
-      if (S.search !== q) return;
-      mainList.set(items, { total: S.listing.node.size, paths: true, base: S.curPath });
-    } catch (e) { toast(String(e), "error"); }
-  }, 220);
-  function clearSearch(rerender) {
-    const had = !!S.search;
-    S.search = "";
-    $("#q").value = "";
-    $(".search").classList.remove("has");
-    if (rerender && had && S.listing) mainList.set(S.listing.items, { total: S.listing.node.size, more: S.listing.more, moreSize: S.listing.moreSize });
-  }
-  $("#q").addEventListener("input", doSearch);
-  $("#q").addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { clearSearch(true); $("#list").focus(); }
-    if (e.key === "ArrowDown") { e.preventDefault(); $("#list").focus(); }
+  // ---------- buscar en todo lo analizado ----------
+  const FIND = { scope: "all", req: 0, prevTab: "explorar", last: null };
+  const foundList = makeList($("#found"), {
+    empty: findEmpty,
+    onDir: (it) => { setTab("explorar"); go(it.id); },
+    onSort: (k) => { $("#f-sort").value = k; runFind(); },
   });
-  $("#q-clear").addEventListener("click", () => { clearSearch(true); $("#q").focus(); });
+  function findQuery() {
+    const size = $("#f-size").value, days = +$("#f-date").value || 0;
+    const units = { m: 1 << 20, g: 1 << 30 };
+    const q = {
+      text: $("#q").value.trim(),
+      scope: FIND.scope === "here" && S.cur != null ? S.cur : (S.scan ? S.scan.rootId : 0),
+      cat: +$("#f-cat").value, kind: $("#f-kind").value, sort: $("#f-sort").value,
+      minSize: 0, maxSize: 0, after: 0, before: 0,
+    };
+    if (size) {
+      const v = parseFloat(size.replace("-", "")) * units[size.slice(-1)];
+      if (size[0] === "-") q.maxSize = v; else q.minSize = v;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    if (days === 1) { const d = new Date(); d.setHours(0, 0, 0, 0); q.after = Math.floor(d / 1000); }
+    else if (days > 0) q.after = now - days * 86400;
+    else if (days < 0) q.before = now + days * 86400;
+    for (const id of ["f-kind", "f-cat", "f-size", "f-date"]) $("#" + id).classList.toggle("on", !["", "-1"].includes($("#" + id).value));
+    return q;
+  }
+  function findActive(q) { return !!(q.text || q.cat >= 0 || q.kind || q.minSize || q.maxSize || q.after || q.before); }
+  function findEmpty() {
+    if (FIND.last && FIND.last.tokens !== undefined && findActive(findQuery()))
+      return `${ic("alert")}<b>No hay nada que coincida</b><p>Prueba con menos palabras, otro filtro o busca en «Todo» en vez de en esta carpeta.</p>`;
+    const n = S.scan ? count(S.scan.files) : "todos los";
+    return `${ic("file")}<b>Busca entre los ${n} archivos analizados</b><p>Escribe arriba: aparece al instante mientras escribes. Puedes combinar varias palabras y filtros.</p>
+      <div class="hints"><code data-h="vacaciones .jpg">vacaciones .jpg</code><code data-h="ext:mp4,mkv">ext:mp4,mkv</code><code data-h='"copia de"'>"copia de"</code><code data-h="setup .exe">setup .exe</code></div>`;
+  }
+  $("#found").addEventListener("click", (e) => {
+    const h = e.target.closest("[data-h]");
+    if (!h) return;
+    $("#q").value = h.dataset.h;
+    $(".search").classList.add("has");
+    runFind();
+  });
+  async function runFind() {
+    const q = findQuery();
+    const req = ++FIND.req;
+    $(".search").classList.toggle("has", !!q.text);
+    if (!findActive(q)) {
+      FIND.last = null;
+      $("#f-stat").textContent = "";
+      foundList.set([], { paths: true, abs: true, sort: q.sort });
+      return;
+    }
+    try {
+      const r = await api.Find(q);
+      if (req !== FIND.req) return;
+      FIND.last = r;
+      const where = FIND.scope === "here" ? " en " + esc(r.base.split("\\").filter(Boolean).pop() || r.base) : "";
+      $("#f-stat").innerHTML = r.total
+        ? `<b>${count(r.total)}</b> ${r.total === 1 ? "resultado" : "resultados"}${where}${r.size ? " · " + fmtBytes(r.size) : ""}${r.total > r.items.length ? " · se ven los " + r.items.length + " primeros" : ""} · ${nf0.format(Math.max(1, r.ms))} ms`
+        : "";
+      foundList.set(r.items, { paths: true, abs: true, sort: q.sort, total: S.scan ? S.scan.scanned : 0 });
+    } catch (e) { if (req === FIND.req) toast(String(e), "error"); }
+  }
+  const runFindSoon = debounce(runFind, 90);
+  $("#q").addEventListener("input", () => {
+    if (S.tab !== "buscar") { FIND.prevTab = S.tab; setTab("buscar", true); }
+    runFindSoon();
+  });
+  $("#q").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      $("#q").value = "";
+      runFind();
+      setTab(FIND.prevTab || "explorar");
+      $("#q").blur();
+    }
+    if (e.key === "ArrowDown" || e.key === "Enter") { e.preventDefault(); $("#found").focus(); }
+  });
+  $("#q-clear").addEventListener("click", () => { $("#q").value = ""; runFind(); $("#q").focus(); });
+  for (const id of ["f-kind", "f-cat", "f-size", "f-date", "f-sort"]) $("#" + id).addEventListener("change", runFind);
+  $$("#f-scope button").forEach((b) => b.addEventListener("click", () => {
+    FIND.scope = b.dataset.v;
+    $$("#f-scope button").forEach((x) => x.classList.toggle("on", x === b));
+    runFind();
+  }));
+
+  // ---------- duplicados ----------
+  const DUP = { state: "idle", opts: { here: false, minSize: 1 << 20, includeSystem: false }, prog: null, res: null, shown: 120, keep: "old" };
+  function renderDupes() {
+    const el = $("#dupes");
+    const o = DUP.opts;
+    const scopeName = S.listing ? (S.listing.crumbs[S.listing.crumbs.length - 1].name.replace(/\\$/, "")) : "";
+    const opts = `<div class="dupe-opts">
+        <span class="lbl">Dónde</span><div class="seg mini-seg" id="d-scope"><button data-v="all" class="${o.here ? "" : "on"}">Todo lo analizado</button><button data-v="here" class="${o.here ? "on" : ""}" title="${esc(S.curPath)}">Solo en ${esc(scopeName)}</button></div>
+        <span class="lbl">Desde</span><div class="seg mini-seg" id="d-min">${[[1 << 20, "1 MB"], [10 << 20, "10 MB"], [100 << 20, "100 MB"]].map(([v, l]) => `<button data-v="${v}" class="${o.minSize === v ? "on" : ""}">${l}</button>`).join("")}</div>
+        <label class="chk"><input type="checkbox" id="d-sys" ${o.includeSystem ? "checked" : ""}>Incluir Windows, programas y AppData</label>
+      </div>`;
+    let html = `<div class="clean-head dupe-head"><div class="tile">${ic("copy")}</div><div class="txt">`;
+    if (DUP.state === "done" && DUP.res) {
+      const r = DUP.res;
+      html += r.groups.length
+        ? `<h2>Puedes liberar ${fmtBytes(r.wasted)} en duplicados</h2><p>${count(r.groups.length)} grupos de archivos idénticos · ${count(r.copies)} copias de más · comprobado byte a byte en ${fmtSecs(r.seconds)}${r.skipped ? ` · ${count(r.skipped)} archivos no se pudieron leer` : ""}</p>`
+        : `<h2>No hay duplicados</h2><p>Ningún archivo de más de ${fmtBytes(r.minSize)} está repetido${r.skipped ? ` (${count(r.skipped)} no se pudieron leer)` : ""}.</p>`;
+      html += `</div><button class="btn ghost sm" id="d-again">${ic("refresh")}Buscar de nuevo</button></div>`;
+    } else {
+      html += `<h2>Encuentra archivos repetidos</h2><p>Primero compara tamaños, sin leer nada. Solo abre los archivos que coinciden y confirma que son idénticos byte a byte.</p></div>
+        <button class="btn primary" id="d-go" ${DUP.state === "running" ? "disabled" : ""}>${ic("copy")}Buscar duplicados</button></div>`;
+    }
+    if (DUP.state !== "done") html += opts;
+    if (DUP.state === "running") {
+      const p = DUP.prog || { phase: "tamaños" };
+      let t = "Comparando tamaños…", n = "", w = -1;
+      if (p.phase === "principio") { t = "Leyendo el principio y el final de los candidatos…"; n = `${count(p.done)} de ${count(p.total)}`; w = p.total ? p.done / p.total : 0; }
+      if (p.phase === "contenido") { t = "Comparando el contenido completo…"; n = `${fmtBytes(p.bytes)} de ${fmtBytes(p.bytesTotal)}`; w = p.bytesTotal ? p.bytes / p.bytesTotal : 0; }
+      html += `<div class="dprog"><div class="t"><b>${t}</b><span>${n}</span><button class="btn ghost sm" id="d-cancel">Cancelar</button></div>
+        <div class="dbar${w < 0 ? " indet" : ""}"><i style="width:${w < 0 ? 30 : (w * 100).toFixed(1)}%"></i></div></div>`;
+    }
+    if (DUP.state === "done" && DUP.res && DUP.res.groups.length) {
+      html += `<div class="dtools"><span class="lbl">Marcar las copias y dejar</span>
+        <div class="seg mini-seg" id="d-keep"><button data-v="old" class="${DUP.keep === "old" ? "on" : ""}">la más antigua</button><button data-v="new" class="${DUP.keep === "new" ? "on" : ""}">la más reciente</button><button data-v="short" class="${DUP.keep === "short" ? "on" : ""}">la de ruta más corta</button></div>
+        <button class="btn primary sm" id="d-mark">${ic("check")}Marcar copias</button>
+        <button class="btn ghost sm" id="d-unmark">Desmarcar</button></div>`;
+      const groups = DUP.res.groups.slice(0, DUP.shown);
+      html += groups.map((g, gi) => {
+        const f0 = g.files[0];
+        return `<div class="dgroup" data-g="${gi}"><div class="dg-top"><div class="ic file" style="--cc:${catColor(f0.cat)}">${ic(catIcons[f0.cat] || "file")}</div>
+          <div class="n">${esc(f0.name)}<small>${fmtBytes(g.size)} × ${g.files.length}</small></div><div class="w">libera <b>${fmtBytes(g.wasted)}</b></div></div>` +
+          g.files.map((f, fi) => `<div class="dfile${S.sel.has(f.id) ? " sel" : ""}" data-g="${gi}" data-f="${fi}" title="${esc(f.path + "\\" + f.name)}">
+            <span class="ck${S.sel.has(f.id) ? " on" : ""}">${ic("check")}</span>
+            <span class="dp">&lrm;${esc(f.path)}\\<b>${esc(f.name)}</b>&lrm;</span>
+            <span class="dd">${fmtDate(f.mtime)}</span>
+            <button class="ibtn" data-reveal title="Mostrar en el Explorador">${ic("reveal")}</button>
+            <button class="ibtn" data-open title="Abrir">${ic("play")}</button></div>`).join("") + `</div>`;
+      }).join("");
+      if (DUP.res.groups.length > DUP.shown) html += `<div class="dmore"><button class="btn ghost sm" id="d-more">Ver ${count(Math.min(200, DUP.res.groups.length - DUP.shown))} grupos más (quedan ${count(DUP.res.groups.length - DUP.shown)})</button></div>`;
+    }
+    el.innerHTML = html;
+    const on = (id, fn) => { const b = $(id); if (b) b.addEventListener("click", fn); };
+    on("#d-go", startDupes);
+    on("#d-again", () => { DUP.state = "idle"; renderDupes(); });
+    on("#d-cancel", () => api.CancelDupes());
+    on("#d-more", () => { DUP.shown += 200; renderDupes(); });
+    on("#d-mark", () => markDupes(true));
+    on("#d-unmark", () => markDupes(false));
+    $$("#d-scope button").forEach((b) => b.addEventListener("click", () => { DUP.opts.here = b.dataset.v === "here"; renderDupes(); }));
+    $$("#d-min button").forEach((b) => b.addEventListener("click", () => { DUP.opts.minSize = +b.dataset.v; renderDupes(); }));
+    $$("#d-keep button").forEach((b) => b.addEventListener("click", () => { DUP.keep = b.dataset.v; renderDupes(); }));
+    const sys = $("#d-sys");
+    if (sys) sys.addEventListener("change", () => { DUP.opts.includeSystem = sys.checked; });
+  }
+  function dupeSel(f) { return { id: f.id, name: f.name, size: f.size, dir: false, flags: f.flags, cat: f.cat, path: f.path + "\\" + f.name }; }
+  $("#dupes").addEventListener("click", (e) => {
+    const row = e.target.closest(".dfile");
+    if (!row) return;
+    const g = DUP.res.groups[+row.dataset.g], f = g.files[+row.dataset.f];
+    if (e.target.closest("[data-reveal]")) { api.Reveal(f.id).catch((er) => toast(String(er), "error")); return; }
+    if (e.target.closest("[data-open]")) { api.Open(f.id).catch((er) => toast(String(er), "error")); return; }
+    if (S.sel.has(f.id)) S.sel.delete(f.id);
+    else {
+      if (g.files.filter((x) => x.id !== f.id).every((x) => S.sel.has(x.id))) { toast("Deja al menos una copia de cada archivo", "error"); return; }
+      S.sel.set(f.id, dupeSel(f));
+    }
+    row.classList.toggle("sel", S.sel.has(f.id));
+    $(".ck", row).classList.toggle("on", S.sel.has(f.id));
+    renderSelbar();
+  });
+  function markDupes(mark) {
+    if (!DUP.res) return;
+    for (const g of DUP.res.groups) {
+      for (const f of g.files) S.sel.delete(f.id);
+      if (!mark) continue;
+      const order = g.files.slice();
+      if (DUP.keep === "old") order.sort((a, b) => a.mtime - b.mtime);
+      if (DUP.keep === "new") order.sort((a, b) => b.mtime - a.mtime);
+      if (DUP.keep === "short") order.sort((a, b) => (a.path + a.name).length - (b.path + b.name).length);
+      order.slice(1).forEach((f) => S.sel.set(f.id, dupeSel(f)));
+    }
+    renderSelbar();
+    renderDupes();
+  }
+  async function startDupes() {
+    const o = DUP.opts;
+    DUP.state = "running"; DUP.prog = null;
+    renderDupes();
+    try {
+      await api.StartDupes({ scope: o.here && S.cur != null ? S.cur : S.scan.rootId, minSize: o.minSize, includeSystem: o.includeSystem });
+    } catch (e) { DUP.state = "idle"; renderDupes(); toast(String(e), "error"); }
+  }
+  rt.EventsOn("dupes", (p) => { if (DUP.state !== "running") return; DUP.prog = p; if (S.tab === "duplicados") renderDupes(); });
+  rt.EventsOn("dupesdone", (r) => {
+    if (r.result) {
+      DUP.state = "done"; DUP.res = r.result; DUP.shown = 120;
+      $("#dupe-badge").textContent = r.result.wasted > 0 ? fmtBytes(r.result.wasted) : "";
+      if (S.tab !== "duplicados") toast(r.result.groups.length ? `Duplicados: puedes liberar ${fmtBytes(r.result.wasted)}` : "No hay duplicados");
+    } else {
+      DUP.state = "idle";
+      if (r.error) toast(String(r.error), "error");
+    }
+    if (S.tab === "duplicados") renderDupes();
+  });
+  // quita de los resultados lo que se acaba de borrar
+  function pruneDupes(removed) {
+    if (!DUP.res || !removed || !removed.length) return;
+    const gone = new Set(removed);
+    const r = DUP.res;
+    r.groups = r.groups.map((g) => ({ ...g, files: g.files.filter((f) => !gone.has(f.id)) })).filter((g) => g.files.length > 1);
+    r.groups.forEach((g) => { g.wasted = g.size * (g.files.length - 1); });
+    r.wasted = r.groups.reduce((s, g) => s + g.wasted, 0);
+    r.copies = r.groups.reduce((s, g) => s + g.files.length - 1, 0);
+    $("#dupe-badge").textContent = r.wasted > 0 ? fmtBytes(r.wasted) : "";
+  }
+  function renderAllSel() { mainList.render(); bigList.render(); foundList.render(); if (S.tab === "duplicados") renderDupes(); }
 
   // ---------- mapa (treemap) ----------
   const TM = { data: null, rects: [], hover: null, selected: null, area: 0, w: 0, h: 0, req: 0 };
@@ -882,12 +1074,15 @@
   function setTab(tab, silent) {
     S.tab = tab;
     $$("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
-    for (const t of ["explorar", "grandes", "limpieza", "crecido"]) $("#p-" + t).hidden = t !== tab;
+    for (const t of ["explorar", "grandes", "buscar", "duplicados", "limpieza", "crecido"]) $("#p-" + t).hidden = t !== tab;
+    if (tab === "buscar") requestAnimationFrame(() => foundList.render());
     renderSelbar();
     if (silent) return;
     if (tab === "grandes") loadBig();
     if (tab === "limpieza") { if (S.cands) renderClean(); else loadCleanupSummary(); }
     if (tab === "crecido") loadGrowth();
+    if (tab === "buscar") { runFind(); setTimeout(() => $("#q").focus(), 0); }
+    if (tab === "duplicados") renderDupes();
     if (tab === "explorar") requestAnimationFrame(() => { mainList.render(); resizeTreemap(); });
   }
   $$("#tabs button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
@@ -1110,7 +1305,10 @@
     renderPills();
     S.cands = null;
     S.growth = null;
+    pruneDupes(res.removed);
     await go(S.cur, { push: false, focus: null, path: S.curPath });
+    if (S.tab === "buscar") runFind();
+    if (S.tab === "duplicados") renderDupes();
     loadCleanupSummary();
   }
 
@@ -1237,14 +1435,15 @@
     $("#t-select").classList.toggle("on", S.selMode);
     $("#list").classList.toggle("selmode", S.selMode);
     $("#big").classList.toggle("selmode", S.selMode);
-    if (!S.selMode) S.sel.clear();
+    $("#found").classList.toggle("selmode", S.selMode);
+    if (!S.selMode && S.tab !== "duplicados") S.sel.clear();
     renderSelbar();
-    mainList.render(); bigList.render();
+    renderAllSel();
   });
   $("#nav-up").addEventListener("click", goUp);
   $("#nav-back").addEventListener("click", goBack);
   $("#refresh").addEventListener("click", () => refreshFolder(S.cur).catch((e) => toast(String(e), "error")));
-  $("#sel-clear").addEventListener("click", () => { S.sel.clear(); renderSelbar(); mainList.render(); bigList.render(); });
+  $("#sel-clear").addEventListener("click", () => { S.sel.clear(); renderSelbar(); renderAllSel(); });
   $("#sel-delete").addEventListener("click", () => askDelete([...S.sel.values()]));
 
   document.addEventListener("keydown", (e) => {
@@ -1255,7 +1454,7 @@
       if (open) { open.hidden = true; return; }
     }
     if (S.view !== "results" || $$(".modal").some((m) => !m.hidden)) return;
-    if (e.key === "f" && e.ctrlKey) { e.preventDefault(); $("#q").focus(); $("#q").select(); return; }
+    if (e.key === "f" && e.ctrlKey) { e.preventDefault(); if (S.tab !== "buscar") { FIND.prevTab = S.tab; setTab("buscar"); } $("#q").focus(); $("#q").select(); return; }
     if (typing) return;
     if (e.key === "Backspace") { e.preventDefault(); goUp(); }
     if (e.key === "ArrowLeft" && e.altKey) { e.preventDefault(); goBack(); }
@@ -1286,9 +1485,11 @@
       S.info = { admin: false, drives: [], settings: {}, categories: [], version: "" };
     }
     S.cats = S.info.categories || [];
+    $("#f-cat").insertAdjacentHTML("beforeend", S.cats.map((c, i) => i ? `<option value="${i}">${esc(c.label)}</option>` : "").join("") + `<option value="0">Otros</option>`);
     renderHome();
     show("home");
     if (S.info.startScan) startScan(S.info.startScan);
+    else if (S.info.scan) onScanned(S.info.scan); // la página se recargó: el análisis sigue en memoria
   })();
   // refresca "analizado hace…" de vez en cuando
   setInterval(() => { if (S.view === "results") renderDisk(); }, 60000);

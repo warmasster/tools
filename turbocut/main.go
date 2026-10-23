@@ -19,7 +19,8 @@ func main() {
 	app := NewApp()
 
 	// "Abrir siempre en modo turbo": se vuelve a lanzar como administrador.
-	if s := app.getSettings(); s.AlwaysAdmin && !isAdmin() {
+	// (TURBOCUT_NO_ELEVATE=1 lo evita, para las pruebas con wails dev)
+	if s := app.getSettings(); s.AlwaysAdmin && !isAdmin() && os.Getenv("TURBOCUT_NO_ELEVATE") == "" {
 		if err := relaunchAsAdmin(os.Args[1:]); err == nil {
 			return
 		}

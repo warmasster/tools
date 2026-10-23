@@ -40,6 +40,7 @@ type Tree struct {
 	mu       sync.Mutex // solo para construir en paralelo
 	Nodes    []Node
 	names    []byte
+	lower    []byte // nombres en minúsculas para buscar (se crea al buscar)
 	exts     []string
 	extIdx   map[string]uint16
 	Root     int32
