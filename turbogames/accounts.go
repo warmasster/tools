@@ -303,15 +303,27 @@ func cleanTags(tags []string) []string {
 	return out
 }
 
-// validAccountName: los nombres de usuario de Steam son letras, números y _.
-func validAccountName(n string) bool {
-	if len(n) < 2 || len(n) > 64 {
-		return false
+// accountNameError dice qué le pasa a un nombre de usuario de Steam, o "" si
+// vale. Steam solo deja letras sin acentos, números y _, de 3 a 64.
+func accountNameError(n string) string {
+	switch {
+	case n == "":
+		return "Escribe el usuario de Steam"
+	case strings.ContainsRune(n, '@'):
+		return "Es el usuario con el que entras en Steam, no el correo"
+	case strings.ContainsAny(n, " 	"):
+		return "El usuario de Steam no lleva espacios"
+	case len(n) < 3:
+		return "El usuario de Steam tiene al menos 3 caracteres"
+	case len(n) > 64:
+		return "El usuario de Steam tiene como mucho 64 caracteres"
 	}
 	for _, r := range n {
-		if !(r == '_' || r == '-' || r == '.' || r == '@' || unicode.IsLetter(r) || unicode.IsDigit(r)) {
-			return false
+		if !(r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+			return "El usuario de Steam solo lleva letras sin acentos, números y _"
 		}
 	}
-	return true
+	return ""
 }
+
+func validAccountName(n string) bool { return accountNameError(n) == "" }

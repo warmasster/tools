@@ -13,10 +13,12 @@ type Settings struct {
 	LockMinutes int    `json:"lockMinutes"` // cerrar la bóveda tras estos minutos sin usarla
 	ClipSeconds int    `json:"clipSeconds"` // borrar del portapapeles lo copiado de la bóveda
 	AfterSwitch string `json:"afterSwitch"` // "nada" o "minimizar"
+	// ConfirmSwitch: preguntar antes de cerrar Steam para cambiar de cuenta
+	ConfirmSwitch bool `json:"confirmSwitch"`
 }
 
 func defaultSettings() Settings {
-	return Settings{LockMinutes: 5, ClipSeconds: 20, AfterSwitch: "nada"}
+	return Settings{LockMinutes: 5, ClipSeconds: 20, AfterSwitch: "nada", ConfirmSwitch: true}
 }
 
 func (s *Settings) normalize() {

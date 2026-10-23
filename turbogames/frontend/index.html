@@ -193,6 +193,7 @@
       <div class="modal-body">
         <p class="mtext" id="mf-text"></p>
         <label class="row toggle" id="mf-steam-row"><div><b>Que Steam también la olvide</b><span>Borra su sesión guardada en este PC. Para volver a usarla tendrás que entrar con la contraseña.</span></div><input type="checkbox" id="mf-steam"><i></i></label>
+        <div class="warn-box" id="mf-note" hidden></div>
         <label class="row toggle" id="mf-vault-row"><div><b>Borrar sus datos de la bóveda</b><span>Contraseña, correo, código de recuperación y notas privadas.</span></div><input type="checkbox" id="mf-vault"><i></i></label>
       </div>
       <div class="modal-foot">
@@ -209,9 +210,10 @@
         <h2 id="mc-title"></h2>
         <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
       </div>
-      <div class="modal-body"><p class="mtext" id="mc-text"></p></div>
+      <div class="modal-body"><div class="mtext" id="mc-text"></div><label class="chk" id="mc-check-row" hidden><input type="checkbox" id="mc-check"><span id="mc-check-t"></span></label></div>
       <div class="modal-foot">
         <button class="btn ghost sm" data-close>Cancelar</button>
+        <button class="btn ghost sm" id="mc-alt" hidden></button>
         <button class="btn primary sm" id="mc-go"></button>
       </div>
     </div>
@@ -227,6 +229,7 @@
       <div class="modal-body">
         <div class="row"><div><b>Carpeta de Steam</b><span class="mono" id="s-dir"></span></div>
           <div class="row-btns tight"><button class="btn ghost sm" id="s-dir-auto" hidden>Automática</button><button class="btn ghost sm" id="s-dir-pick">Cambiar…</button></div></div>
+        <label class="row toggle"><div><b>Preguntar antes de cambiar de cuenta</b><span>Pide confirmación antes de cerrar Steam para entrar con otra cuenta. Si hay un juego abierto, pregunta siempre.</span></div><input type="checkbox" id="s-confirm"><i></i></label>
         <label class="row toggle"><div><b>Abrir Steam minimizado</b><span>Al cambiar de cuenta, Steam se abre directamente en la bandeja, sin ventana.</span></div><input type="checkbox" id="s-silent"><i></i></label>
         <div class="row"><div><b>Después de cambiar de cuenta</b><span>Qué hace TurboGAMES cuando ya has entrado.</span></div>
           <div class="seg" id="s-after"><button data-v="nada">Nada</button><button data-v="minimizar">Minimizarse</button></div></div>

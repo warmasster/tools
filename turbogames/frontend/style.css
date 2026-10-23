@@ -324,6 +324,10 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; scrollbar-widt
 .cover .badges { position: absolute; left: 8px; top: 8px; right: 8px; display: flex; gap: 4px; flex-wrap: wrap; }
 .cover .badges span { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 7px; background: rgba(5,6,10,.72); backdrop-filter: blur(6px); color: var(--txt); border: 1px solid rgba(255,255,255,.1); }
 .cover .badges .run { background: rgba(16,185,129,.85); border-color: transparent; }
+.cover .badges .st-update, .cover .badges .st-incomplete { background: rgba(245,158,11,.85); border-color: transparent; color: #1a1205; }
+.cover .badges .st-updating { background: rgba(14,165,233,.85); border-color: transparent; }
+.cover .badges .st-missing { background: rgba(244,63,94,.88); border-color: transparent; }
+.chip.bad { color: #fecdd3; background: rgba(244,63,94,.12); border-color: rgba(244,63,94,.32); }
 .game:hover .cover, .game.sel .cover { transform: translateY(-3px); box-shadow: 0 22px 40px -18px rgba(99,102,241,.7); border-color: rgba(139,92,246,.45); }
 .game.sel .cover { border-color: rgba(129,140,248,.85); box-shadow: 0 0 0 3px rgba(99,102,241,.22), 0 22px 40px -18px rgba(99,102,241,.7); }
 .game:hover .shade { opacity: 1; }
@@ -494,6 +498,14 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; scrollbar-widt
 .v-hero .tile svg { width: 28px; height: 28px; }
 .v-hero p { margin: 0; color: var(--muted); font-size: 13px; max-width: 360px; }
 .note { font-size: 12px; color: var(--dim); padding: 2px 0 6px; }
+.chk { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+.chk input { accent-color: var(--i); width: 15px; height: 15px; margin: 0; }
+.mtext .warn-box { margin: 10px 0 0; }
+.mtext p { margin: 0 0 6px; }
+.hint.caps { color: #fde68a; }
+.hint.ferr { margin-top: 5px; }
+.tag-err { flex-basis: 100%; font-size: 11.5px; color: #fca5a5; }
+.tag-err:empty { display: none; }
 
 .choice { width: 100%; display: flex; align-items: center; gap: 14px; text-align: left; padding: 14px; border-radius: 16px; cursor: pointer; background: linear-gradient(135deg, rgba(139,92,246,.1), rgba(34,211,238,.04)); border: 1px solid rgba(139,92,246,.28); transition: border-color .2s, background .2s, transform .15s; }
 .choice:hover { border-color: rgba(139,92,246,.6); background: linear-gradient(135deg, rgba(139,92,246,.16), rgba(34,211,238,.07)); }

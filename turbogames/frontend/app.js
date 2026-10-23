@@ -294,7 +294,7 @@
     const heroBg = a.recent ? `<div class="bg" style="background-image:url('/img/app/${a.recent.appid}/hero')"></div>` : "";
     const actions = a.active
       ? `<button class="btn ghost sm wide" data-act="open-steam">${ic("open")}Abrir Steam</button><button class="ibtn" data-act="menu" title="Más opciones">${ic("more")}</button>`
-      : `<button class="btn primary sm" data-act="switch">${ic("login")}Entrar con esta cuenta</button><button class="btn ghost sm" data-act="offline" title="Entrar en modo sin conexión (solo si ya ha entrado antes en este PC)">${ic("wifioff")}</button><button class="ibtn" data-act="menu" title="Más opciones">${ic("more")}</button>`;
+      : `<button class="btn primary sm" data-act="switch">${ic("login")}Entrar con esta cuenta</button><button class="btn ghost sm" data-act="offline" title="${a.hasToken ? "Entrar en modo sin conexión" : "Sin conexión solo funciona si la cuenta tiene la sesión guardada en este PC"}"${a.hasToken ? "" : " disabled"}>${ic("wifioff")}</button><button class="ibtn" data-act="menu" title="Más opciones">${ic("more")}</button>`;
     box.innerHTML = `
       <div class="d-hero">${heroBg}
         <div class="d-id">${avatarHTML(a, "lg")}
@@ -310,7 +310,7 @@
       <div class="d-sec" id="d-card">
         <div class="sec-h"><span class="label">Ficha</span><span class="saved" id="d-saved">${ic("check")} Guardado</span></div>
         <div class="alias-row"><input class="inp" id="d-alias" maxlength="40" placeholder="Apodo (opcional, solo para ti)" value="${esc(a.alias)}" spellcheck="false"></div>
-        <div class="tags" id="d-tags">${(a.tags || []).map((t) => `<span class="chip tag">#${esc(t)}<button data-untag="${esc(t)}" title="Quitar">${ic("x")}</button></span>`).join("")}<input class="tag-add" id="d-tag" maxlength="24" placeholder="+ etiqueta" spellcheck="false"></div>
+        <div class="tags" id="d-tags">${(a.tags || []).map((t) => `<span class="chip tag">#${esc(t)}<button data-untag="${esc(t)}" title="Quitar">${ic("x")}</button></span>`).join("")}<input class="tag-add" id="d-tag" maxlength="24" placeholder="+ etiqueta" spellcheck="false" title="Escribe y pulsa Intro"><span class="tag-err" id="d-tag-err"></span></div>
         <textarea class="inp note-area" id="d-notes" maxlength="2000" placeholder="Notas: para qué la usas, con quién la compartes… (no es secreto: para eso está la bóveda)" spellcheck="false">${esc(a.notes)}</textarea>
       </div>
       <div class="d-sec" id="d-games"></div>
@@ -399,16 +399,42 @@
   }
 
   // ---------- acciones de cuenta ----------
+  // opts: offline, appid (juego a abrir), forceAsk (preguntar aunque esté
+  // desactivado en Ajustes), note (texto extra para la pregunta), alt y onAlt
+  // (otro botón en la pregunta)
   async function switchTo(a, opts = {}) {
     if (!a) return;
     if (S.switching) { toast("Ya se está cambiando de cuenta", "error"); return; }
     const st = S.steam;
-    if (st.running && st.runningApp && !(a.active && !opts.offline)) {
-      const g = S.games && S.games.games.find((x) => x.appid === st.runningApp);
-      const ok = await confirmBox("Hay un juego abierto", `Para cambiar de cuenta hay que cerrar Steam, y con él <b>${esc(g ? g.name : "el juego que tienes abierto")}</b>. Guarda la partida antes.`, "Cerrar y cambiar");
-      if (!ok) return;
-    }
+    if (!st.found) { toast("No encuentro Steam en este PC", "error"); return; }
     if (a.active && !opts.offline && !opts.appid) { toast("Ya estás dentro con " + display(a)); return; }
+    if (opts.offline && !a.hasToken) {
+      toast("Para entrar sin conexión, la cuenta tiene que tener la sesión guardada en este PC (entrar antes marcando «Recordarme»)", "error");
+      return;
+    }
+    const willClose = st.running && !(a.active && !opts.offline);
+    const game = st.runningApp && willClose ? (S.games && S.games.games.find((x) => x.appid === st.runningApp)) : null;
+    const target = opts.appid && S.games && S.games.games.find((x) => x.appid === opts.appid);
+    const asked = (st.runningApp && willClose) || opts.forceAsk || (S.settings.confirmSwitch !== false && (willClose || !a.hasToken));
+    if (asked) {
+      let html = opts.note ? `<p>${opts.note}</p>` : "";
+      html += `<p>${willClose ? "Steam se cerrará un momento y volverá a abrirse" : "Steam se abrirá"} con <b>${esc(display(a))}</b>${opts.offline ? " en modo sin conexión" : ""}.${target ? ` Después se abrirá <b>${esc(target.name)}</b>.` : ""}</p>`;
+      if (st.runningApp && willClose) html += `<div class="warn-box red">También se cerrará <b>${esc(game ? game.name : S.runningName || "el juego que tienes abierto")}</b>. Guarda la partida antes.</div>`;
+      if (!a.hasToken) html += `<div class="warn-box">Esta cuenta no tiene la sesión guardada: Steam te pedirá la contraseña.${a.hasSecret ? " La tienes en la bóveda y podrás copiarla desde aquí." : " No la tienes guardada en la bóveda."}</div>`;
+      const r = await ask({
+        title: target ? `¿Jugar con ${display(a)}?` : `¿Cambiar a ${display(a)}?`,
+        html,
+        ok: target ? "Cambiar y jugar" : opts.offline ? "Entrar sin conexión" : "Cambiar de cuenta",
+        alt: opts.alt,
+        check: S.settings.confirmSwitch !== false && !opts.forceAsk ? "No volver a preguntar" : "",
+      });
+      if (r.checked) {
+        S.settings.confirmSwitch = false;
+        api.SaveSettings({ ...S.settings }).then(() => toast("Ya no te preguntaré. Puedes volver a activarlo en Ajustes.")).catch(() => { });
+      }
+      if (r.alt) { if (opts.onAlt) opts.onAlt(); return; }
+      if (!r.ok) return;
+    }
     showSwitch(a, opts);
     try {
       const r = await api.SwitchTo({ name: a.name, offline: !!opts.offline, appid: opts.appid || 0 });
@@ -441,7 +467,7 @@
     const items = [{ head: display(a) }];
     if (!a.active) {
       items.push({ icon: "login", label: "Entrar con esta cuenta", fn: () => switchTo(a) });
-      items.push({ icon: "wifioff", label: "Entrar sin conexión", fn: () => switchTo(a, { offline: true }) });
+      items.push({ icon: "wifioff", label: "Entrar sin conexión", fn: () => switchTo(a, { offline: true }), disabled: !a.hasToken });
     } else items.push({ icon: "open", label: "Abrir Steam", fn: openSteam });
     items.push("-");
     items.push({ icon: "copy", label: "Copiar usuario", fn: () => copyField(a, "name") });
@@ -625,7 +651,7 @@
         <div class="cover"><div class="ph" style="--ph1:hsl(${hue} 55% 38%);--ph2:hsl(${(hue + 50) % 360} 60% 24%)">${esc(g.name)}</div>
           <img loading="lazy" src="/img/app/${g.appid}/cover" alt="" draggable="false" onload="this.classList.add('ok')" onerror="this.remove()">
           <div class="shade"></div>
-          <div class="badges">${g.running ? `<span class="run">En marcha</span>` : ""}${g.type === "demo" ? "<span>Demo</span>" : ""}</div>
+          <div class="badges">${g.running ? `<span class="run">En marcha</span>` : ""}${g.type === "demo" ? "<span>Demo</span>" : ""}${STATE[g.state] ? `<span class="st-${g.state}">${STATE[g.state].short}</span>` : ""}</div>
           <button class="playb" data-play="${g.appid}" title="${g.installed ? "Jugar" : "Instalar o jugar"}">${ic("play")}</button>
         </div>
         <div class="gname" title="${esc(g.name)}">${esc(g.name)}</div>
@@ -634,6 +660,14 @@
     }).join("");
     renderGameDetail();
   }
+
+  // estados de instalación que hay que avisar (los da Go en g.state)
+  const STATE = {
+    update: { short: "Actualizar", long: "Necesita actualizarse", cls: "ask", tip: "Steam lo actualizará antes de abrirlo" },
+    updating: { short: "Actualizando", long: "Actualizándose", cls: "token", tip: "Steam lo está descargando o verificando" },
+    incomplete: { short: "Incompleto", long: "Instalación incompleta", cls: "ask", tip: "Le faltan archivos o no terminó de instalarse" },
+    missing: { short: "Falta la carpeta", long: "Falta la carpeta", cls: "bad", tip: "Steam lo da por instalado pero su carpeta ya no está" },
+  };
 
   function selectGame(appid) {
     S.gameSel = appid;
@@ -652,14 +686,58 @@
     return active || null;
   }
 
+  // playGame abre un juego comprobando antes que se puede: que no esté ya
+  // abierto, que esté instalado y bien, y con qué cuenta. Si hay que cambiar
+  // de cuenta, siempre pregunta.
   async function playGame(g, a) {
+    if (!S.steam.found) { toast("No encuentro Steam en este PC", "error"); return; }
+    if (g.running) { toast(`${g.name} ya está abierto`); return; }
+    const chosen = !!a;
     a = a || bestAccountFor(g);
-    if (!a || a.active) {
-      try { await api.PlayGame(g.appid, ""); toast(g.installed ? `Abriendo ${g.name}…` : `Steam te ofrecerá instalar ${g.name}`); }
-      catch (e) { toast(errText(e), "error"); }
+    const active = activeAcc();
+    const fail = (e) => toast(errText(e), "error");
+    const needSwitch = a && !a.active;
+
+    if (!g.installed) {
+      if (!needSwitch) {
+        const r = await ask({ title: `${g.name} no está instalado`, html: "<p>Steam te ofrecerá instalarlo. Si la cuenta abierta no lo tiene, te llevará a la tienda.</p>", ok: "Instalar" });
+        if (r.ok) api.SteamURL("steam://install/" + g.appid).then(() => toast("Steam te pedirá dónde instalarlo")).catch(fail);
+        return;
+      }
+      switchTo(a, { appid: g.appid, forceAsk: true, note: `<b>${esc(g.name)}</b> no está instalado: al entrar con la cuenta que lo ha jugado, Steam te ofrecerá instalarlo.` });
       return;
     }
-    switchTo(a, { appid: g.appid });
+    if (g.state === "missing") {
+      const r = await ask({ title: "Falta la carpeta del juego", html: `<p>Steam cree que <b>${esc(g.name)}</b> está instalado en</p><div class="warn-box"><span class="mono">${esc(g.dir)}</span></div><p style="margin-top:8px">pero esa carpeta ya no existe (quizá la borraste a mano). Al verificar los archivos, Steam lo vuelve a descargar.</p>`, ok: "Verificar archivos" });
+      if (r.ok) api.SteamURL("steam://validate/" + g.appid).then(() => toast("Steam está verificando los archivos")).catch(fail);
+      return;
+    }
+    if (g.state === "incomplete") {
+      const r = await ask({ title: "La instalación no está completa", html: `<p>A <b>${esc(g.name)}</b> le faltan archivos o no terminó de instalarse. Steam lo terminará antes de abrirlo.</p>`, ok: "Seguir" });
+      if (!r.ok) return;
+    }
+    if (S.steam.runningApp && !needSwitch) {
+      const other = S.games && S.games.games.find((x) => x.appid === S.steam.runningApp);
+      const r = await ask({ title: "Ya hay un juego abierto", html: `<p>Tienes abierto <b>${esc(other ? other.name : S.runningName || "otro juego")}</b>. Steam suele abrir solo uno a la vez.</p>`, ok: "Abrir igualmente" });
+      if (!r.ok) return;
+    }
+    const pre = g.state === "updating" ? "Steam lo está actualizando: se abrirá cuando termine" : g.state === "update" ? "Steam lo actualizará antes de abrirlo" : "";
+    const launch = async () => {
+      try { await api.PlayGame(g.appid, ""); toast(pre || `Abriendo ${g.name}…`); }
+      catch (e) { fail(e); }
+    };
+    if (!needSwitch) { launch(); return; }
+
+    // hay que cambiar de cuenta: preguntar siempre y ofrecer jugar con la actual
+    let note = "";
+    if (!chosen && active && !g.players.some((p) => p.steamId === active.steamId)) {
+      note = `<b>${esc(display(active))}</b>, la cuenta abierta ahora, no lo ha jugado en este PC; <b>${esc(display(a))}</b> sí.`;
+    }
+    switchTo(a, {
+      appid: g.appid, forceAsk: true, note,
+      alt: active && S.steam.running ? `Jugar con ${display(active)}` : "",
+      onAlt: launch,
+    });
   }
 
   function renderGameDetail() {
@@ -681,7 +759,7 @@
       <div class="g-hero" style="background-image:url('/img/app/${g.appid}/hero'),url('/img/app/${g.appid}/header')"><div class="logo" style="background-image:url('/img/app/${g.appid}/logo')"></div></div>
       <div class="g-head">
         <h2>${esc(g.name)}</h2>
-        <div class="d-chips">${g.running ? '<span class="chip live">En marcha</span>' : ""}${g.installed ? `<span class="chip token">${ic("check")}Instalado</span>` : `<span class="chip off">No instalado</span>`}${g.type === "demo" ? '<span class="chip">Demo</span>' : ""}</div>
+        <div class="d-chips">${g.running ? '<span class="chip live">En marcha</span>' : ""}${g.installed ? (STATE[g.state] ? `<span class="chip ${STATE[g.state].cls}" title="${esc(STATE[g.state].tip)}">${ic("alert")}${STATE[g.state].long}</span>` : `<span class="chip token">${ic("check")}Instalado</span>`) : `<span class="chip off">No instalado</span>`}${g.type === "demo" ? '<span class="chip">Demo</span>' : ""}</div>
         <div class="g-play"><button class="btn go sm" data-act="play">${ic("play")}${playLabel}</button>${S.accounts.filter((a) => a.steamId).length > 1 ? `<button class="ibtn" data-act="play-menu" title="Jugar con otra cuenta">${ic("users")}</button>` : ""}<button class="ibtn" data-act="game-menu" title="Más opciones">${ic("more")}</button></div>
       </div>
       <div class="d-sec">
@@ -710,7 +788,7 @@
       { icon: "open", label: "Ver en la biblioteca de Steam", fn: () => api.SteamURL("steam://nav/games/details/" + g.appid).catch((e) => toast(errText(e), "error")) },
       { icon: "store", label: "Página de la tienda", fn: () => rt.BrowserOpenURL("https://store.steampowered.com/app/" + g.appid) },
       g.installed ? { icon: "folder", label: "Abrir la carpeta", fn: () => api.OpenFolder(g.dir).catch((e) => toast(errText(e), "error")) } : null,
-      g.installed ? { icon: "verify", label: "Verificar archivos", fn: () => api.SteamURL("steam://validate/" + g.appid).catch((e) => toast(errText(e), "error")) } : { icon: "download", label: "Instalar", fn: () => api.SteamURL("steam://install/" + g.appid).catch((e) => toast(errText(e), "error")) },
+      g.installed ? { icon: "verify", label: "Verificar archivos", fn: () => api.SteamURL("steam://validate/" + g.appid).catch((e) => toast(errText(e), "error")) } : { icon: "download", label: "Instalar", fn: () => playGame(g) },
       g.installed ? { icon: "copy", label: "Copiar la ruta", fn: () => api.CopyText(g.dir).then(() => toast("Ruta copiada")) } : null,
       { icon: "id", label: "Copiar el número del juego (" + g.appid + ")", fn: () => api.CopyText(String(g.appid)).then(() => toast("Copiado")) },
     ].filter(Boolean), x, y);
@@ -792,6 +870,9 @@
     const a = val("#mv-a"), b = val("#mv-b");
     if ((mode === "create" || mode === "change") && a.length < 8) return err("La contraseña maestra debe tener al menos 8 caracteres.");
     if ((mode === "create" || mode === "change") && a !== b) return err("Las dos contraseñas no coinciden.");
+    if (mode === "change" && !val("#mv-o")) return err("Escribe la contraseña maestra actual.");
+    if (mode === "change" && val("#mv-o") === a) return err("La nueva es igual que la actual.");
+    if ((mode === "create" || mode === "change") && a.trim() !== a) return err("La contraseña maestra no puede empezar ni acabar con un espacio.");
     if (!a) return err("Escribe la contraseña maestra.");
     go.classList.add("busy");
     try {
@@ -865,21 +946,39 @@
     $("#ms-rec").value = e.recovery || "";
     $("#ms-notes").value = e.notes || "";
     wireEyes($("#m-secret"));
+    clearErrs($("#m-secret"));
+    secretOrig = secretValues();
     $("#ms-clear").hidden = !(e.password || e.email || e.emailPassword || e.recovery || e.notes);
     $("#m-secret").hidden = false;
     setTimeout(() => $("#ms-pass").focus(), 50);
+  }
+  let secretOrig = "";
+  const secretValues = () => JSON.stringify(["#ms-pass", "#ms-email", "#ms-epass", "#ms-rec", "#ms-notes"].map((i) => $(i).value));
+  function secretCheck() {
+    const email = $("#ms-email").value.trim(), rec = $("#ms-rec").value.trim(), epass = $("#ms-epass").value;
+    let ok = fieldErr($("#ms-email"), emailError(email));
+    ok = fieldErr($("#ms-rec"), recoveryError(rec)) && ok;
+    ok = fieldErr($("#ms-epass"), epass && !email ? "Falta el correo de esta contraseña" : "") && ok;
+    fieldErr($("#ms-pass"), spaceHint($("#ms-pass").value), true);
+    return ok;
   }
   async function saveSecret(ev, clear) {
     if (ev) ev.preventDefault();
     const a = secretFor;
     if (!a) return;
-    if (clear && !(await confirmBox("¿Borrar sus datos de acceso?", `Se borrarán la contraseña, el correo, el código de recuperación y las notas privadas de <b>${esc(display(a))}</b>.`, "Borrar", true))) return;
-    const e = clear ? {} : { password: $("#ms-pass").value, email: $("#ms-email").value, emailPassword: $("#ms-epass").value, recovery: $("#ms-rec").value, notes: $("#ms-notes").value };
+    if (clear && !(await confirmBox("¿Borrar sus datos de acceso?", `<p>Se borrarán la contraseña, el correo, el código de recuperación y las notas privadas de <b>${esc(display(a))}</b>.</p>`, "Borrar", true))) return;
+    if (!clear && !secretCheck()) { shake($("#m-secret")); return; }
+    if (!clear && secretValues() === secretOrig) { secretOrig = ""; $("#m-secret").hidden = true; return; }
+    const e = clear ? {} : { password: $("#ms-pass").value, email: $("#ms-email").value.trim(), emailPassword: $("#ms-epass").value, recovery: $("#ms-rec").value.trim().toUpperCase(), notes: $("#ms-notes").value };
+    if (!clear && !e.password && !e.email && !e.emailPassword && !e.recovery && !e.notes && secretOrig.replace(/[\[\]",]/g, "") !== "") {
+      if (!(await confirmBox("¿Dejarla sin datos?", `<p>Has vaciado todos los campos: se borrará lo que había guardado de <b>${esc(display(a))}</b>.</p>`, "Borrar", true))) return;
+    }
     try {
       await api.VaultSet(a.name, e);
       S.secrets.delete(a.key);
+      secretOrig = "";
       $("#m-secret").hidden = true;
-      toast(clear ? "Datos de acceso borrados" : "Guardado en la bóveda");
+      toast(clear || (!e.password && !e.email && !e.recovery && !e.notes && !e.emailPassword) ? "Datos de acceso borrados" : "Guardado en la bóveda");
       await loadAccounts();
     } catch (err) { toast(errText(err), "error"); }
   }
@@ -888,6 +987,7 @@
   function openAdd() {
     $("#ma-name").value = "";
     $("#ma-pass").value = "";
+    clearErrs($("#m-add"));
     const v = S.vault;
     $("#ma-pass").disabled = false;
     $("#ma-note").textContent = !v.exists ? "La contraseña se guardará cifrada: primero te pediré crear la bóveda." : !v.unlocked ? "Para guardar la contraseña te pediré abrir la bóveda." : "La contraseña se guarda cifrada en la bóveda.";
@@ -895,13 +995,31 @@
     $("#m-add").hidden = false;
     setTimeout(() => $("#ma-name").focus(), 50);
   }
+  // addCheck comprueba el formulario de añadir y dice qué cuenta sería
+  function addCheck() {
+    const inp = $("#ma-name"), name = inp.value.trim();
+    let msg = accountNameError(name);
+    const dup = !msg && S.accounts.find((x) => x.key === name.toLowerCase());
+    if (dup && !dup.hidden) msg = `Ya la tienes en la lista${dup.persona && dup.persona !== dup.name ? " (" + dup.persona + ")" : ""}`;
+    fieldErr(inp, msg);
+    if (!msg && dup && dup.hidden) fieldErr(inp, "Estaba oculta: volverá a la lista", true);
+    return { name, ok: !msg, dup };
+  }
   async function addManual(andEnter) {
-    const name = $("#ma-name").value.trim(), pass = $("#ma-pass").value;
-    if (!name) { $("#ma-name").classList.add("bad"); $("#ma-name").focus(); return; }
+    const { name, ok, dup } = addCheck();
+    const pass = $("#ma-pass").value;
+    if (!ok) { shake($("#m-add")); $("#ma-name").focus(); return; }
+    if (pass && pass.trim() === "") { fieldErr($("#ma-pass"), "La contraseña no puede ser solo espacios"); shake($("#m-add")); return; }
+    if (dup && dup.hasSecret && pass) {
+      if (!(await confirmBox("¿Cambiar su contraseña guardada?", `<p><b>${esc(display(dup))}</b> ya tiene una contraseña en la bóveda. Se cambiará por la nueva.</p>`, "Cambiarla"))) return;
+    }
     const doIt = async () => {
       try {
-        await api.AddManualAccount(name);
-        if (pass) await api.VaultSet(name, { password: pass });
+        const res = await api.AddManualAccount(name);
+        if (pass) {
+          const prev = dup && S.vault.unlocked ? await api.VaultGet(name).catch(() => ({})) : {};
+          await api.VaultSet(name, { ...prev, password: pass });
+        }
         $("#m-add").hidden = true;
         await loadAccounts();
         const a = S.accounts.find((x) => x.key === name.toLowerCase());
@@ -910,9 +1028,9 @@
           selectAccount(a.key, true);
           renderAccounts();
           if (andEnter) switchTo(a);
-          else toast(`${name} guardada`);
+          else toast(res && res.restored ? `${display(a)} vuelve a la lista` : `${name} guardada`);
         }
-      } catch (e) { toast(errText(e), "error"); }
+      } catch (e) { fieldErr($("#ma-name"), errText(e)); $("#m-add").hidden = false; shake($("#m-add")); }
     };
     if (pass && !S.vault.unlocked) {
       $("#m-add").hidden = true;
@@ -922,9 +1040,13 @@
     doIt();
   }
   async function addViaSteam() {
+    if (!S.steam.found) { toast("No encuentro Steam en este PC", "error"); return; }
+    if (S.switching || S.steam.switching) { toast("Ya se está cambiando de cuenta", "error"); return; }
     $("#m-add").hidden = true;
-    if (S.steam.runningApp) {
-      if (!(await confirmBox("Hay un juego abierto", "Para abrir el inicio de sesión hay que cerrar Steam, y con él el juego. Guarda la partida antes.", "Cerrar Steam"))) return;
+    if (S.steam.running && (S.steam.runningApp || S.settings.confirmSwitch !== false)) {
+      let html = "<p>Steam se cerrará y volverá a abrirse en su pantalla de inicio de sesión, sin entrar en ninguna cuenta.</p>";
+      if (S.steam.runningApp) html += `<div class="warn-box red">También se cerrará <b>${esc(S.runningName || "el juego que tienes abierto")}</b>. Guarda la partida antes.</div>`;
+      if (!(await confirmBox("¿Abrir el inicio de sesión de Steam?", html, "Cerrar Steam y seguir"))) return;
     }
     S.steam.switching = true; renderPills();
     try {
@@ -945,6 +1067,13 @@
     $("#mf-steam").checked = false;
     $("#mf-vault-row").hidden = !(a.hasSecret && S.vault.exists);
     $("#mf-vault").checked = a.hasSecret && S.vault.exists;
+    const note = () => {
+      const on = $("#mf-steam").checked && S.steam.running;
+      $("#mf-note").hidden = !on;
+      $("#mf-note").innerHTML = on ? `Steam se cerrará un momento para olvidarla y volverá a abrirse${a.active ? ", sin entrar en ninguna cuenta (es la que está abierta ahora)" : ""}.${S.steam.runningApp ? " <b>También se cerrará el juego que tienes abierto.</b>" : ""}` : "";
+    };
+    $("#mf-steam").onchange = note;
+    note();
     $("#m-forget").hidden = false;
   }
   async function doForget() {
@@ -952,9 +1081,7 @@
     if (!a) return;
     const o = { steam: a.inSteam && $("#mf-steam").checked, vault: a.hasSecret && S.vault.exists && $("#mf-vault").checked };
     if (o.vault && !S.vault.unlocked) { $("#m-forget").hidden = true; openVault("unlock", () => { openForget(a); }); return; }
-    if (o.steam && S.steam.running && S.steam.runningApp) {
-      if (!(await confirmBox("Hay un juego abierto", "Para que Steam olvide la cuenta hay que cerrarlo un momento, y con él el juego.", "Cerrar y seguir"))) return;
-    }
+    if (o.steam && (S.switching || S.steam.switching)) { toast("Espera a que termine el cambio de cuenta", "error"); return; }
     const btn = $("#mf-go");
     btn.classList.add("busy");
     try {
@@ -968,23 +1095,89 @@
   }
 
   // ---------- confirmación ----------
-  function confirmBox(title, html, okLabel, danger) {
+  // ask enseña una pregunta y devuelve { ok, alt, checked }.
+  function ask({ title, html, ok, danger, alt, check }) {
     return new Promise((resolve) => {
       const m = $("#m-confirm");
       $("#mc-title").textContent = title;
       $("#mc-text").innerHTML = html;
-      const go = $("#mc-go");
-      go.textContent = okLabel;
+      const go = $("#mc-go"), altB = $("#mc-alt");
+      go.textContent = ok;
       go.className = "btn sm " + (danger ? "danger-solid" : "primary");
+      altB.hidden = !alt;
+      altB.textContent = alt || "";
+      $("#mc-check-row").hidden = !check;
+      $("#mc-check").checked = false;
+      $("#mc-check-t").textContent = check || "";
       let done = false;
-      const finish = (v) => { if (done) return; done = true; m.hidden = true; obs.disconnect(); resolve(v); };
-      go.onclick = () => finish(true);
-      const obs = new MutationObserver(() => { if (m.hidden) finish(false); });
+      const finish = (v) => {
+        if (done) return;
+        done = true;
+        obs.disconnect();
+        m.hidden = true;
+        resolve({ ok: v === "ok", alt: v === "alt", checked: v !== "no" && $("#mc-check").checked });
+      };
+      go.onclick = () => finish("ok");
+      altB.onclick = () => finish("alt");
+      const obs = new MutationObserver(() => { if (m.hidden) finish("no"); });
       obs.observe(m, { attributes: true, attributeFilter: ["hidden"] });
       m.hidden = false;
       setTimeout(() => go.focus(), 50);
     });
   }
+  async function confirmBox(title, html, okLabel, danger) {
+    return (await ask({ title, html, ok: okLabel, danger })).ok;
+  }
+
+  // ---------- errores en los formularios ----------
+  function fieldErr(input, msg, soft) {
+    const field = input.closest(".field");
+    let h = field && field.querySelector(".hint.ferr");
+    if (field && !h) { h = document.createElement("div"); h.className = "hint ferr"; field.appendChild(h); }
+    if (h) { h.textContent = msg || ""; h.hidden = !msg; h.classList.toggle("bad", !soft); h.classList.toggle("caps", !!soft); }
+    input.classList.toggle("bad", !!msg && !soft);
+    return !msg || soft;
+  }
+  function clearErrs(root) {
+    $$(".hint.ferr, .hint.caps", root).forEach((h) => { h.textContent = h.classList.contains("ferr") ? "" : h.textContent; h.hidden = true; });
+    $$(".bad", root).forEach((i) => { if (!i.classList.contains("hint")) i.classList.remove("bad"); });
+  }
+  function shake(m) { const c = $(".modal-card", m); c.classList.remove("shake"); void c.offsetWidth; c.classList.add("shake"); }
+
+  // las mismas reglas que comprueba Go (accountNameError)
+  function accountNameError(n) {
+    if (!n) return "Escribe el usuario de Steam";
+    if (n.includes("@")) return "Es el usuario con el que entras en Steam, no el correo";
+    if (/\s/.test(n)) return "El usuario de Steam no lleva espacios";
+    if (n.length < 3) return "El usuario de Steam tiene al menos 3 caracteres";
+    if (n.length > 64) return "El usuario de Steam tiene como mucho 64 caracteres";
+    if (!/^[A-Za-z0-9_]+$/.test(n)) return "El usuario de Steam solo lleva letras sin acentos, números y _";
+    return "";
+  }
+  function emailError(v) {
+    if (!v) return "";
+    const at = v.lastIndexOf("@");
+    if (at < 1 || !v.slice(at + 1).includes(".") || /[\s,;]/.test(v) || v.endsWith(".")) return "Ese correo no parece válido";
+    return "";
+  }
+  function recoveryError(v) {
+    if (!v) return "";
+    return /^R\d{5}$/i.test(v) ? "" : "Es una R y 5 números, como R12345";
+  }
+  const spaceHint = (v) => v && v !== v.trim() ? "Ojo: empieza o acaba con un espacio" : "";
+
+  // aviso de Bloq Mayús en los campos de contraseña
+  function capsHint(input, on) {
+    const field = input.closest(".field");
+    if (!field) return;
+    let h = field.querySelector(".hint.capslock");
+    if (!h && on) { h = document.createElement("div"); h.className = "hint caps capslock"; h.textContent = "Bloq Mayús está activado"; field.appendChild(h); }
+    if (h) h.hidden = !on;
+  }
+  for (const ev of ["keydown", "keyup"]) {
+    document.addEventListener(ev, (e) => { if (e.target.matches && e.target.matches(".pw input") && e.getModifierState) capsHint(e.target, e.getModifierState("CapsLock")); });
+  }
+  document.addEventListener("focusout", (e) => { if (e.target.matches && e.target.matches(".pw input")) capsHint(e.target, false); });
 
   // ---------- ajustes ----------
   let pendingDir = null;
@@ -999,6 +1192,7 @@
     $("#s-dir-pick").onclick = async () => { try { const d = await api.PickSteamDir(); if (d) { pendingDir = d; drawDir(); } } catch (e) { toast(errText(e), "error"); } };
     $("#s-dir-auto").onclick = () => { pendingDir = ""; drawDir(); };
     $("#s-silent").checked = !!s.startSilent;
+    $("#s-confirm").checked = s.confirmSwitch !== false;
     setSeg("#s-after", s.afterSwitch || "nada");
     setSeg("#s-lock", String(s.lockMinutes || 5));
     setSeg("#s-clip", String(s.clipSeconds || 20));
@@ -1008,7 +1202,7 @@
   function setSeg(sel, v) { $$(sel + " button").forEach((b) => b.classList.toggle("on", b.dataset.v === v)); }
   const segVal = (sel) => { const b = $(sel + " button.on"); return b ? b.dataset.v : ""; };
   async function saveSettings() {
-    const s = { steamDir: pendingDir || "", startSilent: $("#s-silent").checked, afterSwitch: segVal("#s-after"), lockMinutes: +segVal("#s-lock"), clipSeconds: +segVal("#s-clip") };
+    const s = { steamDir: pendingDir || "", startSilent: $("#s-silent").checked, confirmSwitch: $("#s-confirm").checked, afterSwitch: segVal("#s-after"), lockMinutes: +segVal("#s-lock"), clipSeconds: +segVal("#s-clip") };
     try {
       S.steam = await api.SaveSettings(s);
       S.settings = s;
@@ -1201,8 +1395,14 @@
     if (e.target.id === "d-alias" && e.key === "Enter") { e.target.blur(); }
     if (e.target.id === "d-tag" && (e.key === "Enter" || e.key === ",")) {
       e.preventDefault();
-      const t = e.target.value.replace(/^#/, "").trim();
-      if (!t) return;
+      const t = e.target.value.replace(/^#+/, "").trim();
+      const errEl = $("#d-tag-err");
+      const say = (m) => { if (errEl) errEl.textContent = m; };
+      if (!t) { say(""); return; }
+      if ((a.tags || []).some((x) => x.toLowerCase() === t.toLowerCase())) { say("Ya tiene esa etiqueta"); return; }
+      if ((a.tags || []).length >= 8) { say("Como mucho 8 etiquetas por cuenta"); return; }
+      if (/[\s,#]/.test(t)) { say("Sin espacios, comas ni #: usa una palabra o guiones"); return; }
+      say("");
       const tags = [...(a.tags || []), t];
       if (await patchAccount(a, { tags })) {
         await loadAccounts();
@@ -1249,21 +1449,31 @@
     const r = act.getBoundingClientRect();
     const fail = (err) => toast(errText(err), "error");
     switch (act.dataset.act) {
-      case "play": g.installed ? playGame(g) : api.SteamURL("steam://install/" + g.appid).catch(fail); break;
+      case "play": playGame(g); break;
       case "play-menu": playAsMenu(g, r.left - 210, r.bottom + 4); break;
       case "game-menu": gameMenu(g, r.left - 210, r.bottom + 4); break;
       case "folder": api.OpenFolder(g.dir).catch(fail); break;
       case "steam-lib": api.SteamURL("steam://nav/games/details/" + g.appid).catch(fail); break;
       case "store": rt.BrowserOpenURL("https://store.steampowered.com/app/" + g.appid); break;
       case "verify": api.SteamURL("steam://validate/" + g.appid).then(() => toast("Steam está verificando los archivos")).catch(fail); break;
-      case "install": api.SteamURL("steam://install/" + g.appid).catch(fail); break;
+      case "install": playGame(g); break;
     }
   });
 
   // modales
+  // closeModal cierra un modal; si es el de datos de acceso con cambios sin
+  // guardar, pregunta antes
+  async function closeModal(m) {
+    if (m.id === "m-secret" && secretOrig && secretValues() !== secretOrig) {
+      if (!(await confirmBox("¿Descartar los cambios?", "<p>Has cambiado los datos de acceso y no los has guardado.</p>", "Descartar", true))) return;
+    }
+    if (m.id === "m-secret") secretOrig = "";
+    m.hidden = true;
+  }
+  const topModal = () => $$(".modal").filter((m) => !m.hidden).pop();
   $$(".modal").forEach((m) => {
-    m.addEventListener("mousedown", (e) => { if (e.target === m) m.hidden = true; });
-    $$("[data-close]", m).forEach((b) => b.addEventListener("click", () => { m.hidden = true; }));
+    m.addEventListener("mousedown", (e) => { if (e.target === m) closeModal(m); });
+    $$("[data-close]", m).forEach((b) => b.addEventListener("click", () => closeModal(m)));
   });
   $("#mv-form").addEventListener("submit", submitVault);
   $("#ms-form").addEventListener("submit", (e) => saveSecret(e, false));
@@ -1271,7 +1481,11 @@
   $("#ma-steam").addEventListener("click", addViaSteam);
   $("#ma-form").addEventListener("submit", (e) => { e.preventDefault(); addManual(true); });
   $("#ma-save").addEventListener("click", () => addManual(false));
-  $("#ma-name").addEventListener("input", (e) => e.target.classList.remove("bad"));
+  $("#ma-name").addEventListener("input", debounce(() => { if ($("#ma-name").value) addCheck(); else clearErrs($("#m-add")); }, 250));
+  $("#ma-name").addEventListener("blur", () => { if ($("#ma-name").value) addCheck(); });
+  $("#ma-pass").addEventListener("input", () => fieldErr($("#ma-pass"), spaceHint($("#ma-pass").value), true));
+  for (const id of ["#ms-email", "#ms-rec", "#ms-epass", "#ms-pass"]) $(id).addEventListener("input", debounce(secretCheck, 300));
+  $("#ms-rec").addEventListener("blur", (e) => { e.target.value = e.target.value.trim().toUpperCase(); secretCheck(); });
   $("#mf-go").addEventListener("click", doForget);
   $("#s-save").addEventListener("click", saveSettings);
   $$("#m-settings .seg").forEach((sg) => sg.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setSeg("#" + sg.id, b.dataset.v); }));
@@ -1300,8 +1514,8 @@
     if (e.key === "Escape") {
       if (!$("#ctx").hidden) { closeMenu(); return; }
       if (!$("#vault-pop").hidden) { closePop(); return; }
-      const open = $$(".modal").find((m) => !m.hidden);
-      if (open) { open.hidden = true; return; }
+      const open = topModal();
+      if (open) { e.preventDefault(); closeModal(open); return; }
       if (inField) { e.target.blur(); return; }
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
@@ -1390,9 +1604,9 @@
     const games = [
       { appid: 294100, name: "RimWorld", type: "game", installed: true, dir: "C:\\Program Files (x86)\\Steam\\steamapps\\common\\RimWorld", library: "C:\\Program Files (x86)\\Steam", size: 577e6, updated: now - 86400 * 20, lastPlayed: now - 3600, minutes: 19376, owner: "76561198000000001", players: [{ key: "nightowl_99", name: "nightowl_99", persona: "NightOwl", steamId: "76561198000000001", minutes: 19376, lastPlayed: now - 3600 }], running: false },
       { appid: 730, name: "Counter-Strike 2", type: "game", installed: true, dir: "D:\\SteamLibrary\\steamapps\\common\\Counter-Strike Global Offensive", library: "D:\\SteamLibrary", size: 36e9, updated: now - 86400 * 2, lastPlayed: now - 86400 * 3, minutes: 9100, owner: "76561198000000002", players: [{ key: "smurfito", name: "smurfito", persona: "Smurfito", steamId: "76561198000000002", minutes: 4200, lastPlayed: now - 86400 * 3 }, { key: "nightowl_99", name: "nightowl_99", persona: "NightOwl", steamId: "76561198000000001", minutes: 4900, lastPlayed: now - 86400 * 9 }], running: false },
-      { appid: 108600, name: "Project Zomboid", type: "game", installed: true, dir: "C:\\Program Files (x86)\\Steam\\steamapps\\common\\ProjectZomboid", library: "C:\\", size: 10.3e9, updated: now - 86400 * 25, lastPlayed: now - 86400 * 15, minutes: 6200, owner: "76561198000000001", players: [{ key: "nightowl_99", name: "nightowl_99", persona: "NightOwl", steamId: "76561198000000001", minutes: 6200, lastPlayed: now - 86400 * 15 }], running: false },
+      { appid: 108600, name: "Project Zomboid", type: "game", installed: true, dir: "C:\\Program Files (x86)\\Steam\\steamapps\\common\\ProjectZomboid", library: "C:\\", size: 10.3e9, state: "update", updated: now - 86400 * 25, lastPlayed: now - 86400 * 15, minutes: 6200, owner: "76561198000000001", players: [{ key: "nightowl_99", name: "nightowl_99", persona: "NightOwl", steamId: "76561198000000001", minutes: 6200, lastPlayed: now - 86400 * 15 }], running: false },
       { appid: 945360, name: "Among Us", type: "game", installed: true, dir: "C:\\Games\\Among Us", library: "C:\\", size: 1.1e9, updated: now - 86400 * 60, lastPlayed: now - 86400 * 40, minutes: 900, owner: "76561198000000003", players: [{ key: "familia_lopez", name: "familia_lopez", persona: "Lopez Family", steamId: "76561198000000003", minutes: 900, lastPlayed: now - 86400 * 40 }], running: false },
-      { appid: 239820, name: "Game Dev Tycoon", type: "game", installed: true, dir: "C:\\Games\\GDT", library: "C:\\", size: 168e6, updated: now - 86400 * 200, lastPlayed: 0, minutes: 0, owner: "76561198000000001", players: [], running: false },
+      { appid: 239820, name: "Game Dev Tycoon", type: "game", installed: true, state: "missing", dir: "C:\\Games\\GDT", library: "C:\\", size: 168e6, updated: now - 86400 * 200, lastPlayed: 0, minutes: 0, owner: "76561198000000001", players: [], running: false },
       { appid: 1091500, name: "Cyberpunk 2077", type: "game", installed: false, dir: "", library: "", size: 0, updated: 0, lastPlayed: now - 86400 * 120, minutes: 5400, owner: "", players: [{ key: "nightowl_99", name: "nightowl_99", persona: "NightOwl", steamId: "76561198000000001", minutes: 5400, lastPlayed: now - 86400 * 120 }], running: false },
       { appid: 4900640, name: "Shreddead Demo", type: "demo", installed: true, dir: "C:\\Games\\Shreddead", library: "C:\\", size: 420e6, updated: now - 86400 * 5, lastPlayed: now - 86400 * 6, minutes: 75, owner: "76561198000000001", players: [{ key: "nightowl_99", name: "nightowl_99", persona: "NightOwl", steamId: "76561198000000001", minutes: 75, lastPlayed: now - 86400 * 6 }], running: false },
     ];
@@ -1404,13 +1618,13 @@
     window.__mockHandlers = {};
     rt.EventsOn = (n, f) => { (window.__mockHandlers[n] = window.__mockHandlers[n] || []).push(f); };
     return {
-      async Init() { return { version: "1.0 (muestra)", steam: status, settings: { lockMinutes: 5, clipSeconds: 20, afterSwitch: "nada" }, vault, accounts }; },
+      async Init() { return { version: "1.0 (muestra)", steam: status, settings: { lockMinutes: 5, clipSeconds: 20, afterSwitch: "nada", confirmSwitch: true }, vault, accounts }; },
       async Accounts() { return accounts.map((a) => ({ ...a, active: a.steamId && a.steamId === status.activeId })); },
       async Status() { return status; },
       async Games() { await wait(300); return { games, libraries: [] }; },
       async GameName() { return ""; },
       async UpdateAccount(name, p) { const a = accounts.find((x) => x.name === name); Object.assign(a, p); },
-      async AddManualAccount(name) { accounts.push({ key: name.toLowerCase(), name, steamId: "", persona: "", alias: "", notes: "", tags: [], inSteam: false, lastUsed: 0, games: 0, minutes: 0 }); },
+      async AddManualAccount(name) { const old = accounts.find((x) => x.key === name.toLowerCase()); if (old) { if (!old.hidden) throw "Esa cuenta ya está en la lista"; old.hidden = false; return { restored: true }; } accounts.push({ key: name.toLowerCase(), name, steamId: "", persona: "", alias: "", notes: "", tags: [], inSteam: false, lastUsed: 0, games: 0, minutes: 0 }); return {}; },
       async ForgetAccount(name) { const i = accounts.findIndex((x) => x.name === name); accounts.splice(i, 1); },
       async SwitchTo(r) {
         for (const s of ["close", "prepare", "open", "login"]) { emit("switch", { step: s }); await wait(700); }

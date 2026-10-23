@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 
@@ -114,6 +115,9 @@ func (a *App) VaultSet(name string, e vault.Entry) error {
 	e.Email = strings.TrimSpace(e.Email)
 	e.Recovery = strings.ToUpper(strings.TrimSpace(e.Recovery))
 	e.Notes = clip(e.Notes, 4000)
+	if msg := entryError(e); msg != "" {
+		return errors.New(msg)
+	}
 	if err := a.vault.Set(keyOf(name), e); err != nil {
 		return vaultErr(err)
 	}
@@ -121,8 +125,30 @@ func (a *App) VaultSet(name string, e vault.Entry) error {
 	return a.metas.update(name, func(m *Meta) { m.HasSecret = !e.Empty() })
 }
 
+// entryError comprueba los datos de acceso antes de guardarlos.
+func entryError(e vault.Entry) string {
+	if e.Email != "" {
+		at := strings.LastIndexByte(e.Email, '@')
+		if at < 1 || !strings.Contains(e.Email[at+1:], ".") || strings.ContainsAny(e.Email, " ,;") || strings.HasSuffix(e.Email, ".") {
+			return "Ese correo no parece válido"
+		}
+	}
+	if e.Recovery != "" && !recoveryRe.MatchString(e.Recovery) {
+		return "El código de recuperación de Steam Guard es una R y 5 números, como R12345"
+	}
+	if e.EmailPassword != "" && e.Email == "" {
+		return "Falta el correo de esa contraseña"
+	}
+	return ""
+}
+
+var recoveryRe = regexp.MustCompile(`^R[0-9]{5}$`)
+
 // VaultChangeMaster cambia la contraseña maestra.
 func (a *App) VaultChangeMaster(old, newMaster string) (VaultState, error) {
+	if old == newMaster {
+		return a.VaultState(), errors.New("La nueva contraseña maestra es igual que la actual")
+	}
 	err := a.vault.ChangeMaster(old, newMaster)
 	if err == nil {
 		a.touchVault()

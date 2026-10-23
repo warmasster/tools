@@ -17,7 +17,7 @@ import (
 	"turbogames/internal/vault"
 )
 
-const version = "1.0"
+const version = "1.0.1"
 
 type App struct {
 	ctx context.Context
@@ -231,13 +231,31 @@ func (a *App) UpdateAccount(name string, p MetaPatch) error {
 
 // AddManualAccount añade una cuenta que Steam todavía no recuerda (para tener
 // su contraseña a mano y entrar con ella).
-func (a *App) AddManualAccount(name string) error {
+// Si ya estaba pero oculta, vuelve a la lista (Restored).
+func (a *App) AddManualAccount(name string) (AddResult, error) {
 	name = strings.TrimSpace(name)
-	if !validAccountName(name) {
-		return errors.New("Ese nombre de usuario no es válido. Es el que usas para entrar en Steam, no el nombre visible.")
+	if msg := accountNameError(name); msg != "" {
+		return AddResult{}, errors.New(msg)
 	}
-	return a.metas.update(name, func(m *Meta) { m.Hidden = false })
+	accs, _ := a.buildAccounts()
+	for _, acc := range accs {
+		if acc.Key == keyOf(name) {
+			if !acc.Hidden {
+				return AddResult{}, errors.New("Esa cuenta ya está en la lista")
+			}
+			return AddResult{Restored: true}, a.metas.update(acc.Name, func(m *Meta) { m.Hidden = false })
+		}
+	}
+	return AddResult{}, a.metas.update(name, func(m *Meta) { m.Hidden = false })
 }
+
+// AddResult dice cómo acabó añadir una cuenta.
+type AddResult struct {
+	Restored bool `json:"restored"` // ya estaba, oculta, y vuelve a la lista
+}
+
+// CheckAccountName comprueba un nombre de usuario mientras se escribe.
+func (a *App) CheckAccountName(name string) string { return accountNameError(strings.TrimSpace(name)) }
 
 // ForgetOptions dice qué borrar al olvidar una cuenta.
 type ForgetOptions struct {

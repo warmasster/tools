@@ -74,6 +74,9 @@ func (a *App) SwitchTo(r SwitchRequest) (SwitchResult, error) {
 	if name == "" {
 		return res, errors.New("falta la cuenta")
 	}
+	if !a.knownAccount(name) {
+		return res, errors.New("Esa cuenta ya no está en la lista")
+	}
 	if !a.beginSwitch() {
 		return res, errors.New("Ya se está cambiando de cuenta")
 	}
@@ -194,6 +197,22 @@ func (a *App) SwitchTo(r SwitchRequest) (SwitchResult, error) {
 	return res, nil
 }
 
+// knownAccount dice si la cuenta está en Steam o en TurboGAMES.
+func (a *App) knownAccount(name string) bool {
+	if _, ok := a.metas.get(name); ok {
+		return true
+	}
+	if in := a.steam(); in != nil {
+		users, _ := in.LoginUsers()
+		for _, u := range users {
+			if strings.EqualFold(u.AccountName, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // nameOf busca el nombre de una cuenta por su ID.
 func (a *App) nameOf(id uint32) string {
 	if in := a.steam(); in != nil {
@@ -246,6 +265,9 @@ func (a *App) PlayGame(appid uint32, account string) (SwitchResult, error) {
 	in := a.steam()
 	if in == nil {
 		return SwitchResult{}, steam.ErrNotFound
+	}
+	if appid == 0 {
+		return SwitchResult{}, errors.New("falta el juego")
 	}
 	if account == "" {
 		if !in.Running() {

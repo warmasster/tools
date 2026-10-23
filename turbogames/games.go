@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"sort"
 	"strings"
 
@@ -25,6 +26,7 @@ type Game struct {
 	Name       string       `json:"name"`
 	Type       string       `json:"type"`
 	Installed  bool         `json:"installed"`
+	State      string       `json:"state"` // instalado: ok, update, updating, incomplete, missing
 	Dir        string       `json:"dir"`
 	Library    string       `json:"library"`
 	Size       int64        `json:"size"`
@@ -52,6 +54,46 @@ type LibraryInfo struct {
 type GamesData struct {
 	Games     []Game        `json:"games"`
 	Libraries []LibraryInfo `json:"libraries"`
+}
+
+// Bits de StateFlags de los appmanifest (EAppState de Steam).
+const (
+	stUpdateRequired = 2
+	stFullyInstalled = 4
+	stFilesMissing   = 32
+	stFilesCorrupt   = 128
+	stUpdateRunning  = 256
+	stUpdatePaused   = 512
+	stUpdateStarted  = 1024
+	stUninstalling   = 2048
+	stValidating     = 131072
+	stDownloading    = 1048576
+)
+
+// installState dice en qué estado está un juego instalado:
+// ok, update (necesita actualizarse), updating (se está descargando o
+// verificando), incomplete (instalación sin terminar o con archivos dañados) o
+// missing (Steam lo da por instalado pero su carpeta no está).
+func installState(ia steam.InstalledApp) string {
+	f := ia.StateFlags
+	switch {
+	case f&stUninstalling != 0:
+		return "incomplete"
+	case f&(stUpdateRunning|stUpdateStarted|stDownloading|stValidating) != 0:
+		return "updating"
+	case ia.InstallDir != "" && !dirExists(ia.InstallDir):
+		return "missing"
+	case f&(stFilesMissing|stFilesCorrupt) != 0 || (f != 0 && f&stFullyInstalled == 0):
+		return "incomplete"
+	case f&(stUpdateRequired|stUpdatePaused) != 0:
+		return "update"
+	}
+	return "ok"
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }
 
 // Games junta los juegos instalados y los que ha jugado cada cuenta.
@@ -122,6 +164,7 @@ func (a *App) Games() (GamesData, error) {
 			g.Name = ia.Name
 		}
 		g.Installed, g.Dir, g.Library, g.Size, g.Updated = true, ia.InstallDir, ia.Library, ia.SizeOnDisk, ia.LastUpdated
+		g.State = installState(ia)
 		g.LastPlayed = max(g.LastPlayed, ia.LastPlayed)
 		g.Owner = ia.LastOwner
 		if w, ok := people[steam.AccountID(ia.LastOwner)]; ok {
