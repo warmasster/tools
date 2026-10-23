@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TurboGAMES</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <header class="titlebar">
+    <div class="brand">
+      <img src="logo.svg" alt="" width="22" height="22">
+      <span>Turbo<b>GAMES</b></span>
+    </div>
+    <nav class="nav" id="nav">
+      <button data-view="accounts" class="on"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Cuentas<span class="cnt" id="cnt-accounts"></span></button>
+      <button data-view="games"><svg viewBox="0 0 24 24"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.32 5H6.68a4 4 0 0 0-3.98 3.59l-.7 6.94A3 3 0 0 0 5 19c1 0 1.5-.5 2-1l1.4-1.4A2 2 0 0 1 9.8 16h4.4a2 2 0 0 1 1.4.6L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3.47l-.7-6.94A4 4 0 0 0 17.32 5z"/></svg>Juegos<span class="cnt" id="cnt-games"></span></button>
+    </nav>
+    <div class="pills" id="pills"></div>
+    <div class="winbtns">
+      <button class="wb vaultbtn" id="wb-vault" title="Bóveda"></button>
+      <button class="wb" id="wb-steam" title="Abrir Steam"><svg viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>
+      <button class="wb" id="wb-settings" title="Ajustes"><svg viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <span class="wsep"></span>
+      <button class="wb" id="wb-min" title="Minimizar"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button class="wb" id="wb-max" title="Maximizar"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
+      <button class="wb close" id="wb-close" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+  </header>
+
+  <!-- ===== cuentas ===== -->
+  <main class="view split on" id="v-accounts">
+    <section class="main">
+      <div class="toolbar">
+        <div class="search" id="acc-search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="acc-q" placeholder="Buscar cuentas (Ctrl+F)" spellcheck="false" autocomplete="off">
+          <button class="x" data-clear="acc-q" title="Borrar búsqueda"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
+        <div class="seg" id="acc-filter"></div>
+        <select class="fsel" id="acc-tag" title="Etiqueta" hidden></select>
+        <select class="fsel" id="acc-sort" title="Orden">
+          <option value="recent">Recientes</option>
+          <option value="name">Por nombre</option>
+          <option value="hours">Más horas</option>
+        </select>
+        <span class="grow"></span>
+        <button class="btn primary sm" id="acc-add" title="Añadir cuenta"><svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg><span>Añadir</span></button>
+      </div>
+      <div class="scroller" id="acc-scroll"><div class="acc-grid" id="acc-grid"></div></div>
+    </section>
+    <aside class="detail" id="acc-detail"></aside>
+  </main>
+
+  <!-- ===== juegos ===== -->
+  <main class="view split" id="v-games">
+    <section class="main">
+      <div class="toolbar">
+        <div class="search" id="game-search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="game-q" placeholder="Buscar juegos (Ctrl+F)" spellcheck="false" autocomplete="off">
+          <button class="x" data-clear="game-q" title="Borrar búsqueda"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
+        <div class="seg" id="game-filter"><button data-v="all" class="on">Todos</button><button data-v="installed">Instalados</button></div>
+        <select class="fsel" id="game-acc" title="Cuenta"></select>
+        <select class="fsel" id="game-sort" title="Orden">
+          <option value="recent">Recientes</option>
+          <option value="name">Por nombre</option>
+          <option value="hours">Más horas</option>
+          <option value="size">Más espacio</option>
+        </select>
+        <span class="grow"></span>
+        <span class="fstat" id="game-stat"></span>
+      </div>
+      <div class="scroller" id="game-scroll"><div class="game-grid" id="game-grid"></div></div>
+    </section>
+    <aside class="detail" id="game-detail"></aside>
+  </main>
+
+  <!-- ===== sin Steam ===== -->
+  <main class="view center" id="v-nosteam">
+    <div class="empty big">
+      <div class="empty-ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg></div>
+      <b>No encuentro Steam en este PC</b>
+      <p>Si lo tienes instalado en otra carpeta, elígela y TurboGAMES se acordará.</p>
+      <div class="row-btns">
+        <button class="btn primary" id="ns-pick"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>Elegir la carpeta de Steam…</button>
+        <button class="btn ghost" id="ns-retry">Buscar otra vez</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== cambiando de cuenta ===== -->
+  <div class="switch" id="switch" hidden>
+    <div class="sw-card">
+      <div class="sw-art">
+        <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+        <div class="sw-av" id="sw-av"></div>
+        <div class="sw-ok" id="sw-ok"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div>
+      </div>
+      <h1 id="sw-title">Entrando…</h1>
+      <p class="sw-sub" id="sw-sub"></p>
+      <ol class="steps" id="sw-steps"></ol>
+      <div class="pw-help" id="sw-help" hidden></div>
+      <div class="row-btns" id="sw-btns"></div>
+    </div>
+  </div>
+
+  <div class="ctx" id="ctx" hidden></div>
+  <div class="pop" id="vault-pop" hidden></div>
+  <div class="toasts" id="toasts"></div>
+
+  <!-- bóveda: crear / abrir / cambiar / borrar -->
+  <div class="modal" id="m-vault" hidden>
+    <div class="modal-card narrow">
+      <div class="modal-head">
+        <h2 id="mv-title">Bóveda</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <form class="modal-body" id="mv-form" autocomplete="off"></form>
+      <div class="modal-foot">
+        <button class="btn ghost sm" data-close>Cancelar</button>
+        <button class="btn primary sm" id="mv-go" form="mv-form" type="submit">Abrir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- datos de acceso de una cuenta -->
+  <div class="modal" id="m-secret" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="ms-title">Datos de acceso</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <form class="modal-body" id="ms-form" autocomplete="off">
+        <div class="lock-note"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Todo esto se guarda cifrado en tu PC con la contraseña maestra.</div>
+        <label class="field"><span>Contraseña de Steam</span><div class="pw"><input id="ms-pass" type="password" spellcheck="false"><button type="button" class="ibtn" data-eye="ms-pass" title="Mostrar"></button></div></label>
+        <div class="field-row">
+          <label class="field"><span>Correo de la cuenta</span><input id="ms-email" type="text" spellcheck="false" placeholder="opcional"></label>
+          <label class="field"><span>Contraseña del correo</span><div class="pw"><input id="ms-epass" type="password" spellcheck="false" placeholder="opcional"><button type="button" class="ibtn" data-eye="ms-epass" title="Mostrar"></button></div></label>
+        </div>
+        <label class="field"><span>Código de recuperación de Steam Guard</span><input id="ms-rec" type="text" spellcheck="false" placeholder="R12345 (opcional)" maxlength="16"></label>
+        <label class="field"><span>Notas privadas</span><textarea id="ms-notes" rows="3" spellcheck="false" placeholder="Preguntas de seguridad, de dónde salió la cuenta… (opcional)"></textarea></label>
+      </form>
+      <div class="modal-foot">
+        <button class="btn ghost sm danger-txt" id="ms-clear" type="button">Borrar todo</button>
+        <span class="grow"></span>
+        <button class="btn ghost sm" data-close>Cancelar</button>
+        <button class="btn primary sm" type="submit" form="ms-form">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- añadir cuenta -->
+  <div class="modal" id="m-add" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Añadir una cuenta</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <button class="choice" id="ma-steam">
+          <div class="tile"><svg viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg></div>
+          <div class="txt"><b>Entrar con ella en Steam</b><span>Steam se abre en su pantalla de inicio de sesión. Entra con la cuenta nueva y saldrá aquí sola. Marca «Recordarme» para no tener que escribir la contraseña la próxima vez.</span></div>
+          <span class="go"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span>
+        </button>
+        <div class="or"><span>o guárdala aquí primero</span></div>
+        <form id="ma-form" autocomplete="off">
+          <div class="field-row">
+            <label class="field"><span>Usuario de Steam</span><input id="ma-name" type="text" spellcheck="false" placeholder="el que usas para entrar"></label>
+            <label class="field"><span>Contraseña</span><div class="pw"><input id="ma-pass" type="password" spellcheck="false" placeholder="opcional"><button type="button" class="ibtn" data-eye="ma-pass" title="Mostrar"></button></div></label>
+          </div>
+          <div class="note" id="ma-note"></div>
+        </form>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost sm" data-close>Cancelar</button>
+        <button class="btn ghost sm" id="ma-save" type="button">Guardar</button>
+        <button class="btn primary sm" id="ma-go" type="submit" form="ma-form">Guardar y entrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- olvidar cuenta -->
+  <div class="modal" id="m-forget" hidden>
+    <div class="modal-card narrow">
+      <div class="modal-head">
+        <h2 id="mf-title">¿Olvidar la cuenta?</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <p class="mtext" id="mf-text"></p>
+        <label class="row toggle" id="mf-steam-row"><div><b>Que Steam también la olvide</b><span>Borra su sesión guardada en este PC. Para volver a usarla tendrás que entrar con la contraseña.</span></div><input type="checkbox" id="mf-steam"><i></i></label>
+        <label class="row toggle" id="mf-vault-row"><div><b>Borrar sus datos de la bóveda</b><span>Contraseña, correo, código de recuperación y notas privadas.</span></div><input type="checkbox" id="mf-vault"><i></i></label>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost sm" data-close>Cancelar</button>
+        <button class="btn danger-solid sm" id="mf-go">Olvidar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- confirmación genérica -->
+  <div class="modal" id="m-confirm" hidden>
+    <div class="modal-card narrow">
+      <div class="modal-head">
+        <h2 id="mc-title"></h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div class="modal-body"><p class="mtext" id="mc-text"></p></div>
+      <div class="modal-foot">
+        <button class="btn ghost sm" data-close>Cancelar</button>
+        <button class="btn primary sm" id="mc-go"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ajustes -->
+  <div class="modal" id="m-settings" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Ajustes</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="row"><div><b>Carpeta de Steam</b><span class="mono" id="s-dir"></span></div>
+          <div class="row-btns tight"><button class="btn ghost sm" id="s-dir-auto" hidden>Automática</button><button class="btn ghost sm" id="s-dir-pick">Cambiar…</button></div></div>
+        <label class="row toggle"><div><b>Abrir Steam minimizado</b><span>Al cambiar de cuenta, Steam se abre directamente en la bandeja, sin ventana.</span></div><input type="checkbox" id="s-silent"><i></i></label>
+        <div class="row"><div><b>Después de cambiar de cuenta</b><span>Qué hace TurboGAMES cuando ya has entrado.</span></div>
+          <div class="seg" id="s-after"><button data-v="nada">Nada</button><button data-v="minimizar">Minimizarse</button></div></div>
+        <div class="row"><div><b>Cerrar la bóveda tras</b><span>Minutos sin usarla. Al cerrar TurboGAMES también se cierra.</span></div>
+          <div class="seg" id="s-lock"><button data-v="1">1 min</button><button data-v="5">5 min</button><button data-v="15">15 min</button><button data-v="60">1 h</button></div></div>
+        <div class="row"><div><b>Borrar del portapapeles tras</b><span>Lo que copias de la bóveda tampoco entra en el historial de Windows (Win+V).</span></div>
+          <div class="seg" id="s-clip"><button data-v="10">10 s</button><button data-v="20">20 s</button><button data-v="45">45 s</button><button data-v="90">90 s</button></div></div>
+      </div>
+      <div class="modal-foot">
+        <span class="ver" id="s-ver"></span>
+        <button class="btn ghost sm" data-close>Cancelar</button>
+        <button class="btn primary sm" id="s-save">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

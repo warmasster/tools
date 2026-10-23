@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "TurboGAMES",
+  "outputfilename": "TurboGAMES",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "",
+  "author": {
+    "name": "Fernando",
+    "email": ""
+  },
+  "info": {
+    "companyName": "TurboGAMES",
+    "productName": "TurboGAMES",
+    "productVersion": "1.0.0",
+    "copyright": "Fernando",
+    "comments": "Todas tus cuentas de Steam a un clic, con bóveda cifrada, y tus juegos con sus portadas"
+  }
+}
