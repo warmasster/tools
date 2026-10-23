@@ -17,7 +17,7 @@ Al instalar la primera herramienta deja una copia de sí mismo en la carpeta de 
 1. Sube la versión del programa: `productVersion` en su `wails.json` (en TurboDL, `version` en `manifest.json`).
 2. Haz push a `main`.
 
-GitHub Actions ([`release.yml`](../.github/workflows/release.yml)) compila solo lo que ha cambiado de versión, lo sube a la Release `apps` y actualiza `manifest.json`, que es lo que lee TurboSETUP. La lista de herramientas está en [`tools.json`](../tools.json): para añadir una nueva basta con añadirla ahí.
+GitHub Actions ([`release.yml`](../.github/workflows/release.yml)) compila solo lo que ha cambiado de versión, lo sube a la Release `apps` y actualiza `manifest.json`, que es lo que lee TurboSETUP. Es la única Release del repo: si encuentra otras, las borra. La lista de herramientas está en [`tools.json`](../tools.json): para añadir una nueva basta con añadirla ahí.
 
 Para probar sin subir nada:
 

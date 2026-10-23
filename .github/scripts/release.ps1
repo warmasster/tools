@@ -61,6 +61,13 @@ if ($local) {
     $prev = Join-Path $OutDir "manifest.json"
     if (Test-Path $prev) { $old = Get-Content $prev -Raw | ConvertFrom-Json }
 } else {
+    # Solo existe la Release "apps": cualquier otra (de antes de TurboSETUP) se borra con su etiqueta.
+    $others = gh release list --limit 100 --json tagName --jq '.[].tagName' | Where-Object { $_ -and $_ -ne $tag }
+    foreach ($o in $others) {
+        Write-Host "Borrando la Release vieja '$o'..."
+        gh release delete $o --yes --cleanup-tag
+    }
+
     gh release view $tag *> $null
     if ($LASTEXITCODE) {
         Write-Host "Creando la Release '$tag'..."
