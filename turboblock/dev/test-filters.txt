@@ -1,0 +1,16 @@
+! Filtros de prueba de dev/run-tests.js (se añaden a "Anuncios" solo en las pruebas).
+||anuncios.test^
+||popups.test^$popup
+site.test##.tb-especifico
+site.test##.caja:has-text(Patrocinado)
+site.test##.estilo:style(visibility: hidden !important)
+site.test##+js(set, tbConstante, true)
+site.test##+js(nowoif, ventana-mala)
+entidad.*##+js(set, tbEntidad, 42)
+##.tb-generico-prueba
+##a[href*="tb-complejo"]
+otro.test#@#.tb-generico-prueba
+video.test##+js(tb-video-ads, youtube)
+video.test##+js(json-prune-xhr-response, adPlacements)
+video.test##+js(m3u-prune, /anuncio/, .m3u8)
+video.test##+js(xml-prune, Ad, , .xml)

@@ -35,6 +35,16 @@
       "build": "turbodl/native/build.ps1",
       "output": "turbodl/TurboDL.exe",
       "version": "turbodl/manifest.json"
+    },
+    {
+      "id": "turboblock",
+      "name": "TurboBLOCK",
+      "kind": "setup",
+      "dir": "turboblock",
+      "summary": "Bloquea anuncios, rastreadores, malware y ventanas emergentes en Chrome. Ligero y con listas que se actualizan solas.",
+      "build": "turboblock/native/build.ps1",
+      "output": "turboblock/TurboBLOCK.exe",
+      "version": "turboblock/manifest.json"
     }
   ]
 }

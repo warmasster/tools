@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "TurboBLOCK",
+  "version": "1.1.0",
+  "description": "Bloquea anuncios, rastreadores, malware y ventanas emergentes. Ligero: el filtrado lo hace Chrome por dentro.",
+  "minimum_chrome_version": "121",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsJ/ONWx/bRm042YDOp7P/GeTrV3F0f9QW/ZHKVbvd+b/rhhhhozi0B83OkfSPAL5Xt1Gyi6YStcFU2O7hXhbdT628+/Vl6yIKTgaOKR4wJfZNsE5WcSlLHrYvtdOcP8pY087MY4bERXDcIqA0NtYlpCp+dtpTlzYosbWAEIuecAGzorLgrCkV0U8oWNietsZYxmbY0X8vPfNMf8Aj0IBhfaWQTJvE8Z+sM2RYHwL3ogezFE4GfE9KIt9D9fQwlSkoFVPa4rVT4KJVr9p47mJ+IDa493krLPqk/mcqbxkugD+xUOvEWnSpFhwWetj91JK9FSh397JZfG7IzX/BGRbMQIDAQAB",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "TurboBLOCK",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options.html",
+  "permissions": [
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
+    "storage",
+    "unlimitedStorage",
+    "scripting",
+    "webNavigation",
+    "alarms",
+    "contextMenus",
+    "nativeMessaging",
+    "activeTab",
+    "favicon"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "declarative_net_request": {
+    "rule_resources": [
+      { "id": "base", "enabled": true, "path": "rules/base.json" },
+      { "id": "ads", "enabled": true, "path": "rules/ads.json" },
+      { "id": "privacy", "enabled": true, "path": "rules/privacy.json" },
+      { "id": "malware", "enabled": true, "path": "rules/malware.json" },
+      { "id": "cookies", "enabled": false, "path": "rules/cookies.json" },
+      { "id": "annoyances", "enabled": false, "path": "rules/annoyances.json" }
+    ]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["resources/*", "blocked.html"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "commands": {
+    "toggle-site": {
+      "suggested_key": { "default": "Alt+Shift+B" },
+      "description": "Activar o desactivar TurboBLOCK en la web actual"
+    },
+    "pick-element": {
+      "suggested_key": { "default": "Alt+Shift+H" },
+      "description": "Ocultar un elemento de la página"
+    }
+  }
+}

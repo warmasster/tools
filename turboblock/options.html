@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TurboBLOCK</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="ui/theme.css">
+  <link rel="stylesheet" href="ui/options.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <img src="icons/icon48.png" alt="" width="34" height="34">
+        <div><strong>Turbo<b class="grad-text">BLOCK</b></strong><small id="ver">—</small></div>
+      </div>
+      <nav id="nav">
+        <a href="#panel" data-ico="chart">Panel</a>
+        <a href="#proteccion" data-ico="shield">Protección</a>
+        <a href="#webs" data-ico="globe">Webs</a>
+        <a href="#filtros" data-ico="pen">Mis filtros</a>
+        <a href="#listas" data-ico="list">Listas</a>
+        <a href="#copia" data-ico="save">Copia de seguridad</a>
+        <a href="#acerca" data-ico="info">Acerca de</a>
+      </nav>
+      <div class="side-state" id="side-state"><i></i><span>—</span></div>
+    </aside>
+
+    <main>
+      <!-- Panel -->
+      <section class="page" id="p-panel">
+        <h1>Panel</h1>
+        <div class="kpis">
+          <div class="kpi hero"><span class="k">Bloqueados en total</span><span class="v grad-text" id="k-total">0</span><span class="s" id="k-since">—</span></div>
+          <div class="kpi"><span class="k">Hoy</span><span class="v" id="k-today">0</span><span class="s" id="k-today-s">—</span></div>
+          <div class="kpi"><span class="k">Datos ahorrados ≈</span><span class="v" id="k-saved">0</span><span class="s">estimación: ~22 KB por petición</span></div>
+          <div class="kpi"><span class="k">Ventanas emergentes</span><span class="v" id="k-popups">0</span><span class="s">cerradas en total</span></div>
+        </div>
+        <div class="card chart-card">
+          <div class="card-head"><h2>Últimos 30 días</h2><div class="legend" id="chart-legend"></div></div>
+          <div class="chart" id="chart"></div>
+        </div>
+        <div class="grid2">
+          <div class="card"><h2>Por categoría</h2><div class="bars" id="by-cat"></div></div>
+          <div class="card"><h2>Reglas activas</h2><div class="bars" id="rules-cat"></div><p class="muted small" id="rules-note"></p></div>
+        </div>
+      </section>
+
+      <!-- Protección -->
+      <section class="page" id="p-proteccion">
+        <h1>Protección</h1>
+        <div class="card list" id="cats"></div>
+        <h2 class="sec">Ventanas emergentes</h2>
+        <div class="card list">
+          <label class="opt"><span class="cic" style="--c:#34d399" data-ico="popups"></span><div><b>Bloquear ventanas emergentes</b><small>Cierra las que se abren al hacer clic en cualquier parte de la página (popunder).</small></div><span class="switch"><input type="checkbox" id="popups"><span></span></span></label>
+          <label class="opt"><span class="cic" style="--c:#22d3ee" data-ico="bolt"></span><div><b>Modo estricto</b><small>También las que no están en las listas: cualquier ventana a otra web que no venga de un enlace o un botón.</small></div><span class="switch"><input type="checkbox" id="strict"><span></span></span></label>
+          <label class="opt"><span class="cic" style="--c:#8b5cf6" data-ico="bell"></span><div><b>Avisar en la página</b><small>Muestra «Ventana emergente bloqueada» con Abrir y Permitir en esta web.</small></div><span class="switch"><input type="checkbox" id="toasts"><span></span></span></label>
+        </div>
+        <h2 class="sec">Más</h2>
+        <div class="card list">
+          <label class="opt"><span class="cic" style="--c:#f472b6" data-ico="belloff"></span><div><b>Bloquear peticiones de notificaciones</b><small>Las webs que preguntan «¿Permitir notificaciones?» reciben un no sin que salga la pregunta. Las que ya tienen permiso siguen igual.</small></div><span class="switch"><input type="checkbox" id="nonotif"><span></span></span></label>
+          <label class="opt"><span class="cic" style="--c:#fbbf24" data-ico="refresh"></span><div><b>Actualizar las listas solas</b><small>Cada 6 horas, con TurboBLOCK.exe. Solo se descarga lo que ha cambiado.</small></div><span class="switch"><input type="checkbox" id="auto"><span></span></span></label>
+        </div>
+        <p class="muted small">Atajos: <kbd>Alt</kbd>+<kbd>Mayús</kbd>+<kbd>B</kbd> activa o desactiva en la web actual · <kbd>Alt</kbd>+<kbd>Mayús</kbd>+<kbd>H</kbd> ocultar elemento. Se cambian en <a href="#" id="shortcuts">chrome://extensions/shortcuts</a>.</p>
+      </section>
+
+      <!-- Webs -->
+      <section class="page" id="p-webs">
+        <h1>Webs</h1>
+        <div class="grid2">
+          <div class="card">
+            <h2>Sin bloqueo</h2>
+            <p class="muted">En estas webs TurboBLOCK no bloquea ni oculta nada.</p>
+            <div class="add"><input id="allow-in" placeholder="ejemplo.com" spellcheck="false"><button class="btn primary" id="allow-add">Añadir</button></div>
+            <ul class="hosts" id="allow-list"></ul>
+          </div>
+          <div class="card">
+            <h2>Pueden abrir ventanas</h2>
+            <p class="muted">Aquí no se cierran las ventanas emergentes.</p>
+            <div class="add"><input id="pop-in" placeholder="banco.es" spellcheck="false"><button class="btn primary" id="pop-add">Añadir</button></div>
+            <ul class="hosts" id="pop-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Mis filtros -->
+      <section class="page" id="p-filtros">
+        <h1>Mis filtros</h1>
+        <div class="card">
+          <p class="muted">Misma sintaxis que las listas. Lo que ocultas con «Ocultar elemento» se guarda aquí.</p>
+          <div class="examples">
+            <code>||anuncios.com^</code><span>bloquea un dominio</span>
+            <code>||web.com/banner/*$image</code><span>con opciones</span>
+            <code>@@||web.com^</code><span>excepción</span>
+            <code>web.com##.banner</code><span>oculta en una web</span>
+            <code>##.banner</code><span>en todas</span>
+            <code>web.com##div:has-text(Publicidad)</code><span>por texto</span>
+          </div>
+          <textarea id="filters" rows="16" spellcheck="false" class="mono" placeholder="! Comentario&#10;||anuncios.com^"></textarea>
+          <div class="errors" id="errors"></div>
+          <div class="row-btns"><span class="muted small" id="filters-count"></span><button class="btn primary" id="save-filters">Aplicar filtros</button></div>
+        </div>
+      </section>
+
+      <!-- Listas -->
+      <section class="page" id="p-listas">
+        <h1>Listas de filtros</h1>
+        <div class="card">
+          <div class="row-btns spread">
+            <p class="muted" id="update-state">—</p>
+            <button class="btn primary" id="update"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Buscar listas nuevas</button>
+          </div>
+          <table class="lists"><thead><tr><th>Lista</th><th>Categoría</th><th>Versión</th></tr></thead><tbody id="lists"></tbody></table>
+        </div>
+        <p class="muted small">Las listas son de sus autores (EasyList, uBlock Origin, Peter Lowe, URLhaus) y se usan con sus licencias. TurboBLOCK las convierte a reglas que Chrome aplica por dentro.</p>
+      </section>
+
+      <!-- Copia -->
+      <section class="page" id="p-copia">
+        <h1>Copia de seguridad</h1>
+        <div class="card">
+          <p class="muted">Guarda en un archivo tus ajustes, webs y filtros, o recupéralos (por ejemplo en otro ordenador).</p>
+          <div class="row-btns">
+            <button class="btn primary" id="export"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Guardar copia</button>
+            <label class="btn" for="import-file"><svg viewBox="0 0 24 24"><path d="M12 19V7"/><path d="m7 12 5-5 5 5"/><path d="M5 21h14"/></svg>Recuperar copia</label>
+            <input type="file" id="import-file" accept=".json,application/json" hidden>
+            <button class="btn ghost danger" id="reset-stats">Poner las estadísticas a cero</button>
+          </div>
+          <p class="muted small" id="copy-msg"></p>
+        </div>
+      </section>
+
+      <!-- Acerca de -->
+      <section class="page" id="p-acerca">
+        <h1>Acerca de</h1>
+        <div class="card about">
+          <img src="icons/icon128.png" alt="" width="72" height="72">
+          <div>
+            <h2>Turbo<b class="grad-text">BLOCK</b> <span class="muted" id="ver2"></span></h2>
+            <p class="muted">Bloqueador de anuncios, rastreadores, malware y ventanas emergentes. El filtrado lo hace Chrome por dentro (declarativeNetRequest): la extensión no mira cada petición y no gasta nada mientras navegas.</p>
+            <ul class="feats">
+              <li>Reglas agrupadas: miles de dominios en una sola regla.</li>
+              <li>Ocultación genérica solo para las clases que hay en la página.</li>
+              <li>Scriptlets de uBlock Origin solo en las webs que los necesitan.</li>
+              <li>Anuncios de vídeo: YouTube, Twitch y reproductores con Google IMA o VAST.</li>
+              <li>Listas al día cada 6 horas con TurboBLOCK.exe.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="toast" id="toast" hidden></div>
+  <script type="module" src="ui/options.js"></script>
+</body>
+</html>

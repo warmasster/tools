@@ -1,0 +1,6 @@
+{
+  "name": "turboblock-dev",
+  "private": true,
+  "type": "module",
+  "description": "Herramientas de desarrollo de TurboBLOCK (sin dependencias)"
+}

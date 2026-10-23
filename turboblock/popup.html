@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>TurboBLOCK</title>
+  <link rel="stylesheet" href="ui/theme.css">
+  <link rel="stylesheet" href="ui/popup.css">
+</head>
+<body>
+  <div class="glow" aria-hidden="true"></div>
+
+  <header class="top">
+    <img class="logo" src="icons/icon48.png" alt="">
+    <div class="title">
+      <strong>Turbo<b class="grad-text">BLOCK</b></strong>
+      <span id="state" class="sub"><i class="dot"></i><span>Protección activada</span></span>
+    </div>
+    <button class="icon-btn" id="options" title="Ajustes y estadísticas" aria-label="Ajustes">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+    <label class="switch" title="Activar o desactivar TurboBLOCK en todas las webs">
+      <input id="enabled" type="checkbox" aria-label="TurboBLOCK activado">
+      <span></span>
+    </label>
+  </header>
+
+  <section class="site card" id="site">
+    <div class="site-head">
+      <img class="fav" id="fav" alt="">
+      <span class="host" id="host">—</span>
+    </div>
+    <div class="site-body">
+      <div class="ring" id="ring"></div>
+      <div class="ring-txt">
+        <span class="num grad-text" id="count">0</span>
+        <span class="cap" id="count-cap">bloqueados en esta página</span>
+      </div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <button class="power" id="site-on" aria-pressed="true">
+      <svg viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>
+      <span id="site-on-txt">Activado en esta web</span>
+    </button>
+    <div class="actions">
+      <button class="btn" id="pick" title="Elegir un elemento de la página y ocultarlo siempre (Alt+Mayús+H)">
+        <svg viewBox="0 0 24 24"><path d="M3 3l7 17 2.5-7.5L20 10z"/></svg>Ocultar elemento
+      </button>
+      <button class="btn" id="reload" title="Recargar la página">
+        <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <section class="stats card" id="stats" title="Estadísticas: abre los ajustes para ver más">
+    <div class="stat"><span class="v" id="st-today">0</span><span class="k">hoy</span></div>
+    <div class="stat"><span class="v" id="st-total">0</span><span class="k">en total</span></div>
+    <div class="stat"><span class="v" id="st-saved">0 KB</span><span class="k">ahorrados ≈</span></div>
+    <svg class="spark" id="spark" viewBox="0 0 100 28" preserveAspectRatio="none"></svg>
+  </section>
+
+  <section class="group">
+    <div id="cats"></div>
+    <div class="row" id="popups-row">
+      <span class="cic" style="--c:#34d399" id="popups-ic"></span>
+      <div class="row-txt"><span>Ventanas emergentes</span><small id="strict-txt">Modo estricto</small></div>
+      <button class="mini" id="strict" title="Modo estricto: también cierra las que no están en las listas">estricto</button>
+      <label class="switch"><input id="popups" type="checkbox" aria-label="Bloquear ventanas emergentes"><span></span></label>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span id="lists" class="lists">Listas: —</span>
+    <button class="btn ghost small" id="update" title="Buscar listas nuevas ahora">
+      <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Actualizar
+    </button>
+  </footer>
+
+  <script type="module" src="ui/popup.js"></script>
+</body>
+</html>

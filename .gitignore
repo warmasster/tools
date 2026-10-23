@@ -14,5 +14,13 @@ desktop.ini
 turbodl/native/ext/*
 !turbodl/native/ext/LEEME.txt
 
+# TurboBLOCK: extensión comprimida que build.ps1 mete en TurboBLOCK.exe, reglas
+# compiladas (se generan con build.ps1) y caché de listas descargadas
+turboblock/native/ext/*
+!turboblock/native/ext/LEEME.txt
+turboblock/rules/
+turboblock/_metadata/
+turboblock/native/.cache/
+
 # Salida local de .github/scripts/release.ps1 -OutDir dist
 dist/

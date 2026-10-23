@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Página bloqueada · TurboBLOCK</title>
+  <link rel="stylesheet" href="ui/theme.css">
+  <style>
+    body { min-height: 100vh; display: grid; place-items: center; padding: 20px;
+      background: radial-gradient(800px 500px at 50% -10%, rgba(248, 113, 113, .14), transparent 60%), var(--bg); }
+    .box { max-width: 520px; display: grid; gap: 14px; text-align: center; justify-items: center; }
+    h1 { margin: 0; font-size: 22px; }
+    p { margin: 0; color: var(--muted); }
+    .url { font: 13px var(--mono); color: var(--txt); background: var(--panel); border: 1px solid var(--brd); border-radius: 9px;
+      padding: 8px 12px; max-width: 100%; overflow-wrap: anywhere; }
+    .btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <img src="icons/icon128.png" alt="" width="72" height="72">
+    <h1>TurboBLOCK ha bloqueado esta página</h1>
+    <p>Está en las listas de filtros como peligrosa, de estafas o de publicidad. Lo más seguro es no entrar.</p>
+    <div class="url" id="url">—</div>
+    <div class="btns">
+      <button class="btn primary" id="back">Volver atrás</button>
+      <button class="btn" id="go">Entrar de todas formas</button>
+    </div>
+  </div>
+  <script src="ui/blocked.js"></script>
+</body>
+</html>

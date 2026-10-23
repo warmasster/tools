@@ -1,0 +1,68 @@
+! Title: TurboBLOCK – Vídeo y extras
+! Version: 2026.10.23
+! Filtros propios de TurboBLOCK. Se compilan junto a «Anuncios» y van dentro de la
+! extensión (no se descargan). Misma sintaxis que uBlock Origin.
+
+! ---------- Anuncios de vídeo en cualquier web ----------
+! El SDK de anuncios de vídeo de Google (IMA): se cambia por uno que dice "no hay
+! anuncios" y el reproductor pasa directamente al vídeo.
+||imasdk.googleapis.com/js/sdkloader/ima3.js$script,redirect=google-ima.js
+||imasdk.googleapis.com/js/sdkloader/ima3_debug.js$script,redirect=google-ima.js
+! Peticiones de anuncios VAST/VMAP: respuesta vacía en vez de error (algunos
+! reproductores se quedan esperando si la petición falla).
+||pubads.g.doubleclick.net/gampad/ads?$xhr,redirect=noop-vast4.xml,important
+||pubads.g.doubleclick.net/gampad/live/ads?$xhr,redirect=noop-vast4.xml,important
+||googleads.g.doubleclick.net/pagead/ads?*output=xml_vast$xhr,redirect=noop-vast4.xml,important
+||securepubads.g.doubleclick.net/gampad/ads?*output=vast$xhr,redirect=noop-vast4.xml,important
+||pubads.g.doubleclick.net/ondemand/$xhr,important
+||imasdk.googleapis.com/pal/$script,important
+
+! ---------- YouTube ----------
+! Si un anuncio llega a reproducirse: silenciarlo, saltar al final y pulsar «Saltar».
+youtube.com,youtube-nocookie.com,youtubekids.com##+js(tb-video-ads, youtube)
+! Anuncios dentro de la respuesta del reproductor (además de lo que traen las listas).
+www.youtube.com,m.youtube.com,music.youtube.com,youtubekids.com,youtube-nocookie.com##+js(json-prune, playerResponse.adPlacements playerResponse.playerAds playerResponse.adSlots adPlacements playerAds adSlots)
+www.youtube.com,m.youtube.com,music.youtube.com,youtubekids.com,youtube-nocookie.com##+js(set, ytInitialPlayerResponse.adPlacements, undefined)
+www.youtube.com,m.youtube.com,music.youtube.com,youtubekids.com,youtube-nocookie.com##+js(set, ytInitialPlayerResponse.adSlots, undefined)
+www.youtube.com,m.youtube.com,music.youtube.com,youtubekids.com,youtube-nocookie.com##+js(set, ytInitialPlayerResponse.playerAds, undefined)
+! Huecos de anuncios en la portada, los resultados y junto al vídeo.
+youtube.com##ytd-ad-slot-renderer
+youtube.com##ytd-rich-item-renderer:has(> #content > ytd-ad-slot-renderer)
+youtube.com##ytd-rich-section-renderer:has(ytd-ad-slot-renderer)
+youtube.com##ytd-in-feed-ad-layout-renderer
+youtube.com##ytd-promoted-sparkles-web-renderer
+youtube.com##ytd-promoted-video-renderer
+youtube.com##ytd-display-ad-renderer
+youtube.com##ytd-companion-slot-renderer
+youtube.com##ytd-action-companion-ad-renderer
+youtube.com##ytd-banner-promo-renderer
+youtube.com##ytd-statement-banner-renderer
+youtube.com##ytd-search-pyv-renderer
+youtube.com###masthead-ad
+youtube.com###player-ads
+youtube.com##.ytd-player-legacy-desktop-watch-ads-renderer
+youtube.com##.ytp-ad-overlay-container
+youtube.com##.ytp-ad-text-overlay
+youtube.com##.ytp-ad-image-overlay
+youtube.com##ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"]
+youtube.com##ytd-merch-shelf-renderer
+youtube.com##ytd-reel-video-renderer:has(.ytd-ad-slot-renderer)
+m.youtube.com##ytm-promoted-sparkles-web-renderer
+m.youtube.com##ad-slot-renderer
+m.youtube.com##ytm-companion-ad-renderer
+music.youtube.com##ytmusic-mealbar-promo-renderer
+
+! ---------- Twitch ----------
+! Los anuncios van dentro del propio directo: se silencian y se tapan hasta que acaban.
+twitch.tv##+js(tb-video-ads, twitch)
+twitch.tv##.stream-display-ad__wrapper
+twitch.tv##[data-test-selector="sad-overlay"]
+twitch.tv##div[data-a-target="video-ad-countdown"]
+
+! ---------- Reproductores habituales (JW Player, Video.js) en webs de vídeo ----------
+dailymotion.com,vimeo.com,ok.ru,rumble.com,streamable.com,bitchute.com,odysee.com,kick.com##+js(tb-video-ads, generic)
+
+! ---------- Otros vídeos ----------
+dailymotion.com##.dmp_AdContainer
+dailymotion.com##div[class*="AdBanner"]
+facebook.com##div[data-pagelet="RightRail"] a[href*="ads/about"]

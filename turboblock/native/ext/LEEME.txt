@@ -1,0 +1,2 @@
+build.ps1 copia aquí la extensión (con las reglas ya compiladas) antes de compilar para meterla dentro de TurboBLOCK.exe.
+No hace falta tocar nada en esta carpeta.
