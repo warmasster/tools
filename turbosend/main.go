@@ -16,7 +16,12 @@ var assets embed.FS
 
 func main() {
 	app := NewApp()
+	state := options.Normal
+	if startMinimised() {
+		state = options.Minimised
+	}
 	err := wails.Run(&options.App{
+		WindowStartState: state,
 		Title:            "TurboSEND",
 		Width:            1320,
 		Height:           840,

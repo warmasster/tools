@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,7 @@ type App struct {
 	server  *PublicServer
 	tunnel  *Tunnel
 	direct  *Direct
+	control *http.Server
 }
 
 func NewApp() *App {
@@ -81,6 +83,7 @@ func (a *App) directBase() string { return a.direct.Base() }
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.startNetwork()
+	a.startControl()
 
 	runtime.OnFileDrop(ctx, func(x, y int, paths []string) {
 		a.mu.RLock()
@@ -88,7 +91,7 @@ func (a *App) startup(ctx context.Context) {
 		a.mu.RUnlock()
 		go a.sendPaths(room, paths)
 	})
-	if args := os.Args[1:]; len(args) > 0 {
+	if args := pathArgs(os.Args[1:]); len(args) > 0 {
 		go func() {
 			time.Sleep(800 * time.Millisecond)
 			a.sendPaths("", args)
@@ -131,6 +134,7 @@ func (a *App) startNetwork() {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	a.stopControl()
 	a.rooms.Flush()
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -158,11 +162,35 @@ func (a *App) onSecondInstance(d options.SecondInstanceData) {
 	if a.ctx == nil {
 		return
 	}
-	runtime.WindowUnminimise(a.ctx)
-	runtime.WindowShow(a.ctx)
-	if len(d.Args) > 0 {
-		go a.sendPaths("", d.Args)
+	args := pathArgs(d.Args)
+	if len(args) == len(d.Args) || len(args) > 0 {
+		// --background (lo usa TurboMENU) no debe sacar la ventana delante.
+		runtime.WindowUnminimise(a.ctx)
+		runtime.WindowShow(a.ctx)
 	}
+	if len(args) > 0 {
+		go a.sendPaths("", args)
+	}
+}
+
+// pathArgs quita de la línea de órdenes las opciones (--background…) y deja las rutas.
+func pathArgs(in []string) []string {
+	var out []string
+	for _, a := range in {
+		if !strings.HasPrefix(a, "--") {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func startMinimised() bool {
+	for _, a := range os.Args[1:] {
+		if a == "--background" {
+			return true
+		}
+	}
+	return false
 }
 
 // importV1 convierte los envíos de la versión 1 en chats (solo la primera vez).

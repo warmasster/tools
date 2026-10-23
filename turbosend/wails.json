@@ -10,7 +10,7 @@
   "info": {
     "companyName": "TurboSEND",
     "productName": "TurboSEND",
-    "productVersion": "2.0.0",
+    "productVersion": "2.1.0",
     "copyright": "Fernando",
     "comments": "Chats para enviar y recibir archivos por Cloudflare o directo por tu IP"
   }
