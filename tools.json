@@ -47,6 +47,16 @@
       "version": "turboblock/manifest.json"
     },
     {
+      "id": "turbogames",
+      "name": "TurboGAMES",
+      "kind": "app",
+      "dir": "turbogames",
+      "summary": "Todas tus cuentas de Steam a un clic, con sus contraseñas en una bóveda cifrada, y tus juegos con sus portadas y quién los ha jugado.",
+      "build": "turbogames/build.ps1",
+      "output": "turbogames/TurboGAMES.exe",
+      "version": "turbogames/wails.json"
+    },
+    {
       "id": "turbomenu",
       "name": "TurboMENU",
       "kind": "setup",

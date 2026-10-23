@@ -8,7 +8,7 @@
   const api = hasGo ? window.go.main.App : demoApi();
   const rt = window.runtime || demoRuntime();
 
-  const ICONS = { turbosend: "icons/turbosend.svg", turbocut: "icons/turbocut.svg", turbodl: "icons/turbodl.png", turboblock: "icons/turboblock.svg", turbomenu: "icons/turbomenu.svg" };
+  const ICONS = { turbosend: "icons/turbosend.svg", turbocut: "icons/turbocut.svg", turbodl: "icons/turbodl.png", turboblock: "icons/turboblock.svg", turbomenu: "icons/turbomenu.svg", turbogames: "icons/turbogames.svg" };
   const I = {
     down: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
     up: '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
@@ -262,6 +262,7 @@
       { id: "turbosend", name: "TurboSEND", kind: "app", version: "2.0.0", size: 13.4e6, available: true, installed: true, installedVersion: "1.9.0", update: true, summary: "Envía y recibe archivos de cualquier tamaño en chats. El otro lado solo necesita el navegador.", url: "#" },
       { id: "turbocut", name: "TurboCUT", kind: "app", version: "1.0.0", size: 12.1e6, available: true, installed: true, installedVersion: "1.0.0", summary: "Analiza el disco a toda velocidad y te ayuda a liberar espacio.", url: "#" },
       { id: "turbodl", name: "TurboDL", kind: "setup", version: "1.1.0", size: 7.4e6, available: true, summary: "Gestor de descargas multiconexión para Chrome, con motor nativo de hasta 64 conexiones.", url: "#" },
+      { id: "turbogames", name: "TurboGAMES", kind: "app", version: "1.0.0", size: 11.2e6, available: true, summary: "Todas tus cuentas de Steam a un clic, con sus contraseñas en una bóveda cifrada, y tus juegos con sus portadas y quién los ha jugado.", url: "#" },
     ];
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     return {

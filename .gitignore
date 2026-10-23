@@ -29,3 +29,6 @@ dist/
 turbomenu/dev/icons/*.png
 turbomenu/dev/icons/icons.html
 turbomenu/dev/icons/layout.json
+
+# TurboGAMES: hoja intermedia del icono (se rehace con dev/icons/genapp.go)
+turbogames/dev/icons/appsheet.png
