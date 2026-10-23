@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "TurboMENU",
+  "outputfilename": "TurboMENU",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "",
+  "author": {
+    "name": "Fernando",
+    "email": ""
+  },
+  "info": {
+    "companyName": "TurboMENU",
+    "productName": "TurboMENU",
+    "productVersion": "1.0.0",
+    "copyright": "Fernando",
+    "comments": "Acciones rápidas en el clic derecho: reducir, convertir, pasar al móvil y más"
+  }
+}

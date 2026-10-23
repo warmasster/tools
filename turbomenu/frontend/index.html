@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TurboMENU</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="win" id="win">
+  <header class="tb">
+    <div class="thumb" id="thumb"><img src="logo.svg" alt="" class="icon"></div>
+    <div class="tb-txt">
+      <div class="badge-act" id="act-badge"></div>
+      <div class="tb-title" id="tb-title">TurboMENU</div>
+      <div class="tb-sub" id="tb-sub"></div>
+    </div>
+    <div class="tb-act">
+      <button class="wb" id="wb-min" title="Minimizar" hidden><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button class="wb close" id="wb-close" title="Cerrar (Esc)"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+  </header>
+  <main class="body" id="body"></main>
+  <footer class="foot" id="foot" hidden></footer>
+  <div class="toasts" id="toasts"></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

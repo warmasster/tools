@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0b12">
+<meta name="robots" content="noindex">
+<title>TurboMENU</title>
+<style>
+:root{--bg:#0a0b12;--panel:rgba(255,255,255,.045);--brd:rgba(255,255,255,.09);--txt:#eceef8;--muted:#9196ae;--dim:#5f6580;--ok:#34d399;--bad:#f87171;--grad:linear-gradient(135deg,#8b5cf6 0%,#6366f1 45%,#06b6d4 100%);color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%}
+body{background:radial-gradient(600px 400px at -10% -10%,rgba(124,58,237,.25),transparent 60%),radial-gradient(500px 400px at 110% 0%,rgba(6,182,212,.14),transparent 60%),var(--bg);background-attachment:fixed;color:var(--txt);font:16px/1.45 -apple-system,"Segoe UI",Roboto,system-ui,sans-serif;-webkit-font-smoothing:antialiased;padding:max(18px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.wrap{max-width:520px;margin:0 auto}
+.brand{display:flex;align-items:center;gap:9px;font-weight:650;font-size:15px;color:var(--muted)}
+.brand b{font-weight:800;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.logo{width:26px;height:26px;border-radius:8px;background:var(--grad);display:grid;place-items:center;color:#fff;box-shadow:0 6px 18px -6px rgba(99,102,241,.8)}
+.logo svg{width:15px;height:15px;stroke-width:2.6}
+.hero{margin:26px 0 18px}
+.hero h1{margin:0;font-size:25px;letter-spacing:-.4px;line-height:1.2;word-break:break-word}
+.hero p{margin:6px 0 0;color:var(--muted);font-size:15px}
+.btn{appearance:none;border:0;width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:17px 18px;border-radius:16px;font:inherit;font-weight:650;font-size:17px;color:#fff;background:var(--grad);box-shadow:0 14px 34px -12px rgba(99,102,241,.9),inset 0 1px 0 rgba(255,255,255,.25);text-decoration:none;cursor:pointer;transition:transform .12s}
+.btn:active{transform:scale(.98)}
+.btn svg{width:21px;height:21px}
+.btn.ghost{background:var(--panel);border:1px solid var(--brd);box-shadow:none;font-size:15.5px;padding:14px}
+.list{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+.it{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:12px;align-items:center;padding:11px 12px;border-radius:15px;background:var(--panel);border:1px solid var(--brd);color:inherit;text-decoration:none}
+.ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:rgba(99,102,241,.16);color:#a5b4fc}
+.ic svg{width:19px;height:19px}
+.nm{min-width:0}
+.nm b{display:block;font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nm span{font-size:12.5px;color:var(--dim)}
+.go{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:rgba(255,255,255,.06);color:var(--txt)}
+.go svg{width:18px;height:18px}
+.bar{grid-column:1/-1;height:5px;border-radius:9px;background:rgba(255,255,255,.08);overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--grad);transition:width .2s}
+.it.done .go{background:rgba(52,211,153,.16);color:var(--ok)}
+.it.err .go{background:rgba(248,113,113,.14);color:var(--bad)}
+.note{margin-top:18px;text-align:center;color:var(--dim);font-size:13px}
+.drop{margin-top:4px;border:2px dashed rgba(139,92,246,.5);border-radius:20px;padding:30px 18px;text-align:center;background:rgba(99,102,241,.06)}
+.drop .big{width:64px;height:64px;margin:0 auto 12px;border-radius:20px;background:var(--grad);display:grid;place-items:center;color:#fff;box-shadow:0 16px 36px -12px rgba(99,102,241,.9)}
+.drop .big svg{width:30px;height:30px}
+.drop p{margin:6px 0 16px;color:var(--muted);font-size:14px}
+.sum{display:flex;justify-content:space-between;margin-top:14px;font-size:13.5px;color:var(--muted)}
+.sum b{color:var(--txt)}
+input[type=file]{display:none}
+.center{min-height:60vh;display:grid;place-items:center;text-align:center;color:var(--muted)}
+.spin{width:28px;height:28px;border-radius:50%;border:3px solid rgba(255,255,255,.12);border-top-color:#22d3ee;animation:s .8s linear infinite;margin:0 auto 12px}
+@keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="logo"><svg viewBox="0 0 24 24"><path d="M13 2 4.5 13.5H12L11 22l8.5-11.5H12z"/></svg></span><span>Turbo<b>MENU</b></span></div>
+  <div id="root"><div class="center"><div><div class="spin"></div>Conectando con el PC…</div></div></div>
+</div>
+<script>
+(() => {
+  const base = location.pathname.replace(/\/$/, "");
+  const $root = document.getElementById("root");
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const fmt = n => { const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i ? n.toFixed(n < 10 ? 1 : 0) : n) .toString().replace(".", ",") + " " + u[i]; };
+  const icDown = '<svg viewBox="0 0 24 24"><path d="M12 4v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>';
+  const icFile = '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
+  const icOk = '<svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>';
+  const icUp = '<svg viewBox="0 0 24 24"><path d="M12 20V8"/><path d="m7 13 5-5 5 5"/><path d="M5 4h14"/></svg>';
+
+  fetch(base + "/info").then(r => { if (!r.ok) throw 0; return r.json(); }).then(info => {
+    if (info.mode === "receive") receive(info); else send(info);
+  }).catch(() => { $root.innerHTML = '<div class="center"><div><div style="font-size:42px">⏳</div><h2 style="color:var(--txt)">Este enlace ya no funciona</h2>Se cerró la ventana en el PC.</div></div>'; });
+
+  function send(info) {
+    const one = info.files.length === 1;
+    let h = '<div class="hero"><h1>' + esc(one ? info.files[0].name.split("/").pop() : info.name) + '</h1><p>' +
+      (one ? fmt(info.total) : info.files.length + " archivos · " + fmt(info.total)) + ' · desde ' + esc(info.pc || "el PC") + '</p></div>';
+    if (one) {
+      h += '<a class="btn" href="' + base + '/f/0" download>' + icDown + 'Descargar</a>';
+    } else {
+      h += '<a class="btn" href="' + base + '/zip">' + icDown + 'Descargar todo (ZIP)</a><div class="list">';
+      info.files.forEach((f, i) => {
+        h += '<a class="it" href="' + base + '/f/' + i + '" download><span class="ic">' + icFile + '</span><span class="nm"><b>' + esc(f.name.split("/").pop()) + '</b><span>' + esc(fmt(f.size)) + (f.name.includes("/") ? " · " + esc(f.name.slice(0, f.name.lastIndexOf("/"))) : "") + '</span></span><span class="go">' + icDown + '</span></a>';
+      });
+      h += '</div>';
+    }
+    h += '<p class="note">El enlace funciona mientras la ventana siga abierta en el PC.</p>';
+    $root.innerHTML = h;
+  }
+
+  function receive(info) {
+    $root.innerHTML = '<div class="hero"><h1>Enviar al PC</h1><p>Se guardará en la carpeta «' + esc(info.name) + '» de ' + esc(info.pc || "el PC") + '.</p></div>' +
+      '<div class="drop"><div class="big">' + icUp + '</div><b>Elige fotos, vídeos o archivos</b><p>Puedes elegir varios a la vez.</p>' +
+      '<label class="btn" for="pick">' + icUp + 'Elegir archivos</label><input id="pick" type="file" multiple></div>' +
+      '<div class="list" id="ups"></div><div class="sum" id="sum" hidden></div>';
+    const pick = document.getElementById("pick"), ups = document.getElementById("ups"), sum = document.getElementById("sum");
+    const queue = []; let running = 0, doneN = 0, totalN = 0, bytesAll = 0, bytesDone = 0;
+    pick.addEventListener("change", () => {
+      for (const f of pick.files) {
+        const el = document.createElement("div");
+        el.className = "it";
+        el.innerHTML = '<span class="ic">' + icFile + '</span><span class="nm"><b>' + esc(f.name) + '</b><span>' + fmt(f.size) + '</span></span><span class="go">' + icUp + '</span><span class="bar"><i></i></span>';
+        ups.prepend(el);
+        queue.push({ f, el }); totalN++; bytesAll += f.size;
+      }
+      pick.value = "";
+      pump();
+    });
+    function upd() {
+      sum.hidden = false;
+      sum.innerHTML = '<span><b>' + doneN + '</b> de ' + totalN + ' enviados</span><span>' + fmt(bytesDone) + ' / ' + fmt(bytesAll) + '</span>';
+    }
+    function pump() { upd(); while (running < 2 && queue.length) { running++; up(queue.shift()).finally(() => { running--; pump(); }); } }
+    async function up({ f, el }) {
+      const bar = el.querySelector(".bar i"), sub = el.querySelector(".nm span");
+      try {
+        const r = await fetch(base + "/up", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: f.name, size: f.size }) });
+        if (!r.ok) throw new Error(await r.text());
+        const { id } = await r.json();
+        let off = 0, tries = 0; const CH = 8 << 20;
+        while (off < f.size) {
+          const end = Math.min(f.size, off + CH);
+          try {
+            const got = await put(base + "/up/" + id + "?off=" + off, f.slice(off, end), p => { bar.style.width = ((off + p) / f.size * 100) + "%"; });
+            bytesDone += got - off; off = got; tries = 0; upd();
+          } catch (e) {
+            if (e.got !== undefined) { off = e.got; continue; }
+            if (++tries > 6) throw e;
+            await new Promise(r => setTimeout(r, 1000 * tries));
+          }
+        }
+        bar.style.width = "100%"; el.classList.add("done"); el.querySelector(".go").innerHTML = icOk; sub.textContent = fmt(f.size) + " · en el PC";
+        doneN++; upd();
+      } catch (e) {
+        el.classList.add("err"); sub.textContent = "No se pudo enviar. Vuelve a intentarlo.";
+      }
+    }
+    function put(url, blob, onp) {
+      return new Promise((res, rej) => {
+        const x = new XMLHttpRequest();
+        x.open("PUT", url);
+        x.upload.onprogress = e => onp(e.loaded);
+        x.onload = () => {
+          let j = {}; try { j = JSON.parse(x.responseText); } catch (_) { }
+          if (x.status === 200) res(j.got); else if (x.status === 409) rej({ got: j.got }); else rej(new Error(x.status));
+        };
+        x.onerror = () => rej(new Error("red"));
+        x.send(blob);
+      });
+    }
+  }
+})();
+</script>
+</body>
+</html>
