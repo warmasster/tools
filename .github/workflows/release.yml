@@ -11,6 +11,7 @@ on:
       - "turbocut/**"
       - "turbodl/**"
       - "turboblock/**"
+      - "turbomenu/**"
       - "tools.json"
       - ".github/**"
   workflow_dispatch:

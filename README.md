@@ -16,6 +16,7 @@ Programas para Windows hechos a medida: rápidos, en un solo `.exe` y con una in
 | [**TurboCUT**](turbocut/README.md) | Analiza el disco en segundos (lee la MFT de NTFS) y te enseña qué ocupa más. Busca cualquier archivo al instante mientras escribes, encuentra duplicados y ayuda a liberar espacio: temporales, cachés, papelera, descargas viejas. |
 | [**TurboDL**](turbodl/README.md) | Extensión de Chrome que descarga por partes en paralelo, pausa, reanuda y sobrevive a cerrar el navegador. Con motor nativo, hasta 64 conexiones. |
 | [**TurboBLOCK**](turboblock/README.md) | Bloqueador de anuncios, rastreadores, malware y ventanas emergentes para Chrome. El filtrado lo hace Chrome por dentro y las listas se actualizan solas. |
+| [**TurboMENU**](turbomenu/README.md) | Añade «Turbo» al clic derecho: reducir tamaño (vídeo para Discord o WhatsApp, imágenes, PDF), convertir a cualquier formato, pasar al móvil con un QR, ver si un archivo es seguro, qué programa lo bloquea, de dónde se descargó y más. Todo en ventanitas, sin abrir otros programas. |
 | [**TurboSETUP**](installer/README.md) | El instalador: descarga las herramientas de este repo y las mantiene al día. |
 
 ## Compilar

@@ -45,6 +45,16 @@
       "build": "turboblock/native/build.ps1",
       "output": "turboblock/TurboBLOCK.exe",
       "version": "turboblock/manifest.json"
+    },
+    {
+      "id": "turbomenu",
+      "name": "TurboMENU",
+      "kind": "setup",
+      "dir": "turbomenu",
+      "summary": "Añade «Turbo» al clic derecho: reducir tamaño, convertir, pasar al móvil con un QR, ver si es seguro, qué lo bloquea y más.",
+      "build": "turbomenu/build.ps1",
+      "output": "turbomenu/TurboMENU.exe",
+      "version": "turbomenu/wails.json"
     }
   ]
 }

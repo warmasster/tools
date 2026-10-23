@@ -24,3 +24,8 @@ turboblock/native/.cache/
 
 # Salida local de .github/scripts/release.ps1 -OutDir dist
 dist/
+
+# TurboMENU: hojas de iconos generadas (se rehacen con dev/icons)
+turbomenu/dev/icons/*.png
+turbomenu/dev/icons/icons.html
+turbomenu/dev/icons/layout.json

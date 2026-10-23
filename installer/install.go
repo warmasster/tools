@@ -222,7 +222,19 @@ func installTool(ctx context.Context, t *Tool, desktop bool, onProgress progress
 		return nil, fmt.Errorf("no se pudo registrar la instalación: %w", err)
 	}
 	ensureSetupCopy()
+	refreshTurboMENU(t.ID)
 	return res, nil
+}
+
+// refreshTurboMENU avisa a TurboMENU de que ha cambiado lo instalado, para que su
+// menú enseñe o quite las opciones que dependen de otras herramientas (TurboSEND).
+func refreshTurboMENU(changed string) {
+	if changed == "turbomenu" {
+		return
+	}
+	if in, ok := listInstalled()["turbomenu"]; ok && in.Exe != "" {
+		runHidden(in.Exe, "refresh")
+	}
 }
 
 func writeUninstallEntry(t *Tool, exe string) error {
@@ -328,6 +340,7 @@ func uninstallTool(id string) (string, error) {
 	os.Remove(startMenuLink(name))
 	os.Remove(desktopLink(name))
 	registry.DeleteKey(registry.CURRENT_USER, regKeyName(id))
+	defer refreshTurboMENU(id)
 	if dir != "" && strings.HasPrefix(strings.ToLower(dir), strings.ToLower(rootDir())) {
 		os.RemoveAll(dir)
 	}
