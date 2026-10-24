@@ -18,6 +18,7 @@ Programas para Windows hechos a medida: rápidos, en un solo `.exe` y con una in
 | [**TurboBLOCK**](turboblock/README.md) | Bloqueador de anuncios, rastreadores, malware y ventanas emergentes para Chrome. El filtrado lo hace Chrome por dentro y las listas se actualizan solas. |
 | [**TurboMENU**](turbomenu/README.md) | Añade «Turbo» al clic derecho: reducir tamaño (vídeo para Discord o WhatsApp, imágenes, PDF), convertir a cualquier formato, pasar al móvil con un QR, ver si un archivo es seguro, qué programa lo bloquea, de dónde se descargó y más. Todo en ventanitas, sin abrir otros programas. |
 | [**TurboGAMES**](turbogames/README.md) | Todas tus cuentas de Steam a un clic, sin el límite del selector de Steam: cambia de cuenta solo, avisa de cuáles piden contraseña y guarda las contraseñas en una bóveda cifrada con contraseña maestra. También enseña tus juegos con sus portadas, quién ha jugado a cada uno y cuánto, y los abre con la cuenta que toque. |
+| [**TurboVAULT**](turbovault/README.md) | Gestor de contraseñas con todo cifrado en tu PC (AES-256 y Argon2id) y extensión para Chrome que rellena y guarda al iniciar sesión. Códigos 2FA, generador, salud de tus contraseñas, aviso de filtraciones y copias automáticas en un USB. La bóveda se cierra sola a los pocos minutos y al bloquear el PC. |
 | [**TurboSETUP**](installer/README.md) | El instalador: descarga las herramientas de este repo y las mantiene al día. |
 
 ## Compilar

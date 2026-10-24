@@ -65,6 +65,16 @@
       "build": "turbomenu/build.ps1",
       "output": "turbomenu/TurboMENU.exe",
       "version": "turbomenu/wails.json"
+    },
+    {
+      "id": "turbovault",
+      "name": "TurboVAULT",
+      "kind": "setup",
+      "dir": "turbovault",
+      "summary": "Tus contraseñas cifradas en tu PC, con extensión para Chrome que rellena y guarda al iniciar sesión, códigos 2FA, generador y copias en USB.",
+      "build": "turbovault/build.ps1",
+      "output": "turbovault/TurboVAULT.exe",
+      "version": "turbovault/wails.json"
     }
   ]
 }

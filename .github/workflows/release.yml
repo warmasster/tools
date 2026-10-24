@@ -13,6 +13,7 @@ on:
       - "turboblock/**"
       - "turbomenu/**"
       - "turbogames/**"
+      - "turbovault/**"
       - "tools.json"
       - ".github/**"
   workflow_dispatch:

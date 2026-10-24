@@ -8,7 +8,7 @@
   const api = hasGo ? window.go.main.App : demoApi();
   const rt = window.runtime || demoRuntime();
 
-  const ICONS = { turbosend: "icons/turbosend.svg", turbocut: "icons/turbocut.svg", turbodl: "icons/turbodl.png", turboblock: "icons/turboblock.svg", turbomenu: "icons/turbomenu.svg", turbogames: "icons/turbogames.svg" };
+  const ICONS = { turbosend: "icons/turbosend.svg", turbocut: "icons/turbocut.svg", turbodl: "icons/turbodl.png", turboblock: "icons/turboblock.svg", turbomenu: "icons/turbomenu.svg", turbogames: "icons/turbogames.svg", turbovault: "icons/turbovault.svg" };
   const I = {
     down: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
     up: '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
