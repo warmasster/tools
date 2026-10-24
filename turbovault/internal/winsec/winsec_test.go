@@ -85,6 +85,7 @@ func TestHardenChild(t *testing.T) {
 		os.Stdin.Read(make([]byte, 1)) // esperar a que el padre mire
 		os.Exit(0)
 	}
+	skipIfDebugger(t)
 	self, _ := os.Executable()
 	cmd := exec.Command(self, "-test.run", "TestHardenChild")
 	cmd.Env = append(os.Environ(), "WINSEC_CHILD=1")
@@ -154,6 +155,7 @@ func TestHardenThreadsChild(t *testing.T) {
 		os.Stdin.Read(make([]byte, 1))
 		os.Exit(0)
 	}
+	skipIfDebugger(t)
 	self, _ := os.Executable()
 	cmd := exec.Command(self, "-test.run", "TestHardenThreadsChild")
 	cmd.Env = append(os.Environ(), "WINSEC_THREADS=1")
