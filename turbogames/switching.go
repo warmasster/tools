@@ -230,35 +230,6 @@ func (a *App) nameOf(id uint32) string {
 	return steam.SteamID64(id)
 }
 
-// AddAccount abre Steam en su pantalla de inicio de sesión, sin entrar en
-// ninguna cuenta, para añadir una nueva. Cuando entres, TurboGAMES la verá sola.
-func (a *App) AddAccount() error {
-	in := a.steam()
-	if in == nil {
-		return steam.ErrNotFound
-	}
-	if !a.beginSwitch() {
-		return errors.New("Ya se está cambiando de cuenta")
-	}
-	defer a.endSwitch()
-	if in.Running() {
-		a.emit("switch", SwitchProgress{Step: "close"})
-		if err := in.Shutdown(20 * time.Second); err != nil {
-			return err
-		}
-	}
-	if err := in.PrepareNewLogin(); err != nil {
-		return err
-	}
-	_ = in.ResetActiveUser()
-	a.emit("switch", SwitchProgress{Step: "open"})
-	if err := in.Start(); err != nil {
-		return err
-	}
-	a.emit("switch", SwitchProgress{Step: "done"})
-	return nil
-}
-
 // PlayGame abre un juego. Si se indica una cuenta y no es la que está abierta,
 // primero cambia a ella.
 func (a *App) PlayGame(appid uint32, account string) (SwitchResult, error) {

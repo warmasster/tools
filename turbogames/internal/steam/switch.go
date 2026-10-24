@@ -97,21 +97,6 @@ func (in *Install) PrepareLogin(account string, offline bool) error {
 	return autoLoginHook(account)
 }
 
-// PrepareNewLogin hace que Steam se abra sin entrar en ninguna cuenta, para
-// añadir una nueva o elegirla en su propia lista.
-func (in *Install) PrepareNewLogin() error {
-	if in.Running() {
-		return ErrRunning
-	}
-	if err := in.editLoginUsers(func(u *vdf.Node, _ bool) {
-		u.SetIfPresent("AutoLogin", "0")
-		u.SetIfPresent("MostRecent", "0")
-	}, ""); err != nil {
-		return err
-	}
-	return autoLoginHook("")
-}
-
 // Forget hace que Steam olvide una cuenta en este PC: la quita de
 // loginusers.vdf y borra su sesión guardada de local.vdf. Steam tiene que
 // estar cerrado. La cuenta no se toca en los servidores de Steam.

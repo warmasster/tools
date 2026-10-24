@@ -265,7 +265,7 @@
         <div class="acc-foot"><div class="meta"><span>${esc(line1)}</span><span>${line2}</span></div>
           <button class="btn primary xs" data-act="switch">${ic("login")}Entrar</button></div>
       </div>`;
-    }).join("") + `<button class="acc add-card" data-act="add"><div class="tile">${ic("plus")}</div><b>Añadir cuenta</b><span>Entra con ella en Steam o guárdala aquí con su contraseña</span></button>`;
+    }).join("") + `<button class="acc add-card" data-act="add"><div class="tile">${ic("plus")}</div><b>Añadir cuenta</b><span>Guárdala con su usuario y, si quieres, su contraseña</span></button>`;
     renderAccDetail();
   }
 
@@ -643,23 +643,48 @@
       return;
     }
     if (!S.gameSel || !list.some((g) => g.appid === S.gameSel)) S.gameSel = list[0].appid;
-    grid.innerHTML = list.map((g, i) => {
+    // las tarjetas se reutilizan: al buscar o filtrar solo se recolocan, y la
+    // portada que ya estaba cargada no vuelve a parpadear
+    let fresh = 0;
+    grid.replaceChildren(...list.map((g) => {
+      let el = gameEls.get(g.appid);
+      if (!el) { el = gameCard(g, fresh++); gameEls.set(g.appid, el); }
       const m = minutesOf(g), l = lastOf(g);
       const meta = [fmtHours(m), l ? ago(l) : (g.installed ? "Sin jugar" : "")].filter(Boolean).join(" · ") || (g.installed ? fmtBytes(g.size) : "—");
-      const hue = hash(g.appid) % 360;
-      return `<div class="game${g.appid === S.gameSel ? " sel" : ""}${g.installed ? "" : " notinst"}" data-appid="${g.appid}" style="animation-delay:${Math.min(i, 24) * 0.015}s">
-        <div class="cover"><div class="ph" style="--ph1:hsl(${hue} 55% 38%);--ph2:hsl(${(hue + 50) % 360} 60% 24%)">${esc(g.name)}</div>
-          <img loading="lazy" src="/img/app/${g.appid}/cover" alt="" draggable="false" onload="this.classList.add('ok')" onerror="this.remove()">
-          <div class="shade"></div>
-          <div class="badges">${g.running ? `<span class="run">En marcha</span>` : ""}${g.type === "demo" ? "<span>Demo</span>" : ""}${STATE[g.state] ? `<span class="st-${g.state}">${STATE[g.state].short}</span>` : ""}</div>
-          <button class="playb" data-play="${g.appid}" title="${g.installed ? "Jugar" : "Instalar o jugar"}">${ic("play")}</button>
-        </div>
-        <div class="gname" title="${esc(g.name)}">${esc(g.name)}</div>
-        <div class="gmeta">${g.installed ? "<i></i>" : ""}<span>${esc(meta)}</span></div>
-      </div>`;
-    }).join("");
+      el.classList.toggle("sel", g.appid === S.gameSel);
+      el.classList.toggle("notinst", !g.installed);
+      setHTML(el.querySelector(".badges"), (g.running ? `<span class="run">En marcha</span>` : "") + (g.type === "demo" ? "<span>Demo</span>" : "") + (STATE[g.state] ? `<span class="st-${g.state}">${STATE[g.state].short}</span>` : ""));
+      el.querySelector(".playb").title = g.installed ? "Jugar" : "Instalar o jugar";
+      const gn = el.querySelector(".gname");
+      if (gn.textContent !== g.name) { gn.textContent = g.name; gn.title = g.name; el.querySelector(".ph span").textContent = g.name; }
+      setHTML(el.querySelector(".gmeta"), (g.installed ? "<i></i>" : "") + `<span>${esc(meta)}</span>`);
+      return el;
+    }));
     renderGameDetail();
   }
+
+  const gameEls = new Map();
+  function gameCard(g, n) {
+    const el = document.createElement("div");
+    el.className = "game";
+    el.dataset.appid = g.appid;
+    el.style.animationDelay = Math.min(n, 24) * 0.015 + "s";
+    el.innerHTML = `<div class="cover"><div class="ph"><span></span></div>
+      <img loading="lazy" decoding="async" alt="" draggable="false">
+      <div class="shade"></div><div class="badges"></div>
+      <button class="playb" data-play="${g.appid}">${ic("play")}</button></div>
+      <div class="gname"></div><div class="gmeta"></div>`;
+    // la animación de entrada solo la primera vez; si no, se repetiría al recolocarla
+    el.addEventListener("animationend", () => el.classList.add("seen"), { once: true });
+    setTimeout(() => el.classList.add("seen"), 1500); // por si la ventana estaba oculta y no llegó a animarse
+    const cover = el.firstElementChild, img = cover.querySelector("img");
+    img.onload = () => cover.classList.add("loaded");
+    img.onerror = () => { img.remove(); cover.classList.add("noimg"); };
+    img.src = `/img/app/${g.appid}/cover`;
+    return el;
+  }
+  // setHTML solo toca el DOM si cambia algo
+  function setHTML(el, html) { if (el.innerHTML !== html) el.innerHTML = html; }
 
   // estados de instalación que hay que avisar (los da Go en g.state)
   const STATE = {
@@ -1038,22 +1063,6 @@
       return;
     }
     doIt();
-  }
-  async function addViaSteam() {
-    if (!S.steam.found) { toast("No encuentro Steam en este PC", "error"); return; }
-    if (S.switching || S.steam.switching) { toast("Ya se está cambiando de cuenta", "error"); return; }
-    $("#m-add").hidden = true;
-    if (S.steam.running && (S.steam.runningApp || S.settings.confirmSwitch !== false)) {
-      let html = "<p>Steam se cerrará y volverá a abrirse en su pantalla de inicio de sesión, sin entrar en ninguna cuenta.</p>";
-      if (S.steam.runningApp) html += `<div class="warn-box red">También se cerrará <b>${esc(S.runningName || "el juego que tienes abierto")}</b>. Guarda la partida antes.</div>`;
-      if (!(await confirmBox("¿Abrir el inicio de sesión de Steam?", html, "Cerrar Steam y seguir"))) return;
-    }
-    S.steam.switching = true; renderPills();
-    try {
-      await api.AddAccount();
-      toast("Entra en Steam con la cuenta nueva. Aparecerá aquí sola.");
-    } catch (e) { toast(errText(e), "error"); }
-    refreshStatus();
   }
 
   let forgetFor = null;
@@ -1478,9 +1487,8 @@
   $("#mv-form").addEventListener("submit", submitVault);
   $("#ms-form").addEventListener("submit", (e) => saveSecret(e, false));
   $("#ms-clear").addEventListener("click", () => saveSecret(null, true));
-  $("#ma-steam").addEventListener("click", addViaSteam);
-  $("#ma-form").addEventListener("submit", (e) => { e.preventDefault(); addManual(true); });
-  $("#ma-save").addEventListener("click", () => addManual(false));
+  $("#ma-form").addEventListener("submit", (e) => { e.preventDefault(); addManual(false); });
+  $("#ma-go").addEventListener("click", () => addManual(true));
   $("#ma-name").addEventListener("input", debounce(() => { if ($("#ma-name").value) addCheck(); else clearErrs($("#m-add")); }, 250));
   $("#ma-name").addEventListener("blur", () => { if ($("#ma-name").value) addCheck(); });
   $("#ma-pass").addEventListener("input", () => fieldErr($("#ma-pass"), spaceHint($("#ma-pass").value), true));
@@ -1634,7 +1642,6 @@
         return { ok: true };
       },
       async CancelWait() { },
-      async AddAccount() { await wait(800); },
       async PlayGame() { return { ok: true, already: true }; },
       async CopyField(name, f) { if (f === "name") return 0; if (!vault.unlocked) throw "La bóveda está cerrada"; return 20; },
       async CopyText() { },

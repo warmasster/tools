@@ -17,7 +17,7 @@ import (
 	"turbogames/internal/vault"
 )
 
-const version = "1.0.1"
+const version = "1.0.2"
 
 type App struct {
 	ctx context.Context
