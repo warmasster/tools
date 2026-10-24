@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>TurboVAULT</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <header class="titlebar">
+    <div class="brand">
+      <img src="logo.svg" alt="" width="22" height="22">
+      <span>Turbo<b>VAULT</b></span>
+    </div>
+    <button class="session" id="session" title="La bóveda se cierra sola al acabar este tiempo" hidden>
+      <svg class="ring" viewBox="0 0 20 20"><circle class="bgc" cx="10" cy="10" r="7.5"/><circle class="fg" id="session-ring" cx="10" cy="10" r="7.5" stroke-dasharray="47.12" stroke-dashoffset="0"/></svg>
+      <span>Abierta · se cierra en <b id="session-left">10:00</b></span>
+    </button>
+    <div class="winbtns">
+      <button class="wb lockbtn" id="wb-lock" title="Cerrar la bóveda ahora (Ctrl+L)" hidden><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
+      <span class="wsep"></span>
+      <button class="wb" id="wb-min" title="Minimizar"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button class="wb" id="wb-max" title="Maximizar"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
+      <button class="wb close" id="wb-close" title="Cerrar ventana (la bóveda sigue en la bandeja)"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+  </header>
+
+  <div class="body" id="body">
+    <nav class="side" id="side"></nav>
+
+    <!-- entradas -->
+    <main class="view split on" id="v-items">
+      <section class="main">
+        <div class="toolbar">
+          <div class="search" id="q-wrap">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="q" placeholder="Buscar (Ctrl+F)" spellcheck="false" autocomplete="off">
+            <button class="x" id="q-clear" title="Borrar búsqueda"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <select class="fsel" id="sort" title="Orden">
+            <option value="name">Por nombre</option>
+            <option value="used">Usadas hace poco</option>
+            <option value="updated">Cambiadas hace poco</option>
+            <option value="weak">Más débiles primero</option>
+          </select>
+          <span class="grow"></span>
+          <span class="fstat" id="count"></span>
+          <button class="btn primary sm" id="add" title="Nueva entrada (Ctrl+N)"><svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg><span>Nueva</span></button>
+        </div>
+        <div id="banners"></div>
+        <div class="scroller" id="list-scroll"><div class="list" id="list"></div></div>
+      </section>
+      <aside class="detail" id="detail"></aside>
+    </main>
+
+    <main class="view" id="v-gen"><div class="page"><div class="page-in" id="gen"></div></div></main>
+    <main class="view" id="v-health"><div class="page"><div class="page-in" id="health"></div></div></main>
+    <main class="view" id="v-activity"><div class="page"><div class="page-in" id="activity"></div></div></main>
+    <main class="view" id="v-backup"><div class="page"><div class="page-in" id="backup"></div></div></main>
+    <main class="view" id="v-settings"><div class="page"><div class="page-in" id="settings"></div></div></main>
+  </div>
+
+  <div class="lock" id="lock" hidden></div>
+  <div class="agent-down" id="agent-down" hidden></div>
+  <div class="toasts" id="toasts"></div>
+</div>
+<script src="mock.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

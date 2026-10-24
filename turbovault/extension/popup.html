@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>TurboVAULT</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/logo.svg" alt="" width="24" height="24">
+    <span class="brand">Turbo<b>VAULT</b></span>
+    <span class="pill" id="pill"></span>
+    <button class="ib" id="lock" title="Cerrar la bóveda" hidden><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
+  </header>
+  <main id="main"><div class="center"><div class="spin"></div></div></main>
+  <footer>
+    <button class="link" id="app">Abrir TurboVAULT</button>
+    <span class="kbd" title="Atajo para rellenar">Ctrl+Mayús+L</span>
+  </footer>
+  <div class="toast" id="toast" hidden></div>
+  <script src="popup.js"></script>
+</body>
+</html>

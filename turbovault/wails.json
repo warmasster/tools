@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "TurboVAULT",
+  "outputfilename": "TurboVAULT",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "",
+  "author": {
+    "name": "Fernando",
+    "email": ""
+  },
+  "info": {
+    "companyName": "TurboVAULT",
+    "productName": "TurboVAULT",
+    "productVersion": "1.0.0",
+    "copyright": "Fernando",
+    "comments": "Tus contraseñas, cifradas en tu PC, con extensión para Chrome"
+  }
+}
