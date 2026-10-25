@@ -36,3 +36,10 @@ func testEnv(name string) string {
 	}
 	return ""
 }
+
+func testEnvSet(name string) (string, bool) {
+	if testing.Testing() {
+		return os.LookupEnv(name)
+	}
+	return "", false
+}

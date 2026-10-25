@@ -32,6 +32,16 @@ import (
 //go:embed all:extension
 var extensionFS embed.FS
 
+// extVersion es la versión de la extensión que va dentro del programa.
+var extVersion = func() string {
+	b, _ := extensionFS.ReadFile("extension/manifest.json")
+	var m struct {
+		Version string `json:"version"`
+	}
+	json.Unmarshal(b, &m)
+	return m.Version
+}()
+
 var browserKeys = []struct{ name, key string }{
 	{"Chrome", `Software\Google\Chrome\NativeMessagingHosts\`},
 	{"Edge", `Software\Microsoft\Edge\NativeMessagingHosts\`},
@@ -309,7 +319,7 @@ La extensión está en:
 
 Chrome no deja que un programa instale extensiones por su cuenta: este paso se hace una sola vez. Después, al abrir TurboVAULT por primera vez, crearás tu contraseña maestra.`, false)
 	} else {
-		messageBox("TurboVAULT", "TurboVAULT actualizado.\n\nEn chrome://extensions pulsa el botón de recargar (↻) de TurboVAULT para usar la versión nueva de la extensión.", false)
+		messageBox("TurboVAULT", "TurboVAULT actualizado.\n\nLa extensión de Chrome se pone al día sola. Si tenías la 1.0.0, esta vez pulsa el botón de recargar (↻) de TurboVAULT en chrome://extensions o reinicia Chrome.", false)
 	}
 	spawnDetached()
 	fmt.Println("TurboVAULT instalado. Está en la bandeja, junto a la flechita de la barra de tareas.")
@@ -333,6 +343,10 @@ func cliUninstall() int {
 // ---------- Chrome ----------
 
 func browserDataDirs() []string {
+	// Pruebas: los perfiles de los navegadores del PC no se miran.
+	if d, ok := testEnvSet("TURBOVAULT_BROWSERS"); ok {
+		return filepath.SplitList(d)
+	}
 	la := os.Getenv("LOCALAPPDATA")
 	return []string{
 		filepath.Join(la, "Google", "Chrome", "User Data"),

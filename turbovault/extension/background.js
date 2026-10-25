@@ -28,33 +28,84 @@ async function token() {
   return t;
 }
 
-function connect() {
+// Si TurboVAULT no contesta, no se reintenta sin parar: cada intento lanza un
+// proceso, y muchas pestañas preguntando a la vez llegaban a tumbar Chrome.
+// Se espera cada vez más (2 s, 4 s… hasta 1 min). Lo que pides tú (pulsar el
+// icono, abrir el menú de la extensión) puede reintentar antes.
+let nextTry = 0;
+let backoff = 0;
+let lastTry = 0;
+let rejected = ''; // por qué TurboVAULT rechazó la última conexión
+
+function failed(ms) {
+  backoff = Math.max(ms || 0, Math.min(backoff ? backoff * 2 : 2000, 60000));
+  nextTry = Date.now() + backoff;
+}
+
+function connect(user = false) {
   if (port) return helloDone;
+  const now = Date.now();
+  if (now < nextTry && !(user && now - lastTry > 1500)) return Promise.resolve();
+  lastTry = now;
+  let p;
   try {
-    port = chrome.runtime.connectNative(HOST);
+    p = chrome.runtime.connectNative(HOST);
   } catch (e) {
-    port = null;
+    failed();
     setState({ agent: false, error: String(e.message || e) });
     return Promise.resolve();
   }
-  port.onMessage.addListener(onNative);
-  port.onDisconnect.addListener(() => {
+  port = p;
+  p.onMessage.addListener(onNative);
+  p.onDisconnect.addListener(() => {
     const err = chrome.runtime.lastError ? chrome.runtime.lastError.message : 'Se cerró la conexión con TurboVAULT';
-    port = null;
-    helloDone = null;
-    for (const [, w] of waiting) w.reject(Object.assign(new Error(friendlyError(err)), { code: 'noagent' }));
-    waiting.clear();
-    setState({ agent: false, unlocked: false, paired: false, error: friendlyError(err) });
+    if (port !== p) return;
+    dropPort(friendlyError(err));
   });
   helloDone = (async () => {
     try {
       const st = await send('hello', { token: await token() });
+      backoff = 0;
+      nextTry = 0;
       setState(Object.assign({ agent: true, error: '' }, st));
+      checkVersion(st && st.extVersion);
     } catch (e) {
-      setState({ agent: false, error: e.message });
+      // El puente contesta pero sin TurboVAULT detrás: se cierra y se espera.
+      if (port === p) { try { p.disconnect(); } catch { /* ya cerrado */ } dropPort(e.message); }
     }
   })();
   return helloDone;
+}
+
+function dropPort(error) {
+  if (rejected) { error = rejected; rejected = ''; }
+  port = null;
+  helloDone = null;
+  for (const [, w] of waiting) w.reject(Object.assign(new Error(error), { code: 'noagent' }));
+  waiting.clear();
+  failed();
+  setState({ agent: false, unlocked: false, paired: false, error });
+}
+
+// TurboVAULT trae una versión nueva de la extensión (se actualizó): Chrome no
+// recarga sola una extensión «descomprimida», así que se recarga ella misma.
+// Una vez por versión, para no entrar en bucle si los archivos no cambiaron.
+async function checkVersion(v) {
+  if (!v || v === chrome.runtime.getManifest().version) return;
+  const { reloadedFor } = await chrome.storage.local.get('reloadedFor');
+  if (reloadedFor === v) return;
+  await chrome.storage.local.set({ reloadedFor: v });
+  chrome.runtime.reload();
+}
+
+// Tras instalar o recargar la extensión, las pestañas que ya estaban abiertas
+// no tienen su parte en la página: se les pone sin tener que recargarlas.
+async function injectOpenTabs() {
+  const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }).catch(() => []);
+  for (const t of tabs) {
+    if (t.discarded) continue;
+    chrome.scripting.executeScript({ target: { tabId: t.id, allFrames: true }, files: ['content.js'] }).catch(() => {});
+  }
 }
 
 function friendlyError(msg) {
@@ -84,7 +135,7 @@ function send(cmd, args, timeout = 20000) {
 
 // call se conecta si hace falta y manda una orden.
 async function call(cmd, args, timeout) {
-  if (!port) await connect();
+  if (!port) await connect(true);
   else if (helloDone) await helloDone;
   return send(cmd, args, timeout);
 }
@@ -92,6 +143,8 @@ async function call(cmd, args, timeout) {
 function onNative(m) {
   if (m.event) {
     if (m.event === 'state' && m.data) setState(Object.assign({ agent: true }, m.data));
+    // TurboVAULT no acepta este navegador: reintentar enseguida no lo arregla.
+    if (m.event === 'rejected') { failed(60000); rejected = 'TurboVAULT no acepta esta conexión: ' + (m.error || ''); }
     return;
   }
   const w = waiting.get(m.id);
@@ -101,15 +154,21 @@ function onNative(m) {
   else w.reject(Object.assign(new Error(m.error || 'Error'), { code: m.code }));
 }
 
+let lastPublic = '';
 function setState(patch) {
   const wasOpen = state.unlocked && state.paired;
   state = Object.assign({}, state, patch);
+  // Solo se avisa a las pestañas si algo ha cambiado de verdad.
+  const pub = publicState();
+  const key = JSON.stringify(Object.assign({}, pub, { now: 0 }));
+  if (key === lastPublic) return;
+  lastPublic = key;
   const open = state.agent && state.unlocked;
   chrome.action.setIcon({ path: open ? { 16: 'icons/open-16.png', 24: 'icons/open-24.png', 32: 'icons/open-32.png' } : { 16: 'icons/locked-16.png', 24: 'icons/locked-24.png', 32: 'icons/locked-32.png' } }).catch(() => {});
   chrome.action.setBadgeText({ text: state.agent && state.unlocked && !state.paired ? '!' : '' }).catch(() => {});
   chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' }).catch(() => {});
   chrome.action.setTitle({ title: !state.agent ? 'TurboVAULT: sin conexión' : state.unlocked ? (state.paired ? 'TurboVAULT: abierta' : 'TurboVAULT: vincula este navegador') : 'TurboVAULT: cerrada' }).catch(() => {});
-  broadcast({ type: 'state', state: publicState() });
+  broadcast({ type: 'state', state: pub });
   if (!wasOpen && state.unlocked && state.paired) retryPendingSaves();
 }
 
@@ -171,15 +230,16 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 });
 
 async function handle(msg, sender) {
-  const fromPopup = !sender.tab && sender.url && sender.url.startsWith(`chrome-extension://${chrome.runtime.id}/`);
+  // Solo las páginas de la propia extensión tienen esta dirección (las webs no pueden cargarlas).
+  const fromPopup = sender.id === chrome.runtime.id && !!sender.url && sender.url.startsWith(`chrome-extension://${chrome.runtime.id}/`);
   switch (msg.type) {
     case 'state':
-      if (!port) await connect();
+      if (!port) await connect(!!msg.user);
       else if (helloDone) await helloDone;
       return publicState();
 
     case 'query': {
-      if (!port) await connect();
+      if (!port) await connect(!!msg.user);
       else if (helloDone) await helloDone;
       if (!frameAllowed(sender)) return { state: publicState(), matches: [], blocked: true };
       if (!state.agent || !state.unlocked || !state.paired) return { state: publicState(), matches: [] };
@@ -238,7 +298,7 @@ async function handle(msg, sender) {
     // --- desde el menú de la extensión ---
     case 'popup:info': {
       if (!fromPopup) throw new Error('No permitido');
-      if (!port) await connect();
+      if (!port) await connect(true);
       else if (helloDone) await helloDone;
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       const url = tab && tab.url ? tab.url : '';
@@ -385,7 +445,7 @@ function setupMenus() {
     chrome.contextMenus.create({ id: 'tv-gen', title: 'Generar una contraseña segura', contexts: ['editable'] });
   });
 }
-chrome.runtime.onInstalled.addListener(setupMenus);
+chrome.runtime.onInstalled.addListener(() => { setupMenus(); injectOpenTabs(); });
 chrome.runtime.onStartup.addListener(() => { setupMenus(); connect(); });
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!tab) return;

@@ -33,7 +33,11 @@ func spawnDetached(args ...string) error {
 	start := func(extra uint32) error {
 		cmd := exec.Command(selfExe(), args...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags | extra, ProcessAttributes: pa, ThreadAttributes: ta}
-		if err := cmd.Start(); err != nil {
+		// El hijo hereda los permisos por defecto del token: si este proceso
+		// ya se protegió (el puente del navegador lo hace), el hijo no podría
+		// ni usar su propio token, y un agente así no abre ventanas ni
+		// reconoce a Chrome. Se lanza con los permisos normales.
+		if err := winsec.WithNormalDefaults(cmd.Start); err != nil {
 			return err
 		}
 		cmd.Process.Release()

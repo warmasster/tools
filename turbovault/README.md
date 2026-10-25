@@ -27,11 +27,14 @@ Gestor de contraseñas que guarda todo **cifrado en tu PC**, con extensión para
 
 ## La extensión de Chrome
 
-- Al entrar en un campo de usuario o contraseña aparece el icono de TurboVAULT dentro del campo y un menú con lo guardado **para esa web**. Clic y rellena. También con **Ctrl+Mayús+L**, o con clic derecho → «Rellenar con TurboVAULT».
+- Cada campo de usuario o contraseña lleva el icono de TurboVAULT dentro, sin tener que pulsar nada: **de color** con la bóveda abierta y **gris** con la bóveda cerrada. Un clic en el icono (o entrar en el campo) abre el menú con lo guardado **para esa web**; otro clic y rellena. También con **Ctrl+Mayús+L**, o con clic derecho → «Rellenar con TurboVAULT».
+- Mientras escribes en un campo de usuario, Chrome no saca sus sugerencias de lo que escribiste otras veces, para que no tapen el menú (al salir del campo queda como estaba). El menú va por encima de la página, también en las ventanas de inicio de sesión que abren algunas webs. Si algo de la página tapa un campo (un aviso, un menú), su icono no se ve.
 - En formularios de **registro** o de **cambio de contraseña** ofrece una contraseña segura y la pone en los dos campos.
 - Al enviar un formulario ofrece **guardar** la contraseña (o **actualizarla** si ha cambiado), también en la página siguiente si la web cambia de página al entrar. «Nunca aquí» deja de preguntarlo en esa web.
 - El menú del icono enseña lo guardado para la web abierta (rellenar, copiar usuario, contraseña o código 2FA), busca en toda la bóveda y genera contraseñas.
 - Funciona también en Edge, Brave y Vivaldi.
+- **Se actualiza sola**: cuando TurboVAULT trae una versión nueva de la extensión, ella misma se recarga y se pone en las pestañas abiertas, sin pasar por `chrome://extensions`.
+- Si TurboVAULT no contesta, la extensión espera cada vez más entre intentos (hasta un minuto) en lugar de reintentar sin parar.
 
 ## Seguridad
 
@@ -111,6 +114,6 @@ go run dev/icons/genicons.go       # rehace los iconos a partir de los SVG
 node dev/run-tests.js              # prueba completa con Chrome de verdad
 ```
 
-`dev/run-tests.js` compila una versión de pruebas, la arranca con una carpeta y una tubería propias (no toca tu bóveda), registra el puente solo durante la prueba y comprueba con un perfil temporal de Chrome: vincular, rellenar desde el menú del campo, que una web parecida no reciba nada, guardar al iniciar sesión y que al cerrar la bóveda la extensión se entere.
+`dev/run-tests.js` compila una versión de pruebas, registra el puente solo durante la prueba y abre un perfil temporal de Chrome, que es quien arranca TurboVAULT con una carpeta y una tubería propias (no toca tu bóveda ni mira los navegadores del PC). Comprueba: que la ventana se abre, vincular, los iconos en los campos (de color, grises, tapados, dentro de un diálogo), que un clic en el icono abre el menú, rellenar, que una web parecida no reciba nada, guardar al iniciar sesión, la cuenta atrás del menú de la extensión y que sin TurboVAULT la extensión no reintente sin parar. Con `--shots carpeta` guarda capturas de los iconos y el menú.
 
 La interfaz se puede ver en un navegador normal con datos de muestra (`python -m http.server --directory frontend`); la contraseña maestra de muestra es `maestra-de-prueba`.

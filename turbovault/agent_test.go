@@ -33,6 +33,7 @@ func newTestAgent(t *testing.T) *Agent {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("TURBOVAULT_DIR", dir)
+	t.Setenv("TURBOVAULT_BROWSERS", "") // sin mirar los navegadores de este PC
 	settingsMu.Lock()
 	settings = nil
 	settingsMu.Unlock()

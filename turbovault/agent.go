@@ -93,6 +93,7 @@ type State struct {
 	Version    string    `json:"version"`
 	Paired     bool      `json:"paired"`
 	ExtBad     string    `json:"extBad,omitempty"` // la extensión cargada no es la original
+	ExtVersion string    `json:"extVersion,omitempty"` // versión de la extensión que trae este TurboVAULT
 	Pair       *PairInfo `json:"pair,omitempty"`
 }
 
@@ -162,6 +163,13 @@ func newAgent(exe, pipe string) *Agent {
 // runAgent arranca el agente. Vuelve cuando se cierra.
 func runAgent() int {
 	exe, _ := os.Executable()
+	// Un agente que no puede usar su propio token (lanzado con permisos rotos)
+	// no podría abrir ventanas ni reconocer al navegador: mejor no ocupar la
+	// tubería y dejar que se arranque bien la próxima vez.
+	if !winsec.TokenUsable() {
+		logf("agente: arrancado sin permisos sobre su propio token; se cierra")
+		return 1
+	}
 	_ = winsec.HardenProcess()
 	_ = winsec.HardenThreads()
 	_ = winsec.BlockInjection(true)
@@ -386,6 +394,8 @@ func (a *Agent) stateFor(cs *connState) State {
 		extCheckMu.Unlock()
 	}
 	if cs != nil && cs.peer.Role == roleExt {
+		// Si la extensión que corre en Chrome es más vieja, se recarga sola.
+		st.ExtVersion = extVersion
 		st.Paired = st.Unlocked && a.checkPaired(cs)
 		if !st.Paired {
 			st.Count = 0 // un navegador sin vincular no sabe ni cuántas hay

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 	"unsafe"
@@ -201,3 +202,61 @@ func TestHardenThreadsChild(t *testing.T) {
 	}
 	t.Logf("%d hilos, ninguno accesible", threads)
 }
+
+// Un proceso protegido (como el puente del navegador) que lanza otra copia
+// del programa (el agente): el hijo tiene que poder usar su propio token,
+// lanzar procesos y comprobar firmas. Antes heredaba los permisos protegidos
+// y no podía hacer nada de eso.
+func TestSpawnFromHardened(t *testing.T) {
+	switch os.Getenv("WINSEC_SPAWN") {
+	case "child":
+		var tok windows.Token
+		if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &tok); err != nil {
+			os.Exit(5)
+		}
+		tok.Close()
+		// Protegerse como el agente y lanzar otro proceso con los permisos normales.
+		HardenProcess()
+		HardenThreads()
+		if err := WithNormalDefaults(exec.Command("cmd", "/c", "exit", "0").Run); err != nil {
+			os.Exit(6)
+		}
+		if chrome := `C:\Program Files\Google\Chrome\Application\chrome.exe`; fileExists(chrome) {
+			if _, err := Signer(chrome); err != nil {
+				os.Exit(7)
+			}
+		}
+		os.Exit(0)
+	case "plain", "normal":
+		HardenProcess()
+		HardenThreads()
+		self, _ := os.Executable()
+		cmd := exec.Command(self, "-test.run", "TestSpawnFromHardened")
+		cmd.Env = append(os.Environ(), "WINSEC_SPAWN=child")
+		pa, _ := ProcessAttributes()
+		ta, _ := ThreadAttributes()
+		cmd.SysProcAttr = &syscall.SysProcAttr{ProcessAttributes: pa, ThreadAttributes: ta}
+		start := cmd.Start
+		if os.Getenv("WINSEC_SPAWN") == "normal" {
+			start = func() error { return WithNormalDefaults(cmd.Start) }
+		}
+		if err := start(); err != nil {
+			os.Exit(20)
+		}
+		cmd.Wait()
+		os.Exit(cmd.ProcessState.ExitCode())
+	}
+	self, _ := os.Executable()
+	run := func(mode string) int {
+		cmd := exec.Command(self, "-test.run", "TestSpawnFromHardened")
+		cmd.Env = append(os.Environ(), "WINSEC_SPAWN="+mode)
+		cmd.Run()
+		return cmd.ProcessState.ExitCode()
+	}
+	t.Logf("sin restaurar los permisos: código %d", run("plain"))
+	if code := run("normal"); code != 0 {
+		t.Fatalf("el hijo de un proceso protegido no funciona (código %d: 5 token, 6 lanzar, 7 firma, 20 no arrancó)", code)
+	}
+}
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }

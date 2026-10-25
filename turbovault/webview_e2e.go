@@ -73,3 +73,5 @@ func e2eHooks(a *App) {
 }
 
 func testEnv(name string) string { return os.Getenv(name) }
+
+func testEnvSet(name string) (string, bool) { return os.LookupEnv(name) }

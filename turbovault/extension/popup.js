@@ -43,8 +43,8 @@
     p.className = 'pill';
     if (!st.agent) { p.textContent = 'Sin conexión'; return; }
     if (!st.unlocked) { p.textContent = 'Cerrada'; return; }
-    const skew = Date.now() - (st.now || Date.now());
-    const left = Math.max(0, st.expires - (Date.now() - skew));
+    // TurboVAULT y Chrome van en el mismo PC: misma hora.
+    const left = Math.max(0, st.expires - Date.now());
     const m = Math.floor(left / 60000), s = Math.floor((left % 60000) / 1000);
     p.textContent = st.expires ? `Abierta · ${m}:${String(s).padStart(2, '0')}` : 'Abierta';
     p.classList.add(left < 60000 ? 'soon' : 'open');

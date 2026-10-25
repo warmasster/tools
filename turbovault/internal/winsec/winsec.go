@@ -301,6 +301,17 @@ func HardenThreads() error {
 	defaultMu.Lock()
 	if origDefault == nil {
 		origDefault = currentDefaultDacl()
+		// Si ya venían protegidos (lo lanzó otro proceso protegido), los
+		// «originales» para los hijos son los normales de un usuario.
+		hard := unsafe.Slice((*byte)(unsafe.Pointer(ddacl)), int(*(*uint16)(unsafe.Pointer(uintptr(unsafe.Pointer(ddacl)) + 2))))
+		if origDefault == nil || string(origDefault) == string(hard) {
+			if nsd, err := windows.SecurityDescriptorFromString(fmt.Sprintf("D:(A;;GA;;;%s)(A;;GA;;;SY)", sid)); err == nil {
+				if nd, _, err := nsd.DACL(); err == nil {
+					size := int(*(*uint16)(unsafe.Pointer(uintptr(unsafe.Pointer(nd)) + 2)))
+					origDefault = append([]byte(nil), unsafe.Slice((*byte)(unsafe.Pointer(nd)), size)...)
+				}
+			}
+		}
 	}
 	hardDefault = ddacl
 	err = setDefaultDacl(ddacl)
@@ -310,6 +321,17 @@ func HardenThreads() error {
 	}
 	// 2. Los hilos que ya existen.
 	return HardenExistingThreads()
+}
+
+// TokenUsable dice si el proceso puede abrir su propio token para consultarlo
+// y duplicarlo (lo necesita para lanzar procesos y comprobar firmas).
+func TokenUsable() bool {
+	var tok windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &tok); err != nil {
+		return false
+	}
+	tok.Close()
+	return true
 }
 
 var (
