@@ -598,11 +598,27 @@ func (a *App) inRoot(room, bid string) string {
 	return root
 }
 
-// OpenBundle abre lo recibido (el archivo con su programa, o la carpeta).
+// OpenBundle abre lo recibido (el archivo con su programa, o la carpeta). Un
+// programa o script que manda otra persona no se ejecuta con un clic: se enseña
+// en su carpeta y lo abres tú si te fías.
 func (a *App) OpenBundle(room, bid string) {
 	if p := a.inRoot(room, bid); p != "" {
+		if runnable(p) {
+			explorer(`/select,"` + p + `"`)
+			return
+		}
 		explorer(`"` + p + `"`)
 	}
+}
+
+// runnable: extensiones que Windows ejecuta al abrirlas.
+func runnable(p string) bool {
+	switch strings.ToLower(strings.TrimPrefix(filepath.Ext(p), ".")) {
+	case "exe", "com", "scr", "pif", "msi", "msix", "msixbundle", "appx", "appxbundle", "bat", "cmd", "ps1", "psm1",
+		"vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "lnk", "url", "reg", "cpl", "msc", "jar", "library-ms", "scf", "settingcontent-ms":
+		return true
+	}
+	return false
 }
 
 func (a *App) RevealBundle(room, bid string) {

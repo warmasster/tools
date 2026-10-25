@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"io"
 	"os"
@@ -129,19 +130,12 @@ func writeZip(w io.Writer, entries []*zipEntry, buf []byte) error {
 		if err != nil {
 			return err
 		}
-		if n < e.size { // el archivo ha encogido: rellenamos para no romper el ZIP
-			pad := make([]byte, 64*1024)
-			rest := e.size - n
-			for rest > 0 {
-				k := int64(len(pad))
-				if rest < k {
-					k = rest
-				}
-				if _, err := io.MultiWriter(cw, crc).Write(pad[:k]); err != nil {
-					return err
-				}
-				rest -= k
-			}
+		// Si el archivo ha encogido desde que se preparó el envío, se corta: rellenar
+		// con ceros daría un ZIP «correcto» con datos que no son los reales. Al cortar,
+		// el navegador da la descarga por fallida y se puede repetir. (Si ha crecido,
+		// va lo que tenía al prepararlo: un registro o un vídeo que se está grabando.)
+		if n < e.size {
+			return fmt.Errorf("%s ha cambiado mientras se enviaba", e.name)
 		}
 		e.crc = crc.Sum32()
 

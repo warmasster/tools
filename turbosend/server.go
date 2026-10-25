@@ -386,7 +386,7 @@ func (p *PublicServer) handleChunk(w http.ResponseWriter, r *http.Request) {
 	ln, err2 := strconv.ParseInt(q.Get("len"), 10, 64)
 	bs := blockSize(q)
 	sf := sh.Files[i]
-	if err1 != nil || err2 != nil || off < 0 || ln <= 0 || off+ln > sf.Size {
+	if err1 != nil || err2 != nil || off < 0 || ln <= 0 || off > sf.Size || ln > sf.Size-off {
 		http.Error(w, "tramo no válido", 400)
 		return
 	}

@@ -202,6 +202,15 @@ func allow(key string, n int, per time.Duration) bool {
 		return false
 	}
 	rateHits[key] = append(hits, now)
+	// Que no crezca sin fin (p. ej. probando desde muchas IP): fuera lo que lleva
+	// más de 10 min sin usarse (el periodo más largo que se usa es 1 min).
+	if len(rateHits) > 2000 {
+		for k, h := range rateHits {
+			if len(h) == 0 || now.Sub(h[len(h)-1]) > 10*time.Minute {
+				delete(rateHits, k)
+			}
+		}
+	}
 	return true
 }
 
@@ -439,13 +448,21 @@ type countingReader struct {
 	r  io.Reader
 	t  *Transfer
 	tr *Tracker
+	rc *http.ResponseController // si no es nil, cada lectura con datos alarga el plazo
 }
+
+// upIdle: una subida que pasa este tiempo sin mandar nada se corta (si no, una
+// conexión parada tendría reservado su búfer de 16 MB para siempre).
+const upIdle = time.Minute
 
 func (c *countingReader) Read(b []byte) (int, error) {
 	n, err := c.r.Read(b)
 	if n > 0 {
 		c.t.Add(int64(n))
 		c.tr.In(int64(n))
+		if c.rc != nil {
+			c.rc.SetReadDeadline(time.Now().Add(upIdle))
+		}
 	}
 	return n, err
 }
@@ -469,15 +486,32 @@ func (p *PublicServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var total, received int64
 	var owner bool
+	bad := ""
 	p.app.rooms.With(room, func(rm *Room) bool {
-		if b := rm.inBundle(bid); b != nil {
-			owner = b.From == m.PID
-			total, received = b.Total, b.Received
+		b := rm.inBundle(bid)
+		if b == nil {
+			return false
+		}
+		owner = b.From == m.PID
+		total, received = b.Total, b.Received
+		// Todo se comprueba antes de leer el cuerpo: si no, con una oferta sin
+		// aceptar se podían tener abiertas muchas subidas de 16 MB.
+		switch {
+		case b.Status != "accepted" && b.Status != "transferring":
+			bad = "este envío no está aceptado"
+		case fi < 0 || fi >= len(b.Files) || off < 0 || off%b.Chunk != 0 || off >= b.Files[fi].Size:
+			bad = "bloque no válido"
+		case r.ContentLength != min(b.Chunk, b.Files[fi].Size-off):
+			bad = "tamaño de bloque incorrecto"
 		}
 		return false
 	})
 	if !owner {
 		jsonErr(w, 403, "envío no encontrado")
+		return
+	}
+	if bad != "" {
+		jsonErr(w, 409, bad)
 		return
 	}
 	ip, via := clientInfo(r)
@@ -493,7 +527,9 @@ func (p *PublicServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 	bp := upBufPool.Get().(*[]byte)
 	defer upBufPool.Put(bp)
 	buf := (*bp)[:r.ContentLength]
-	n, err := io.ReadFull(&countingReader{r: r.Body, t: t, tr: p.app.tracker}, buf)
+	rc := http.NewResponseController(w)
+	rc.SetReadDeadline(time.Now().Add(upIdle))
+	n, err := io.ReadFull(&countingReader{r: r.Body, t: t, tr: p.app.tracker, rc: rc}, buf)
 	if err != nil || int64(n) != r.ContentLength {
 		t.Add(-int64(n))
 		jsonErr(w, 400, "bloque incompleto")

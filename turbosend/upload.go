@@ -13,6 +13,10 @@ import (
 
 const inChunk = 16 << 20 // Cloudflare corta peticiones de más de 100 MB
 
+// maxOfferTotal: tope de lo que un invitado puede ofrecer de una vez (4 TB). Sin
+// tope, una oferta de miles de archivos «gigantes» hacía trabajar al PC en vano.
+const maxOfferTotal = 4 << 40
+
 type offerFile struct {
 	Rel  string `json:"rel"`
 	Size int64  `json:"size"`
@@ -22,9 +26,18 @@ var reservedNames = map[string]bool{"CON": true, "PRN": true, "AUX": true, "NUL"
 	"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true, "COM6": true, "COM7": true, "COM8": true, "COM9": true,
 	"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true, "LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true}
 
+// invisibleMark: caracteres de control de dirección y de anchura cero. Sirven para
+// disfrazar nombres («foto\u202Egpj.exe» se ve como «fotoexe.jpg»), así que se quitan.
+func invisibleMark(r rune) bool {
+	return r == 0x200B || r == 0x200E || r == 0x200F || r >= 0x202A && r <= 0x202E || r >= 0x2066 && r <= 0x2069 || r == 0xFEFF
+}
+
 // safeComponent limpia un trozo de ruta para que sea válido y no salga de su carpeta.
 func safeComponent(s string) string {
 	s = strings.Map(func(r rune) rune {
+		if invisibleMark(r) {
+			return -1
+		}
 		if r < 32 || strings.ContainsRune(`<>:"/\|?*`, r) {
 			return '_'
 		}
@@ -114,6 +127,9 @@ func (a *App) Offer(roomID string, m *Member, files []offerFile) (*InBundle, err
 		tops[parts[0]] = true
 		b.Files = append(b.Files, &InFile{Rel: strings.Join(parts, "/"), Size: f.Size})
 		b.Total += f.Size
+		if b.Total > maxOfferTotal {
+			return nil, errors.New("el envío es demasiado grande (más de 4 TB)")
+		}
 	}
 	switch {
 	case len(b.Files) == 1 && !strings.Contains(b.Files[0].Rel, "/"):
@@ -365,6 +381,7 @@ func (a *App) maybeFinish(roomID, bid string) {
 		return
 	}
 	var ferr error
+	finals := map[*InFile]string{}
 	for _, f := range moves {
 		part := f.Final + ".turbosend-part"
 		dst := f.Final
@@ -376,12 +393,15 @@ func (a *App) maybeFinish(roomID, bid string) {
 			continue
 		}
 		markFromInternet(dst)
-		f.Final = dst
+		finals[f] = dst
 	}
 	a.rooms.With(roomID, func(r *Room) bool {
 		b := r.inBundle(bid)
 		if b == nil {
 			return false
+		}
+		for f, dst := range finals { // con el candado: el guardado y la vista leen Final
+			f.Final = dst
 		}
 		for _, f := range b.Files {
 			for _, m := range moves {
@@ -420,8 +440,10 @@ func (a *App) missingChunks(roomID, bid, pid string) (map[string]any, error) {
 			return false
 		}
 		files := []map[string]any{}
+		// Solo hace falta (y solo se calcula) cuando ya se puede subir.
+		active := b.Status == "accepted" || b.Status == "transferring"
 		for i, f := range b.Files {
-			if f.Done {
+			if f.Done || !active {
 				continue
 			}
 			var miss []int64

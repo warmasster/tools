@@ -345,7 +345,7 @@ func (s *RoomStore) MemberName(roomID, pid string) string {
 
 func cleanName(n string) string {
 	n = strings.TrimSpace(strings.Map(func(r rune) rune {
-		if r < 32 || r == 0x7f {
+		if r < 32 || r == 0x7f || invisibleMark(r) {
 			return -1
 		}
 		return r
