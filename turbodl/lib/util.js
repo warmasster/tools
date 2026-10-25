@@ -51,7 +51,10 @@ export function domainMatches(host, domain) {
 
 /** Nombre de archivo válido en Windows/macOS/Linux para chrome.downloads. */
 export function sanitizeFilename(name) {
-  name = String(name || '').replace(/[\u0000-\u001f\u007f<>:"/\\|?*~]/g, '_').trim();
+  // Fuera las marcas de dirección y de anchura cero: disfrazan nombres
+  // («factura\u202Etxt.exe» se ve como «facturaexe.txt»).
+  name = String(name || '').replace(/[\u200B\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '');
+  name = name.replace(/[\u0000-\u001f\u007f<>:"/\\|?*~]/g, '_').trim();
   // Windows no admite nombres que terminen en punto o espacio, ni nombres reservados.
   name = name.replace(/[. ]+$/, '');
   if (/^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i.test(name)) name = '_' + name;

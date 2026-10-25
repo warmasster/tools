@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/windows/registry"
 )
@@ -32,11 +33,7 @@ func install(extraIDs []string) (string, error) {
 	}
 	target := filepath.Join(dir, "turbodl-native.exe")
 	if !strings.EqualFold(filepath.Clean(self), filepath.Clean(target)) {
-		// Si Chrome tiene el host abierto el .exe está bloqueado, pero sí se puede
-		// renombrar: lo apartamos y copiamos el nuevo.
-		os.Remove(target + ".old")
-		os.Rename(target, target+".old")
-		if err := copyFile(self, target); err != nil {
+		if err := placeExe(self, target); err != nil {
 			return "", fmt.Errorf("no se pudo copiar el programa a %s: %w", dir, err)
 		}
 	}
@@ -84,11 +81,52 @@ func uninstall() (string, error) {
 	dir := AppDir()
 	os.RemoveAll(ExtensionDir())
 	os.Remove(filepath.Join(dir, hostName+".json"))
-	os.Remove(filepath.Join(dir, "turbodl-native.exe.old"))
+	removeOld(dir)
+	os.Remove(filepath.Join(dir, "turbodl-native.exe.new"))
 	if err := os.Remove(filepath.Join(dir, "turbodl-native.exe")); err != nil && !os.IsNotExist(err) {
 		return "Registro borrado. El programa sigue en uso; bórralo a mano de " + dir + " al cerrar Chrome.", nil
 	}
+	os.Remove(filepath.Join(dir, "native.log"))
+	os.Remove(filepath.Join(dir, "native.log.old"))
+	os.Remove(dir) // solo si ha quedado vacía
 	return "Motor nativo desinstalado. Quita también TurboDL en chrome://extensions.", nil
+}
+
+// removeOld borra los .old que dejaron actualizaciones con el host abierto.
+func removeOld(dir string) {
+	olds, _ := filepath.Glob(filepath.Join(dir, "*.old"))
+	for _, o := range olds {
+		os.Remove(o)
+	}
+}
+
+// placeExe copia src a target sin dejar nunca el host roto: primero copia a
+// .new y solo entonces aparta el viejo (Chrome puede tenerlo abierto, pero
+// Windows deja renombrarlo) y pone el nuevo; si algo falla, vuelve el viejo.
+func placeExe(src, target string) error {
+	tmp := target + ".new"
+	if err := copyFile(src, tmp); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	old := target + ".old"
+	if os.Remove(old) != nil {
+		if _, err := os.Stat(old); err == nil {
+			old = fmt.Sprintf("%s.%d.old", target, time.Now().UnixNano()) // el .old anterior sigue abierto
+		}
+	}
+	if _, err := os.Stat(target); err == nil {
+		if err := os.Rename(target, old); err != nil {
+			os.Remove(tmp)
+			return err
+		}
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		os.Rename(old, target)
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func copyFile(src, dst string) error {

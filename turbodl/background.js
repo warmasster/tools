@@ -142,9 +142,13 @@ async function intercept(item, release) {
   const s = await getSettings();
   const url = item.finalUrl || item.url;
   if (!s.enabled) return;
+  // Descargas de una ventana de incógnito: se quedan en Chrome (si no, irían al
+  // historial de TurboDL y con las cookies del perfil normal).
+  if (item.incognito) return;
   if (!/^https?:/i.test(url)) return; // blob:, data:, file:...
   const host = hostOf(url);
-  if (s.excludedDomains.some((d) => domainMatches(host, d))) return;
+  const startHost = hostOf(item.url);
+  if (s.excludedDomains.some((d) => domainMatches(host, d) || domainMatches(startHost, d))) return;
   if (item.totalBytes > 0 && item.totalBytes < s.minSizeMB * MiB) return;
   if (/^text\/html/i.test(item.mime || '')) return; // casi seguro una página de login o un POST
 

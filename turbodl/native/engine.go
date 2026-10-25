@@ -42,6 +42,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -442,16 +443,21 @@ func (d *Download) prepare() (*http.Response, *worker, error) {
 }
 
 func (d *Download) loadState() (bool, error) {
-	raw, err := os.ReadFile(d.Req.PartPath[:len(d.Req.PartPath)-len(partExt)] + stateExt)
+	if !isPartPath(d.Req.PartPath) {
+		return false, nil // no es un parcial de TurboDL: no se toca
+	}
+	raw, err := os.ReadFile(statePath(d.Req.PartPath))
 	if err != nil {
 		return false, nil // sin estado: empezar de cero
 	}
 	var st savedState
-	if err := json.Unmarshal(raw, &st); err != nil || !st.RangeOK {
-		return false, nil
-	}
-	fi, err := os.Stat(d.Req.PartPath)
-	if err != nil || fi.Size() != st.Size {
+	fi, ferr := os.Stat(d.Req.PartPath)
+	if json.Unmarshal(raw, &st) != nil || !st.RangeOK || ferr != nil || fi.Size() != st.Size ||
+		!strings.EqualFold(st.FinalPath+partExt, d.Req.PartPath) || !validSegments(st.Segments, st.Size) {
+		// Estado roto o que no cuadra: lo que hay no sirve para seguir. Se borra para
+		// no dejar un parcial de gigas huérfano (y que el nombre quede libre).
+		os.Remove(d.Req.PartPath)
+		os.Remove(statePath(d.Req.PartPath))
 		return false, nil
 	}
 	d.url, d.size, d.etag, d.lastMod, d.rangeOK = st.FinalURL, st.Size, st.ETag, st.LastModified, true
@@ -596,10 +602,17 @@ func (d *Download) do(w *worker, rawURL string, from, to int64, ifRange bool) (*
 	req.Header.Set("User-Agent", "turbodl-native/"+version) // la extensión manda el del navegador
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Encoding", "identity") // bytes tal cual: los rangos tienen que cuadrar
+	sameSite := sameSiteHost(hostOnly(rawURL), hostOnly(d.Req.URL))
 	for k, v := range d.Req.Headers {
-		if v != "" {
-			req.Header.Set(k, v)
+		if v == "" {
+			continue
 		}
+		// Las cookies se calcularon para la URL que mandó la extensión: si el servidor
+		// redirige a otro dominio, no se le mandan (como hace Go al seguir redirecciones).
+		if !sameSite && (strings.EqualFold(k, "Cookie") || strings.EqualFold(k, "Authorization")) {
+			continue
+		}
+		req.Header.Set(k, v)
 	}
 	if to >= 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", from, to-1))
@@ -675,6 +688,14 @@ func (d *Download) handle(w *worker, seg *segment, err error, retries *int) bool
 		d.mu.Unlock()
 		return d.ctx.Err() == nil
 	}
+	// Si no se pudo escribir lo último que llegó (disco lleno, antivirus…), pos va por
+	// delante de done: se vuelve a pedir desde lo que está de verdad en disco. Si no,
+	// el siguiente tramo empezaría más adelante y quedaría un hueco de ceros.
+	d.mu.Lock()
+	if seg != nil && seg.w == w && seg.pos > seg.done {
+		seg.pos = seg.done
+	}
+	d.mu.Unlock()
 	if d.ctx.Err() != nil {
 		return false
 	}
@@ -1322,7 +1343,22 @@ func (d *Download) finish() (string, error) {
 		return "", fmt.Errorf("no se pudo renombrar el archivo terminado: %w", err)
 	}
 	os.Remove(statePath(d.partPath))
+	d.markFromInternet(final)
 	return final, nil
+}
+
+// markFromInternet pone la marca «descargado de Internet» (Zone.Identifier), como
+// hace Chrome: así SmartScreen avisa antes de ejecutarlo y Office lo abre en Vista
+// protegida.
+func (d *Download) markFromInternet(path string) {
+	zone := "[ZoneTransfer]\r\nZoneId=3\r\n"
+	if ref := d.Req.Headers["Referer"]; ref != "" && !strings.ContainsAny(ref, "\r\n") {
+		zone += "ReferrerUrl=" + ref + "\r\n"
+	}
+	if u := d.url; u != "" && !strings.ContainsAny(u, "\r\n") {
+		zone += "HostUrl=" + u + "\r\n"
+	}
+	os.WriteFile(path+":Zone.Identifier", []byte(zone), 0o644)
 }
 
 // ================================================================ progreso y estado
@@ -1415,6 +1451,59 @@ func (d *Download) evictSlow(window time.Duration) {
 
 func statePath(part string) string { return strings.TrimSuffix(part, partExt) + stateExt }
 
+// isPartPath: ruta de un parcial de TurboDL («….turbodl»). Puede ser relativa
+// (TurboDL.exe get -o carpeta, desde la terminal).
+func isPartPath(p string) bool {
+	return len(p) > len(partExt) && strings.EqualFold(filepath.Ext(p), partExt)
+}
+
+// validSegments comprueba que los tramos guardados tienen sentido: dentro del
+// archivo, ordenados, sin solaparse y con lo hecho dentro de cada uno.
+func validSegments(segs [][3]int64, size int64) bool {
+	if len(segs) == 0 || size <= 0 {
+		return false
+	}
+	prevEnd := int64(0)
+	for _, s := range segs {
+		start, end, done := s[0], s[1], s[2]
+		if start < prevEnd || start > end || end > size || done < start || done > end {
+			return false
+		}
+		prevEnd = end
+	}
+	return true
+}
+
+func hostOnly(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		return strings.ToLower(u.Hostname())
+	}
+	return ""
+}
+
+// sameSiteHost: los dos hosts son del mismo sitio (www.web.com y descargas.web.com
+// sí; web.com y otra.com no). Sin lista de sufijos públicos: las dos últimas
+// partes, o tres si la penúltima es corta (web.co.uk, web.com.es).
+func sameSiteHost(host, base string) bool {
+	return host != "" && base != "" && siteOf(host) == siteOf(base)
+}
+
+func siteOf(host string) string {
+	if net.ParseIP(host) != nil {
+		return host
+	}
+	p := strings.Split(strings.TrimSuffix(host, "."), ".")
+	if len(p) <= 2 {
+		return strings.Join(p, ".")
+	}
+	n := 2
+	switch p[len(p)-2] {
+	case "co", "com", "net", "org", "gov", "gob", "edu", "ac", "or", "ne", "go":
+		n = 3
+	}
+	return strings.Join(p[len(p)-n:], ".")
+}
+
 // findResumable busca en dir una descarga a medias de la misma URL.
 func findResumable(dir, rawURL string) string {
 	matches, _ := filepath.Glob(filepath.Join(dir, "*"+stateExt))
@@ -1481,15 +1570,17 @@ func filenameFrom(resp *http.Response, rawURL string) string {
 
 func sanitizeFilename(name string) string {
 	name = strings.Map(func(r rune) rune {
+		// Marcas de dirección y de anchura cero: disfrazan nombres («factura\u202Etxt.exe»).
+		if r == 0x200B || r == 0x200E || r == 0x200F || r >= 0x202A && r <= 0x202E || r >= 0x2066 && r <= 0x2069 || r == 0xFEFF {
+			return -1
+		}
 		if r < 32 || r == 127 || strings.ContainsRune(`<>:"/\|?*`, r) {
 			return '_'
 		}
 		return r
 	}, name)
 	name = strings.TrimRight(strings.TrimSpace(name), ". ")
-	base := strings.ToLower(strings.SplitN(name, ".", 2)[0])
-	switch base {
-	case "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "lpt1", "lpt2", "lpt3":
+	if reservedName(name) {
 		name = "_" + name
 	}
 	if len(name) > 200 {
@@ -1497,12 +1588,33 @@ func sanitizeFilename(name string) string {
 		if len(ext) > 12 {
 			ext = ""
 		}
-		name = name[:200-len(ext)] + ext
+		cut := 200 - len(ext)
+		for cut > 0 && !utf8.RuneStart(name[cut]) { // no partir una letra de varios bytes
+			cut--
+		}
+		name = strings.TrimRight(name[:cut], ". ") + ext
 	}
 	if name == "" {
 		return "descarga"
 	}
 	return name
+}
+
+// reservedName: nombres que Windows reserva para dispositivos (CON, NUL, COM1…),
+// también con extensión («nul.txt»).
+func reservedName(name string) bool {
+	base := strings.ToLower(strings.TrimRight(strings.SplitN(name, ".", 2)[0], " "))
+	switch base {
+	case "con", "prn", "aux", "nul", "conin$", "conout$":
+		return true
+	}
+	if len(base) >= 4 && (strings.HasPrefix(base, "com") || strings.HasPrefix(base, "lpt")) {
+		switch base[3:] {
+		case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "¹", "²", "³":
+			return true
+		}
+	}
+	return false
 }
 
 // reservePath elige un nombre libre y crea su .turbodl con O_EXCL: si dos descargas

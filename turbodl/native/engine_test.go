@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // ------------------------------------------------------------ servidor de pruebas
@@ -570,5 +571,106 @@ func TestRequestRateWindow(t *testing.T) {
 	}
 	if el > 10*time.Second {
 		t.Fatalf("demasiado lento: %.1f s", el.Seconds())
+	}
+}
+
+func TestSanitizeFilename(t *testing.T) {
+	cases := map[string]string{
+		"nul.txt":         "_nul.txt",
+		"COM5.zip":        "_COM5.zip",
+		"lpt9":            "_lpt9",
+		"com¹.bin":        "_com¹.bin",
+		"computer.txt":    "computer.txt",
+		`a/b\c:d*.txt`:    "a_b_c_d_.txt",
+		"informe.pdf. . ": "informe.pdf",
+		"..":              "descarga",
+	}
+	for in, want := range cases {
+		if got := sanitizeFilename(in); got != want {
+			t.Errorf("sanitizeFilename(%q) = %q, se esperaba %q", in, got, want)
+		}
+	}
+	long := strings.Repeat("ñ", 150) + ".mp4" // 300 bytes de letras de dos bytes
+	got := sanitizeFilename(long)
+	if len(got) > 200 || !strings.HasSuffix(got, ".mp4") || !utf8.ValidString(got) {
+		t.Errorf("nombre largo mal recortado: %d bytes, válido=%v, %q", len(got), utf8.ValidString(got), got[len(got)-8:])
+	}
+}
+
+func TestMarkFromInternet(t *testing.T) {
+	srv := newTestServer(4 << 20)
+	url := srv.listen(t)
+	p, err, _ := run(t, Request{URL: url, Dir: t.TempDir(), Connections: 4, Headers: map[string]string{"Referer": "https://web.example/pagina"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zone, err := os.ReadFile(p + ":Zone.Identifier")
+	if err != nil {
+		t.Fatalf("el archivo terminado no lleva la marca de Internet: %v", err)
+	}
+	if !strings.Contains(string(zone), "ZoneId=3") || !strings.Contains(string(zone), "HostUrl="+url) || !strings.Contains(string(zone), "ReferrerUrl=https://web.example/pagina") {
+		t.Errorf("marca incompleta: %q", zone)
+	}
+}
+
+func TestValidSegments(t *testing.T) {
+	cases := []struct {
+		segs [][3]int64
+		size int64
+		ok   bool
+	}{
+		{[][3]int64{{0, 50, 10}, {50, 100, 100}}, 100, true},
+		{nil, 100, false},
+		{[][3]int64{{0, 120, 0}}, 100, false},               // pasa del tamaño
+		{[][3]int64{{0, 60, 0}, {50, 100, 50}}, 100, false}, // se solapan
+		{[][3]int64{{0, 50, 60}}, 100, false},               // hecho fuera del tramo
+	}
+	for i, c := range cases {
+		if got := validSegments(c.segs, c.size); got != c.ok {
+			t.Errorf("caso %d: validSegments = %v, se esperaba %v", i, got, c.ok)
+		}
+	}
+}
+
+func TestSensitiveHeadersSameSite(t *testing.T) {
+	cases := map[[2]string]bool{
+		{"cdn.example.com", "example.com"}:           true,
+		{"descargas.example.com", "www.example.com"}: true,
+		{"example.com", "example.com"}:               true,
+		{"files.web.co.uk", "www.web.co.uk"}:         true,
+		{"evil.com", "example.com"}:                  false,
+		{"notexample.com", "example.com"}:            false,
+		{"otra.co.uk", "web.co.uk"}:                  false,
+		{"", "example.com"}:                          false,
+	}
+	for c, want := range cases {
+		if got := sameSiteHost(c[0], c[1]); got != want {
+			t.Errorf("sameSiteHost(%q, %q) = %v", c[0], c[1], got)
+		}
+	}
+}
+
+func TestBrokenStateIsCleaned(t *testing.T) {
+	dir := t.TempDir()
+	part := filepath.Join(dir, "x.bin"+partExt)
+	os.WriteFile(part, make([]byte, 100), 0o644)
+	// Estado bien formado (JSON válido, misma ruta) pero sin tramos.
+	os.WriteFile(statePath(part), []byte(`{"version":1,"url":"u","finalPath":`+strconv.Quote(filepath.Join(dir, "x.bin"))+`,"size":100,"rangeOK":true,"segments":[]}`), 0o644)
+	d := NewDownload(Request{URL: "http://127.0.0.1:1/x", PartPath: part})
+	if ok, _ := d.loadState(); ok {
+		t.Fatal("un estado sin tramos no debería servir para reanudar")
+	}
+	if _, err := os.Stat(part); !os.IsNotExist(err) {
+		t.Error("el parcial roto debería borrarse")
+	}
+	// Una ruta que no es de TurboDL no se toca nunca.
+	other := filepath.Join(dir, "importante.docx")
+	os.WriteFile(other, []byte("x"), 0o644)
+	d = NewDownload(Request{URL: "http://127.0.0.1:1/x", PartPath: other})
+	if ok, _ := d.loadState(); ok {
+		t.Fatal("no debería reanudar desde un archivo cualquiera")
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Error("se ha borrado un archivo que no es un parcial")
 	}
 }

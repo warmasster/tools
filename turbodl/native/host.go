@@ -115,6 +115,13 @@ func (h *host) reply(m hostMsg, result any, err error) {
 }
 
 func (h *host) handle(m hostMsg) {
+	// Un mensaje raro no debe tirar el proceso (y con él todas las descargas).
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("error interno con %q: %v", m.Cmd, r)
+			h.reply(m, nil, fmt.Errorf("error interno"))
+		}
+	}()
 	switch m.Cmd {
 	case "hello":
 		h.reply(m, map[string]any{
@@ -127,7 +134,7 @@ func (h *host) handle(m hostMsg) {
 		h.stop(m.ID, false)
 		h.reply(m, nil, nil)
 	case "cancel":
-		if !h.stop(m.ID, true) && m.PartPath != "" {
+		if !h.stop(m.ID, true) && isPartPath(m.PartPath) {
 			os.Remove(m.PartPath)
 			os.Remove(statePath(m.PartPath))
 		}
