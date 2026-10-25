@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -372,7 +373,14 @@ func kindOf(p string) string {
 
 func (a *App) Open(path string)   { explorer(`"` + path + `"`) }
 func (a *App) Reveal(path string) { selectInExplorer(path, false) }
-func (a *App) OpenURL(u string)   { runtime.BrowserOpenURL(a.ctx, u) }
+
+// OpenURL abre una web. Solo http/https: «¿De dónde salió?» enseña enlaces que
+// vienen del propio archivo (Zone.Identifier) y podrían ser search-ms:, ms-msdt:…
+func (a *App) OpenURL(u string) {
+	if pu, err := url.Parse(strings.TrimSpace(u)); err == nil && (pu.Scheme == "http" || pu.Scheme == "https") && pu.Host != "" {
+		runtime.BrowserOpenURL(a.ctx, pu.String())
+	}
+}
 func (a *App) CopyText(t string) error {
 	return runtime.ClipboardSetText(a.ctx, t)
 }

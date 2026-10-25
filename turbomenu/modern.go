@@ -95,6 +95,7 @@ func serveModern() {
 
 // enableModernMenu crea el certificado, confía en él (solo este usuario) y registra el paquete.
 func enableModernMenu(exe string) error {
+	had, _ := win11menu.FindCert("CN=TurboMENU")
 	thumb, err := win11menu.EnsureCert("CN=TurboMENU")
 	if err != nil {
 		return errors.New("No se pudo crear el certificado de TurboMENU: " + err.Error())
@@ -103,6 +104,11 @@ func enableModernMenu(exe string) error {
 		return errors.New("No se pudo confiar en el certificado: " + err.Error())
 	}
 	if err := win11menu.Register(modernPackage(exe, thumb)); err != nil {
+		if had == "" {
+			// Recién creado y sin usar: no dejar un certificado de confianza suelto. Si
+			// ya existía, lo usa el paquete que sigue instalado: se deja.
+			win11menu.RemoveCert(thumb)
+		}
 		return errors.New("Windows no ha aceptado el menú nuevo: " + err.Error())
 	}
 	// El paquete ya sale también en «Mostrar más opciones»: fuera el clásico para no duplicar.

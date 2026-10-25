@@ -7,6 +7,7 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -220,6 +221,9 @@ func cliSetup() int {
 	if err != nil {
 		return 1
 	}
+	// Al actualizar, el TurboMENU viejo que queda preparado en segundo plano seguiría
+	// atendiendo el clic derecho hasta 15 min: se cierra para que entre el nuevo.
+	quitIdle()
 	if getSettings().Modern {
 		registerModernMenu(exe) // si falla, vuelve al clásico
 	}
@@ -230,13 +234,22 @@ func cliSetup() int {
 		}
 	}
 	setPrewarm(getSettings().Prewarm)
+	if getSettings().Prewarm {
+		// Se cerró el preparado viejo: el nuevo queda listo ya, no al volver a iniciar sesión.
+		// (Sin salida estándar: no retiene la tubería de quien lanzó «setup».)
+		if cmd := exec.Command(exe, "--idle"); cmd.Start() == nil {
+			cmd.Process.Release()
+		}
+	}
 	fmt.Println("TurboMENU instalado: busca «Turbo» en el clic derecho.")
 	return 0
 }
 
 func cliUninstall() int {
 	unregisterMenu()
-	unregisterModernMenu()
+	// Siempre, aunque el ajuste diga que está apagado: si un intento de activarlo
+	// falló a medias, o se borraron los ajustes, quedarían el paquete y el certificado.
+	disableModernMenu()
 	setPrewarm(false)
 	// Cierra cualquier TurboMENU preparado en segundo plano.
 	quitIdle()

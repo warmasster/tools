@@ -191,6 +191,12 @@ func Unlock(ctx context.Context, pid int, paths []string) Result {
 		if windows.DuplicateHandle(proc, windows.Handle(h.value), cur, &dup, 0, false, 0) != nil {
 			continue
 		}
+		// Si el número ya es de otra cosa (una tubería), pedir su nombre podría
+		// quedarse colgado: solo archivos de disco, como en la búsqueda.
+		if t, _ := windows.GetFileType(dup); t != windows.FILE_TYPE_DISK {
+			windows.CloseHandle(dup)
+			continue
+		}
 		nt, _ := finalPathNT(dup, nil)
 		windows.CloseHandle(dup)
 		if nt == "" || !match(nt) {

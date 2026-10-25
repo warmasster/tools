@@ -11,9 +11,33 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
+
+	"golang.org/x/sys/windows"
 )
+
+// lastFolder es lo último que hizo «Nueva carpeta con esto» en este proceso: lo
+// único que «Deshacer» puede devolver (no se fía de lo que mande la página).
+var (
+	folderMu   sync.Mutex
+	lastFolder *FolderResult
+)
+
+// moveNoReplace mueve sin pisar nunca un archivo que ya exista en el destino
+// (os.Rename en Windows lo reemplazaría sin avisar).
+func moveNoReplace(from, to string) error {
+	f, err := windows.UTF16PtrFromString(from)
+	if err != nil {
+		return err
+	}
+	t, err := windows.UTF16PtrFromString(to)
+	if err != nil {
+		return err
+	}
+	return windows.MoveFileEx(f, t, 0)
+}
 
 var months = []string{"enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"}
 
@@ -238,7 +262,7 @@ func (a *App) MakeFolder(name string) (*FolderResult, error) {
 			continue
 		}
 		to := uniquePath(dst, filepath.Base(p))
-		if err := os.Rename(p, to); err != nil {
+		if err := moveNoReplace(p, to); err != nil {
 			res.Failed = append(res.Failed, p)
 			msg := "No se pudo mover"
 			if errors.Is(err, os.ErrPermission) || strings.Contains(err.Error(), "being used") || strings.Contains(err.Error(), "en uso") {
@@ -251,26 +275,66 @@ func (a *App) MakeFolder(name string) (*FolderResult, error) {
 		res.From = append(res.From, p)
 	}
 	notifyChanged(parent)
+	folderMu.Lock()
+	keep := *res
+	lastFolder = &keep
+	folderMu.Unlock()
 	return res, nil
 }
 
 // UndoFolder devuelve los archivos a su sitio y borra la carpeta si queda vacía.
-func (a *App) UndoFolder(r FolderResult) error {
-	var failed int
+// Trabaja con lo que guardó MakeFolder (lo que mande la página no se usa) y nunca
+// pisa un archivo que haya aparecido después en el sitio de origen.
+func (a *App) UndoFolder(_ FolderResult) error {
+	folderMu.Lock()
+	r := lastFolder
+	lastFolder = nil
+	folderMu.Unlock()
+	if r == nil {
+		return errors.New("No hay nada que deshacer")
+	}
+	var failed, taken int
+	left := &FolderResult{Folder: r.Folder} // lo que no se ha podido devolver (para reintentar)
 	for i, to := range r.Moved {
 		if i >= len(r.From) {
 			break
 		}
-		if err := os.Rename(to, r.From[i]); err != nil {
+		if _, err := os.Lstat(r.From[i]); err == nil {
+			taken++ // ya hay otro con ese nombre donde estaba: no se pisa
+			continue
+		}
+		if err := moveNoReplace(to, r.From[i]); err != nil {
 			failed++
+			left.Moved, left.From = append(left.Moved, to), append(left.From, r.From[i])
 		}
 	}
 	os.Remove(r.Folder) // solo se borra si está vacía
 	notifyChanged(filepath.Dir(r.Folder))
 	if failed > 0 {
-		return fmt.Errorf("No se pudieron devolver %d archivos", failed)
+		folderMu.Lock()
+		lastFolder = left
+		folderMu.Unlock()
+	}
+	var msgs []string
+	if taken > 0 {
+		msgs = append(msgs, plural(taken, "archivo se ha quedado", "archivos se han quedado")+" en la carpeta nueva porque donde estaba ya hay otro con el mismo nombre")
+	}
+	if failed > 0 {
+		msgs = append(msgs, "no se ha podido devolver "+plural(failed, "archivo", "archivos")+" (puede que esté en uso): vuelve a pulsar «Deshacer»")
+	}
+	if len(msgs) > 0 {
+		m := strings.Join(msgs, "; ")
+		return errors.New(strings.ToUpper(m[:1]) + m[1:])
 	}
 	return nil
+}
+
+// plural: «1 archivo» / «3 archivos».
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }
 
 // RenameInExplorer abre la carpeta nueva seleccionada en el Explorador.

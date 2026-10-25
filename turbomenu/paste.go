@@ -50,6 +50,9 @@ func msgBox(title, text string, icon uint32) {
 
 func pasteAsFile(dir string) {
 	dir = strings.Trim(dir, `"`)
+	if len(dir) == 2 && dir[1] == ':' { // la raíz de una unidad llega como «E:»
+		dir += `\`
+	}
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		msgBox("Pegar como archivo", "No se encuentra la carpeta.", 0x10)
 		return
@@ -60,8 +63,18 @@ func pasteAsFile(dir string) {
 		return
 	}
 	name := fmt.Sprintf("%s %s.%s", base, time.Now().Format("02-01-2006 15.04"), ext)
-	p := uniquePath(dir, cleanFileName(name))
-	if err := os.WriteFile(p, data, 0o644); err != nil {
+	// Nombre libre reservado al crear: dos pegados a la vez no se pisan.
+	p, f, err := createExclusive(dir, cleanFileName(name))
+	if err == nil {
+		_, err = f.Write(data)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			os.Remove(p)
+		}
+	}
+	if err != nil {
 		msgBox("Pegar como archivo", "No se pudo guardar el archivo:\n"+err.Error(), 0x10)
 		return
 	}

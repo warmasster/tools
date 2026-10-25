@@ -87,6 +87,14 @@ func main() {
 	runWindow(job, false)
 }
 
+// selectionList: solo se leen (y luego se borran) las listas que deja el menú nuevo
+// en %TEMP% (TurboMENU-sel-*.txt), nunca un archivo cualquiera que llegue con @.
+func selectionList(p string) bool {
+	dir, name := filepath.Dir(filepath.Clean(p)), filepath.Base(p)
+	ok, _ := filepath.Match("TurboMENU-sel-*.txt", name)
+	return ok && strings.EqualFold(dir, filepath.Clean(os.TempDir()))
+}
+
 // expandArgs admite rutas sueltas y @lista (un archivo de texto con una ruta por línea,
 // para selecciones enormes que no caben en la línea de órdenes).
 func expandArgs(in []string) []string {
@@ -96,7 +104,7 @@ func expandArgs(in []string) []string {
 		if a == "" {
 			continue
 		}
-		if strings.HasPrefix(a, "@") {
+		if strings.HasPrefix(a, "@") && selectionList(a[1:]) {
 			if b, err := os.ReadFile(a[1:]); err == nil {
 				for _, l := range strings.Split(string(b), "\n") {
 					if l = strings.TrimSpace(l); l != "" {
@@ -110,6 +118,11 @@ func expandArgs(in []string) []string {
 		out = append(out, a)
 	}
 	for i, p := range out {
+		// «E:\» llega como «E:» (el \" final se lee como comilla): Abs("E:") sería la
+		// carpeta actual de esa unidad, no su raíz.
+		if len(p) == 2 && p[1] == ':' {
+			p += `\`
+		}
 		if abs, err := filepath.Abs(p); err == nil {
 			out[i] = abs
 		}

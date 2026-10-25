@@ -504,6 +504,9 @@ func (s *qrSession) handleZip(w http.ResponseWriter, r *http.Request) {
 func cleanFileName(n string) string {
 	n = filepath.Base(strings.ReplaceAll(n, "\\", "/"))
 	n = strings.Map(func(r rune) rune {
+		if invisibleMark(r) {
+			return -1
+		}
 		if r < 32 || strings.ContainsRune(`<>:"/\|?*`, r) {
 			return '_'
 		}
@@ -512,6 +515,9 @@ func cleanFileName(n string) string {
 	n = strings.Trim(n, " .")
 	if n == "" {
 		n = "archivo"
+	}
+	if reservedWinName(n) {
+		n = "_" + n
 	}
 	if len([]rune(n)) > 180 {
 		n = string([]rune(n)[:180])
@@ -526,12 +532,14 @@ func uniquePath(dir, name string) string {
 	}
 	ext := filepath.Ext(name)
 	base := strings.TrimSuffix(name, ext)
-	for i := 2; ; i++ {
+	for i := 2; i < 10000; i++ {
 		p = filepath.Join(dir, fmt.Sprintf("%s (%d)%s", base, i, ext))
 		if _, err := os.Stat(p); os.IsNotExist(err) {
 			return p
 		}
 	}
+	// Nunca debería llegar aquí; mejor un nombre raro que un bucle sin fin.
+	return filepath.Join(dir, fmt.Sprintf("%s (%d)%s", base, time.Now().UnixNano(), ext))
 }
 
 func (s *qrSession) handleUpStart(w http.ResponseWriter, r *http.Request) {
@@ -566,6 +574,22 @@ func (s *qrSession) handleUpStart(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 	}
 
+	// Topes: quien tenga el enlace no puede llenar la carpeta de archivos a medias
+	// (la página del móvil sube de 2 en 2) ni la ventana de miles de filas.
+	s.mu.Lock()
+	pending := 0
+	for _, u := range s.upOrder {
+		if !u.done.Load() {
+			pending++
+		}
+	}
+	full := pending >= maxPendingUploads || len(s.upOrder) >= maxUploads
+	s.mu.Unlock()
+	if full {
+		w.WriteHeader(429)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Demasiados archivos a la vez en esta sesión: espera a que terminen o abre «Recibir del móvil» otra vez"})
+		return
+	}
 	if free := freeSpace(s.dest); free >= 0 && req.Size > free-(64<<20) {
 		w.WriteHeader(507)
 		json.NewEncoder(w).Encode(map[string]string{"error": "No hay espacio suficiente en el PC"})
@@ -596,6 +620,12 @@ func (s *qrSession) handleUpStart(w http.ResponseWriter, r *http.Request) {
 }
 
 const maxChunk = 32 << 20
+
+// Archivos de una misma sesión de «Recibir del móvil»: a medias a la vez, y en total.
+const (
+	maxPendingUploads = 64
+	maxUploads        = 50000
+)
 
 func (s *qrSession) handleUpChunk(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
@@ -698,7 +728,8 @@ func (s *qrSession) finishUpload(u *qrUpload) error {
 	var err error
 	for i := 0; i < 20; i++ { // el antivirus puede tenerlo abierto un momento
 		final := uniquePath(s.dest, u.Name)
-		if err = os.Rename(u.part, final); err == nil {
+		if err = moveNoReplace(u.part, final); err == nil {
+			markFromInternet(final)
 			u.final.Store(final)
 			u.done.Store(true)
 			notifyCreated(final)
