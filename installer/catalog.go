@@ -42,6 +42,9 @@ type Tool struct {
 	// "app": se instala y se abre (acceso directo en el menú Inicio).
 	// "setup": el .exe es su propio instalador (TurboDL); se ejecuta con "setup".
 	Kind string `json:"kind"`
+	// Open: una herramienta "setup" que además tiene ventana (TurboVAULT,
+	// TurboMENU): se puede abrir desde aquí.
+	Open bool   `json:"open,omitempty"`
 	Dir  string `json:"dir"`
 }
 
@@ -130,6 +133,7 @@ type ToolView struct {
 	Name             string `json:"name"`
 	Summary          string `json:"summary"`
 	Kind             string `json:"kind"`
+	Open             bool   `json:"open"`
 	Version          string `json:"version"`
 	Size             int64  `json:"size"`
 	Available        bool   `json:"available"`
@@ -161,7 +165,7 @@ func buildView(m *Manifest, fetchErr error) *CatalogView {
 		v.SetupUpdate = m.Setup.Asset != "" && newer(m.Setup.Version, version)
 		for _, t := range m.Tools {
 			tv := ToolView{
-				ID: t.ID, Name: t.Name, Summary: t.Summary, Kind: t.Kind,
+				ID: t.ID, Name: t.Name, Summary: t.Summary, Kind: t.Kind, Open: t.Open,
 				Version: t.Version, Size: t.Size, Available: true,
 				URL: "https://github.com/" + repo + "/tree/main/" + t.Dir,
 			}

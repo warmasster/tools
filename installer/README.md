@@ -9,6 +9,7 @@ Instalador de las herramientas Turbo. Enseña la lista, instalas las que quieras
 - **Actualiza aunque el programa esté abierto**: el nuevo se usa la próxima vez que lo abras.
 - **Se actualiza a sí mismo** cuando sale una versión nueva de TurboSETUP.
 - **TurboDL** es una extensión de Chrome: TurboSETUP baja `TurboDL.exe` y lo lanza, y TurboDL te guía para cargarla en Chrome.
+- Las que son extensión **y** tienen ventana (TurboVAULT, TurboMENU) se pueden **abrir** desde aquí; el botón pequeño de al lado las reinstala.
 
 Al instalar la primera herramienta deja una copia de sí mismo en la carpeta de instalación, con su acceso directo en el menú Inicio. Al quitar la última, borra la carpeta entera.
 
@@ -17,7 +18,7 @@ Al instalar la primera herramienta deja una copia de sí mismo en la carpeta de 
 1. Sube la versión del programa: `productVersion` en su `wails.json` (en TurboDL, `version` en `manifest.json`).
 2. Haz push a `main`.
 
-GitHub Actions ([`release.yml`](../.github/workflows/release.yml)) compila solo lo que ha cambiado de versión, lo sube a la Release `apps` y actualiza `manifest.json`, que es lo que lee TurboSETUP. Es la única Release del repo: si encuentra otras, las borra. La lista de herramientas está en [`tools.json`](../tools.json): para añadir una nueva basta con añadirla ahí.
+GitHub Actions ([`release.yml`](../.github/workflows/release.yml)) compila solo lo que ha cambiado de versión, lo sube a la Release `apps` y actualiza `manifest.json`, que es lo que lee TurboSETUP. Es la única Release del repo: si encuentra otras, las borra. La lista de herramientas está en [`tools.json`](../tools.json): para añadir una nueva basta con añadirla ahí (`kind: "app"` si se abre con acceso directo, `"setup"` si su `.exe` es su propio instalador, y `"open": true` si además tiene ventana).
 
 Para probar sin subir nada:
 

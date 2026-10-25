@@ -101,7 +101,7 @@ foreach ($t in $cat.tools) {
     $prevT = $old.tools | Where-Object { $_.id -eq $t.id } | Select-Object -First 1
     $a = Pick $t $prevT
     $tools += [ordered]@{
-        id = $t.id; name = $t.name; summary = $t.summary; kind = $t.kind; dir = $t.dir
+        id = $t.id; name = $t.name; summary = $t.summary; kind = $t.kind; open = [bool]$t.open; dir = $t.dir
         version = $a.version; asset = $a.asset; size = $a.size; sha256 = $a.sha256
     }
 }

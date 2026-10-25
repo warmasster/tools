@@ -96,6 +96,7 @@
     }
 
     const isApp = t.kind !== "setup";
+    const canOpen = isApp || t.open; // las de extensión con ventana (TurboVAULT) también se abren
     if (t.installed) {
       actions += `<button class="ibtn" data-act="gh" title="Ver en GitHub">${ic("gh")}</button>`;
       actions += `<button class="ibtn danger" data-act="uninstall" title="Desinstalar">${ic("trash")}</button>`;
@@ -103,10 +104,11 @@
       actions += `<button class="ibtn" data-act="gh" title="Ver en GitHub">${ic("gh")}</button>`;
     }
     if (t.update) {
-      if (isApp) actions += `<button class="btn ghost sm" data-act="open">Abrir</button>`;
+      if (canOpen) actions += `<button class="btn ghost sm" data-act="open">Abrir</button>`;
       actions += `<button class="btn amber sm" data-act="install">${ic("up")}Actualizar</button>`;
     } else if (t.installed) {
-      if (isApp) actions += `<button class="btn primary sm" data-act="open">${ic("open")}Abrir</button>`;
+      if (!isApp && t.available && canOpen) actions += `<button class="ibtn" data-act="install" title="Reinstalar: vuelve a poner el motor y la extensión">${ic("redo")}</button>`;
+      if (canOpen) actions += `<button class="btn primary sm" data-act="open">${ic("open")}Abrir</button>`;
       else if (t.available) actions += `<button class="btn ghost sm" data-act="install" title="Vuelve a instalar el motor y te recuerda cómo cargar la extensión">${ic("redo")}Reinstalar</button>`;
     } else if (t.available) {
       actions += `<button class="btn primary sm" data-act="install">${ic("down")}Instalar</button>`;
@@ -203,7 +205,7 @@
     unId = id;
     $("#un-title").textContent = `¿Desinstalar ${t.name}?`;
     $("#un-text").textContent = t.kind === "setup"
-      ? "Se quita el motor nativo y la copia de la extensión. Después, quita también TurboDL en chrome://extensions."
+      ? `Se quita el motor nativo y la copia de la extensión. Después, quita también ${t.name} en chrome://extensions.`
       : "Se borra el programa y sus accesos directos. Tus ajustes y archivos no se tocan.";
     $("#m-uninstall").hidden = false;
   }
@@ -262,6 +264,7 @@
       { id: "turbosend", name: "TurboSEND", kind: "app", version: "2.0.0", size: 13.4e6, available: true, installed: true, installedVersion: "1.9.0", update: true, summary: "Envía y recibe archivos de cualquier tamaño en chats. El otro lado solo necesita el navegador.", url: "#" },
       { id: "turbocut", name: "TurboCUT", kind: "app", version: "1.0.0", size: 12.1e6, available: true, installed: true, installedVersion: "1.0.0", summary: "Analiza el disco a toda velocidad y te ayuda a liberar espacio.", url: "#" },
       { id: "turbodl", name: "TurboDL", kind: "setup", version: "1.1.0", size: 7.4e6, available: true, summary: "Gestor de descargas multiconexión para Chrome, con motor nativo de hasta 64 conexiones.", url: "#" },
+      { id: "turbovault", name: "TurboVAULT", kind: "setup", open: true, version: "1.0.1", size: 12.8e6, available: true, installed: true, installedVersion: "1.0.1", summary: "Tus contraseñas cifradas en tu PC, con extensión para Chrome que rellena y guarda al iniciar sesión, códigos 2FA, generador y copias en USB.", url: "#" },
       { id: "turbogames", name: "TurboGAMES", kind: "app", version: "1.0.0", size: 11.2e6, available: true, summary: "Todas tus cuentas de Steam a un clic, con sus contraseñas en una bóveda cifrada, y tus juegos con sus portadas y quién los ha jugado.", url: "#" },
     ];
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
