@@ -350,9 +350,16 @@ func (v *Vault) Create(master string) error {
 	}
 	v.mu.Lock()
 	exists := v.file != nil
+	damaged := v.err
 	v.mu.Unlock()
 	if exists {
 		return ErrExists
+	}
+	// Si hay un archivo que ahora no se puede leer (antivirus, OneDrive, un fallo
+	// del disco), una bóveda nueva lo pisaría: puede que se recupere más tarde o
+	// desde una copia.
+	if _, err := os.Stat(v.path); damaged != nil || err == nil {
+		return errors.New("ya hay una bóveda en este PC aunque ahora no se puede leer: restaura una copia o vuelve a intentarlo, pero no se crea otra encima")
 	}
 	k := newKDF()
 	kek := derive(master, k)

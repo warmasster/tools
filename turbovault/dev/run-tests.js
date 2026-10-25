@@ -108,6 +108,18 @@ const uiJS = async (js) => {
     await sleep(500);
   }
 };
+// Espera (hasta ms) a que el texto de la ventana cumpla re; devuelve el último leído.
+// Recién abierta, o con la pantalla apagada, la ventana tarda más en pintarse.
+async function uiUntil(js, re, ms = 6000) {
+  const t0 = Date.now();
+  let v = '';
+  do {
+    v = String(await uiJS(js));
+    if (re.test(v)) break;
+    await sleep(250);
+  } while (Date.now() - t0 < ms);
+  return v;
+}
 let ui = false;
 async function uiConnect() {
   for (let i = 0; i < 100; i++) {
@@ -153,8 +165,7 @@ try {
   ui = await uiConnect();
   check(ui, 'la ventana se abre (antes, un TurboVAULT arrancado por Chrome no podía abrirla)');
   if (!ui) throw new Error('No aparece la ventana de TurboVAULT');
-  await sleep(800);
-  const welcome = await uiJS(`document.querySelector('#lock').innerText`);
+  const welcome = await uiUntil(`document.querySelector('#lock').innerText`, /Crear mi bóveda/);
   check(/Crear mi bóveda/.test(welcome), 'la ventana de verdad enseña la bienvenida (la interfaz funciona con su CSP)');
 
   log('Bóveda nueva');
@@ -163,8 +174,7 @@ try {
   check(st.unlocked && st.exists, 'creada y abierta');
   const saved = await uiCall('save', { item: { title: 'Web de prueba', urls: [url('login.test', '/')], username: 'fernando' }, secret: { password: 'Clave-De-Prueba-91!' } });
   check(!!saved.id, 'entrada guardada');
-  await sleep(600);
-  const listText = await uiJS(`(document.querySelector('#lock').hidden ? 'abierta ' : 'cerrada ') + document.querySelector('#list').innerText`);
+  const listText = await uiUntil(`(document.querySelector('#lock').hidden ? 'abierta ' : 'cerrada ') + document.querySelector('#list').innerText`, /^abierta[\s\S]*Web de prueba/);
   check(/^abierta/.test(listText) && /Web de prueba/.test(listText), 'la ventana enseña la bóveda abierta con la entrada');
 
   for (let i = 0; i < 25; i++) { s = await sw('publicState()'); if (s.unlocked) break; await sleep(200); }

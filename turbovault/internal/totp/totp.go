@@ -43,14 +43,28 @@ func Parse(s string) (*Key, error) {
 		}
 		q := u.Query()
 		secret = q.Get("secret")
-		if d, err := strconv.Atoi(q.Get("digits")); err == nil && d >= 6 && d <= 8 {
+		// Un parámetro que viene pero no vale es un error: con el valor por defecto
+		// los códigos saldrían mal sin que nadie lo notara.
+		if v := q.Get("digits"); v != "" {
+			d, err := strconv.Atoi(v)
+			if err != nil || d < 6 || d > 8 {
+				return nil, ErrInvalid
+			}
 			k.Digits = d
 		}
-		if p, err := strconv.Atoi(q.Get("period")); err == nil && p >= 10 && p <= 120 {
+		if v := q.Get("period"); v != "" {
+			p, err := strconv.Atoi(v)
+			if err != nil || p < 10 || p > 120 {
+				return nil, ErrInvalid
+			}
 			k.Period = p
 		}
-		if a := strings.ToUpper(q.Get("algorithm")); a == "SHA256" || a == "SHA512" {
+		switch a := strings.ToUpper(q.Get("algorithm")); a {
+		case "", "SHA1":
+		case "SHA256", "SHA512":
 			k.Algorithm = a
+		default:
+			return nil, ErrInvalid
 		}
 		label := strings.TrimPrefix(u.Path, "/")
 		k.Issuer = q.Get("issuer")

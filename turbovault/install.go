@@ -227,8 +227,10 @@ func createShortcut(lnk, target, description string) error {
 }
 
 // stopOthers cierra los demás procesos de TurboVAULT (agente y ventanas de una
-// versión anterior), para que arranque la nueva.
-func stopOthers() {
+// versión anterior), para que arranque la nueva. Con bridges también cierra los
+// puentes que abrió el navegador (al desinstalar: si no, su .exe sigue en uso y
+// TurboSETUP no puede borrar la carpeta).
+func stopOthers(bridges bool) {
 	// Primero con educación: pedir al agente que se cierre.
 	if c, err := ipc.Dial(pipeName(), 300*time.Millisecond, nil); err == nil {
 		cl := ipc.NewClient(c, nil)
@@ -254,8 +256,8 @@ func stopOthers() {
 			continue
 		}
 		args, _ := winsec.CommandLine(e.ProcessID)
-		if len(args) > 1 && strings.HasPrefix(strings.ToLower(args[1]), "chrome-extension://") {
-			continue // los puentes los cierra Chrome
+		if !bridges && len(args) > 1 && strings.HasPrefix(strings.ToLower(args[1]), "chrome-extension://") {
+			continue // al actualizar, los puentes los cierra Chrome
 		}
 		if strings.HasPrefix(strings.ToLower(filepath.Base(path)), "turbovault") {
 			killProcess(e.ProcessID)
@@ -274,7 +276,7 @@ func messageBox(title, text string, isErr bool) {
 }
 
 func cliSetup() int {
-	stopOthers()
+	stopOthers(false)
 	if err := secureDataDir(); err != nil {
 		logf("setup: carpeta: %v", err)
 	}
@@ -327,10 +329,12 @@ Chrome no deja que un programa instale extensiones por su cuenta: este paso se h
 }
 
 func cliUninstall() int {
-	stopOthers()
+	// Primero se quita el registro del puente, para que el navegador no lo vuelva a
+	// abrir, y luego se cierra todo, puentes incluidos.
 	for _, b := range browserKeys {
 		registry.DeleteKey(registry.CURRENT_USER, b.key+hostName)
 	}
+	stopOthers(true)
 	setAutostart(false)
 	os.Remove(startMenuLink())
 	os.Remove(hostManifestPath())
@@ -353,6 +357,11 @@ func browserDataDirs() []string {
 		filepath.Join(la, "Microsoft", "Edge", "User Data"),
 		filepath.Join(la, "BraveSoftware", "Brave-Browser", "User Data"),
 		filepath.Join(la, "Chromium", "User Data"),
+		// Usan las mismas claves del registro que Chrome o tienen la suya (Vivaldi):
+		// si no se miran, una extensión cambiada cargada ahí no se detectaría.
+		filepath.Join(la, "Vivaldi", "User Data"),
+		filepath.Join(la, "Google", "Chrome Beta", "User Data"),
+		filepath.Join(la, "Google", "Chrome SxS", "User Data"),
 	}
 }
 

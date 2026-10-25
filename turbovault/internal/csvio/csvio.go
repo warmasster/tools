@@ -124,12 +124,19 @@ func Read(r io.Reader) (*Result, error) {
 		}
 		return strings.TrimSpace(row[i])
 	}
+	getRaw := func(row []string, f string) string {
+		i := idx[f]
+		if i < 0 || i >= len(row) {
+			return ""
+		}
+		return strings.TrimRight(row[i], "\r\n")
+	}
 	for _, row := range rows[1:] {
 		rec := Record{
 			Title:    get(row, "title"),
 			URL:      get(row, "url"),
 			Username: get(row, "username"),
-			Password: get(row, "password"),
+			Password: getRaw(row, "password"), // un espacio al principio o al final es parte de la contraseña
 			Notes:    get(row, "notes"),
 			TOTP:     get(row, "totp"),
 		}
