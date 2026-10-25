@@ -23,7 +23,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"golang.org/x/sys/windows"
 
 	"rsc.io/qr"
 )
@@ -47,15 +50,27 @@ type qrDownload struct {
 	start time.Time
 }
 
+// qrUpload es un archivo que llega del móvil. El avance va en atómicos para que la
+// ventana pueda leerlo en cualquier momento sin esperar a que termine un trozo.
 type qrUpload struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Final string `json:"final"`
-	Size  int64  `json:"size"`
-	Got   int64  `json:"got"`
-	Done  bool   `json:"done"`
-	part  string
-	mu    sync.Mutex
+	ID      string
+	Name    string
+	Size    int64
+	key     string // nombre|tamaño|fecha que manda el móvil, para reanudar tras recargar
+	client  string // pestaña del móvil que la está subiendo
+	part    string
+	got     atomic.Int64
+	done    atomic.Bool
+	lastAct atomic.Int64 // último trozo recibido (unix ms)
+	final   atomic.Value // string
+	wmu     sync.Mutex   // un trozo a la vez
+}
+
+func (u *qrUpload) finalPath() string {
+	if v, ok := u.final.Load().(string); ok {
+		return v
+	}
+	return ""
 }
 
 type qrSession struct {
@@ -75,9 +90,13 @@ type qrSession struct {
 	mu        sync.Mutex
 	downloads []*qrDownload
 	uploads   map[string]*qrUpload
+	upOrder   []*qrUpload
 	visits    int
 	lastPush  time.Time
 	onChange  func()
+	notify    chan struct{}
+	quit      chan struct{}
+	finMu     sync.Mutex // los nombres finales se eligen de uno en uno
 }
 
 func randHex(n int) string {
@@ -136,7 +155,9 @@ func collectFiles(paths []string) ([]ShareFile, int64) {
 }
 
 func newQRSession(mode string, paths []string, dest string, onChange func()) (*qrSession, error) {
-	s := &qrSession{mode: mode, token: randHex(12), nonce: randHex(16), dest: dest, uploads: map[string]*qrUpload{}, onChange: onChange}
+	s := &qrSession{mode: mode, token: randHex(12), nonce: randHex(16), dest: dest, uploads: map[string]*qrUpload{}, onChange: onChange,
+		notify: make(chan struct{}, 1), quit: make(chan struct{})}
+	go s.notifier()
 	if mode == "send" {
 		s.files, s.total = collectFiles(paths)
 		if len(s.files) == 0 {
@@ -152,7 +173,7 @@ func newQRSession(mode string, paths []string, dest string, onChange func()) (*q
 	// Puerto fijo si se puede (el router lo recuerda mejor), si no, cualquiera.
 	var err error
 	host := ""
-	if testMode {
+	if testMode || qrNoNetwork {
 		host = "127.0.0.1" // en pruebas, sin aviso del firewall
 	}
 	for port := 47832; port < 47842; port++ {
@@ -189,16 +210,45 @@ func newQRSession(mode string, paths []string, dest string, onChange func()) (*q
 
 	s.tunnel = newTunnel(cacheDir(), s.nonce, s.changed)
 	s.direct = newDirect(s.nonce, s.changed)
-	go s.tunnel.Start(s.port, "", "")
-	go s.direct.Start(s.port, true, false)
+	if !qrNoNetwork {
+		go s.tunnel.Start(s.port, "", "")
+		go s.direct.Start(s.port, true, false)
+	}
 	return s, nil
 }
 
 const expiredPage = `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#0a0b12;color:#eceef8;font:16px system-ui;text-align:center"><div><div style="font-size:44px">⏳</div><h2>Este enlace ya no funciona</h2><p style="color:#9196ae">Se cerró la ventana en el PC. Pide un QR nuevo.</p></div>`
 
+// qrNoNetwork deja el servidor solo en local, sin túnel ni UPnP (para las pruebas).
+var qrNoNetwork = false
+
+var loggedCF atomic.Bool // modo prueba: apuntar el enlace una vez
+
+// changed avisa de que hay algo nuevo que pintar. Nunca bloquea: los avisos se juntan
+// y los entrega notifier, así que se puede llamar desde cualquier sitio y con
+// cualquier cerrojo cogido.
 func (s *qrSession) changed() {
-	if s.onChange != nil {
-		s.onChange()
+	select {
+	case s.notify <- struct{}{}:
+	default:
+	}
+}
+
+func (s *qrSession) notifier() {
+	for {
+		select {
+		case <-s.quit:
+			return
+		case <-s.notify:
+		}
+		if s.onChange != nil {
+			s.onChange()
+		}
+		select { // como mucho unas 8 veces por segundo
+		case <-s.quit:
+			return
+		case <-time.After(120 * time.Millisecond):
+		}
 	}
 }
 
@@ -223,13 +273,17 @@ func (s *qrSession) stop() {
 	go func() { defer wg.Done(); s.tunnel.Stop() }()
 	s.srv.Close()
 	wg.Wait()
+	close(s.quit)
 	s.mu.Lock()
-	for _, u := range s.uploads {
-		if !u.Done && u.part != "" {
+	ups := append([]*qrUpload(nil), s.upOrder...)
+	s.mu.Unlock()
+	for _, u := range ups {
+		if !u.done.Load() && u.part != "" {
+			u.wmu.Lock() // que acabe el trozo que tuviera a medias
 			os.Remove(u.part)
+			u.wmu.Unlock()
 		}
 	}
-	s.mu.Unlock()
 }
 
 // ---------- páginas ----------
@@ -414,30 +468,59 @@ func (s *qrSession) handleUpStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Name string `json:"name"`
-		Size int64  `json:"size"`
+		Name   string `json:"name"`
+		Size   int64  `json:"size"`
+		Key    string `json:"key"`
+		Client string `json:"client"`
 	}
 	if json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&req) != nil || req.Size < 0 {
 		http.Error(w, "petición incorrecta", 400)
 		return
 	}
-	u := &qrUpload{ID: randHex(8), Name: cleanFileName(req.Name), Size: req.Size}
+	w.Header().Set("Content-Type", "application/json")
+
+	// ¿Se quedó a medias porque el móvil recargó la página? Se sigue por donde iba.
+	if req.Key != "" {
+		now := time.Now().UnixMilli()
+		s.mu.Lock()
+		for _, u := range s.upOrder {
+			if u.key == req.Key && !u.done.Load() && u.client != req.Client && now-u.lastAct.Load() > 2000 {
+				u.client = req.Client
+				s.mu.Unlock()
+				json.NewEncoder(w).Encode(map[string]any{"id": u.ID, "got": u.got.Load()})
+				return
+			}
+		}
+		s.mu.Unlock()
+	}
+
+	if free := freeSpace(s.dest); free >= 0 && req.Size > free-(64<<20) {
+		w.WriteHeader(507)
+		json.NewEncoder(w).Encode(map[string]string{"error": "No hay espacio suficiente en el PC"})
+		return
+	}
+	u := &qrUpload{ID: randHex(8), Name: cleanFileName(req.Name), Size: req.Size, key: req.Key, client: req.Client}
 	u.part = filepath.Join(s.dest, "."+u.ID+".turbomenu-part")
 	f, err := os.Create(u.part)
 	if err != nil {
-		http.Error(w, "No se puede guardar en esa carpeta", 500)
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]string{"error": "No se puede guardar en esa carpeta del PC"})
 		return
 	}
 	f.Close()
+	setHidden(u.part, true)
+	u.lastAct.Store(time.Now().UnixMilli())
 	s.mu.Lock()
 	s.uploads[u.ID] = u
+	s.upOrder = append(s.upOrder, u)
 	s.mu.Unlock()
 	if req.Size == 0 {
+		u.wmu.Lock()
 		s.finishUpload(u)
+		u.wmu.Unlock()
 	}
 	s.changed()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"id": u.ID})
+	json.NewEncoder(w).Encode(map[string]any{"id": u.ID, "got": u.got.Load(), "done": u.done.Load()})
 }
 
 const maxChunk = 32 << 20
@@ -446,55 +529,138 @@ func (s *qrSession) handleUpChunk(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	u := s.uploads[r.PathValue("id")]
 	s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
 	if u == nil {
-		http.Error(w, "subida desconocida", 404)
+		w.WriteHeader(404)
+		json.NewEncoder(w).Encode(map[string]string{"error": "subida desconocida"})
 		return
 	}
 	off, err := strconv.ParseInt(r.URL.Query().Get("off"), 10, 64)
 	if err != nil || off < 0 {
-		http.Error(w, "posición incorrecta", 400)
+		w.WriteHeader(400)
+		json.NewEncoder(w).Encode(map[string]string{"error": "posición incorrecta"})
 		return
 	}
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	if u.Done {
-		json.NewEncoder(w).Encode(map[string]any{"got": u.Got, "done": true})
+	reply := func(code int) {
+		if code != 200 {
+			w.WriteHeader(code)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"got": u.got.Load(), "done": u.done.Load()})
+	}
+	// Si otra conexión (una pestaña vieja) sigue escribiendo, se espera un poco a que suelte.
+	locked := false
+	for i := 0; i < 700 && !locked; i++ {
+		if locked = u.wmu.TryLock(); !locked {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	if !locked {
+		reply(409)
 		return
 	}
-	if off != u.Got {
-		w.WriteHeader(409)
-		json.NewEncoder(w).Encode(map[string]any{"got": u.Got})
+	defer u.wmu.Unlock()
+	if u.done.Load() {
+		reply(200)
+		return
+	}
+	if off != u.got.Load() {
+		reply(409)
 		return
 	}
 	f, err := os.OpenFile(u.part, os.O_WRONLY, 0)
 	if err != nil {
-		http.Error(w, "No se puede escribir", 500)
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]string{"error": "No se puede escribir en el PC"})
 		return
 	}
-	f.Seek(off, io.SeekStart)
-	n, err := io.Copy(f, io.LimitReader(r.Body, min(maxChunk, u.Size-off)))
+	if _, err := f.Seek(off, io.SeekStart); err != nil {
+		f.Close()
+		reply(500)
+		return
+	}
+	rc := http.NewResponseController(w)
+	left := min(int64(maxChunk), u.Size-off)
+	buf := make([]byte, 256<<10)
+	var cerr error
+	for left > 0 {
+		// Un móvil que se queda sin red no deja la subida bloqueada para siempre.
+		rc.SetReadDeadline(time.Now().Add(30 * time.Second))
+		n, rerr := r.Body.Read(buf[:min(int64(len(buf)), left)])
+		if n > 0 {
+			if _, werr := f.Write(buf[:n]); werr != nil {
+				cerr = werr
+				break
+			}
+			left -= int64(n)
+			u.got.Add(int64(n))
+			u.lastAct.Store(time.Now().UnixMilli())
+			s.changed()
+		}
+		if rerr != nil {
+			if rerr != io.EOF { // EOF es el final normal del trozo; un corte a mitad da otro error
+				cerr = rerr
+			}
+			break
+		}
+	}
 	f.Close()
-	u.Got += n
-	s.changed()
-	if err != nil {
-		w.WriteHeader(409)
-		json.NewEncoder(w).Encode(map[string]any{"got": u.Got})
+	if cerr != nil {
+		reply(409) // el móvil reintenta desde lo que de verdad llegó
 		return
 	}
-	if u.Got >= u.Size {
-		s.finishUpload(u)
+	if u.got.Load() >= u.Size {
+		if err := s.finishUpload(u); err != nil {
+			w.WriteHeader(500)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
 	}
-	json.NewEncoder(w).Encode(map[string]any{"got": u.Got, "done": u.Done})
+	reply(200)
 }
 
-func (s *qrSession) finishUpload(u *qrUpload) {
-	final := uniquePath(s.dest, u.Name)
-	if err := os.Rename(u.part, final); err == nil {
-		u.Final = final
-		u.Done = true
-		notifyChanged(s.dest)
+// finishUpload le pone al archivo su nombre definitivo (hay que tener u.wmu).
+func (s *qrSession) finishUpload(u *qrUpload) error {
+	s.finMu.Lock()
+	defer s.finMu.Unlock()
+	setHidden(u.part, false)
+	var err error
+	for i := 0; i < 20; i++ { // el antivirus puede tenerlo abierto un momento
+		final := uniquePath(s.dest, u.Name)
+		if err = os.Rename(u.part, final); err == nil {
+			u.final.Store(final)
+			u.done.Store(true)
+			notifyCreated(final)
+			s.changed()
+			return nil
+		}
+		time.Sleep(150 * time.Millisecond)
 	}
-	s.changed()
+	return errors.New("No se pudo guardar el archivo en el PC")
+}
+
+func setHidden(p string, hidden bool) {
+	ptr, err := windows.UTF16PtrFromString(p)
+	if err != nil {
+		return
+	}
+	var attr uint32 = windows.FILE_ATTRIBUTE_NORMAL
+	if hidden {
+		attr = windows.FILE_ATTRIBUTE_HIDDEN
+	}
+	windows.SetFileAttributes(ptr, attr)
+}
+
+// freeSpace devuelve los bytes libres en la unidad de dir (-1 si no se sabe).
+func freeSpace(dir string) int64 {
+	ptr, err := windows.UTF16PtrFromString(dir)
+	if err != nil {
+		return -1
+	}
+	var free uint64
+	if windows.GetDiskFreeSpaceEx(ptr, &free, nil, nil) != nil {
+		return -1
+	}
+	return int64(free)
 }
 
 // ---------- estado para la ventana ----------
@@ -580,12 +746,12 @@ func (s *qrSession) state() QRState {
 	for _, d := range s.downloads {
 		st.Downloads = append(st.Downloads, *d)
 	}
-	for _, u := range s.uploads {
-		u.mu.Lock()
-		st.Uploads = append(st.Uploads, qrUploadVew{Name: u.Name, Final: u.Final, Size: u.Size, Got: u.Got, Done: u.Done})
-		u.mu.Unlock()
-	}
+	ups := append([]*qrUpload(nil), s.upOrder...)
 	s.mu.Unlock()
+	for i := len(ups) - 1; i >= 0; i-- { // lo último que llega, arriba
+		u := ups[i]
+		st.Uploads = append(st.Uploads, qrUploadVew{Name: u.Name, Final: u.finalPath(), Size: u.Size, Got: u.got.Load(), Done: u.done.Load()})
+	}
 	return st
 }
 
@@ -601,10 +767,20 @@ func (a *App) StartQR(mode string) error {
 	}
 	var s *qrSession
 	var err error
+	a.mu.Lock()
 	gen := a.gen
+	a.mu.Unlock()
+	var sess atomic.Pointer[qrSession]
 	push := func() {
-		if a.qr != nil && a.gen == gen {
-			a.emit("qr", a.qr.state())
+		a.mu.Lock()
+		cur := a.gen
+		a.mu.Unlock()
+		if q := sess.Load(); q != nil && cur == gen {
+			st := q.state()
+			a.emit("qr", st)
+			if testMode && st.Cloudflare != "" && loggedCF.CompareAndSwap(false, true) {
+				appendTestLog("qr " + st.Cloudflare)
+			}
 		}
 	}
 	if mode == "receive" {
@@ -619,6 +795,7 @@ func (a *App) StartQR(mode string) error {
 	if err != nil {
 		return err
 	}
+	sess.Store(s)
 	a.mu.Lock()
 	a.qr = s
 	a.mu.Unlock()

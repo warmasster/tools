@@ -94,6 +94,7 @@ input[type=file]{display:none}
       '<div class="list" id="ups"></div><div class="sum" id="sum" hidden></div>';
     const pick = document.getElementById("pick"), ups = document.getElementById("ups"), sum = document.getElementById("sum");
     const queue = []; let running = 0, doneN = 0, totalN = 0, bytesAll = 0, bytesDone = 0;
+    const client = Math.random().toString(36).slice(2) + Date.now().toString(36); // esta pestaña
     pick.addEventListener("change", () => {
       for (const f of pick.files) {
         const el = document.createElement("div");
@@ -110,40 +111,67 @@ input[type=file]{display:none}
       sum.innerHTML = '<span><b>' + doneN + '</b> de ' + totalN + ' enviados</span><span>' + fmt(bytesDone) + ' / ' + fmt(bytesAll) + '</span>';
     }
     function pump() { upd(); while (running < 2 && queue.length) { running++; up(queue.shift()).finally(() => { running--; pump(); }); } }
-    async function up({ f, el }) {
-      const bar = el.querySelector(".bar i"), sub = el.querySelector(".nm span");
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    async function up(item) {
+      const { f, el } = item;
+      const bar = el.querySelector(".bar i"), sub = el.querySelector(".nm span"), go = el.querySelector(".go");
+      el.classList.remove("err"); go.innerHTML = icUp;
+      let counted = 0; // lo que de este archivo ya se ha sumado al total
+      const show = n => { bar.style.width = (f.size ? n / f.size * 100 : 100) + "%"; sub.textContent = fmt(n) + " de " + fmt(f.size); };
       try {
-        const r = await fetch(base + "/up", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: f.name, size: f.size }) });
-        if (!r.ok) throw new Error(await r.text());
-        const { id } = await r.json();
-        let off = 0, tries = 0; const CH = 8 << 20;
-        while (off < f.size) {
-          const end = Math.min(f.size, off + CH);
+        // La clave permite seguir por donde iba si se recarga la página a mitad.
+        const key = f.name + "|" + f.size + "|" + (f.lastModified || 0);
+        let start, tries = 0;
+        for (;;) {
           try {
-            const got = await put(base + "/up/" + id + "?off=" + off, f.slice(off, end), p => { bar.style.width = ((off + p) / f.size * 100) + "%"; });
-            bytesDone += got - off; off = got; tries = 0; upd();
+            const r = await fetch(base + "/up", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: f.name, size: f.size, key, client }) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) { const e = new Error(j.error || "El PC no lo ha aceptado"); e.final = r.status !== 502 && r.status !== 503; throw e; }
+            start = j; break;
           } catch (e) {
-            if (e.got !== undefined) { off = e.got; continue; }
-            if (++tries > 6) throw e;
-            await new Promise(r => setTimeout(r, 1000 * tries));
+            if (e.final || ++tries > 5) throw e;
+            await sleep(800 * tries);
           }
         }
-        bar.style.width = "100%"; el.classList.add("done"); el.querySelector(".go").innerHTML = icOk; sub.textContent = fmt(f.size) + " · en el PC";
+        let off = start.got || 0; tries = 0;
+        counted = off; bytesDone += off; show(off); upd();
+        const CH = 8 << 20;
+        while (off < f.size && !start.done) {
+          const end = Math.min(f.size, off + CH);
+          try {
+            const r = await put(base + "/up/" + start.id + "?off=" + off, f.slice(off, end), p => show(off + p));
+            bytesDone += r.got - counted; counted = r.got; off = r.got; tries = 0; upd();
+            if (r.done) break;
+          } catch (e) {
+            if (e.got !== undefined) { bytesDone += e.got - counted; counted = e.got; off = e.got; } // el PC dice hasta dónde llegó
+            if (e.final || ++tries > 8) throw e;
+            await sleep(Math.min(5000, 600 * tries));
+          }
+        }
+        bar.style.width = "100%"; el.classList.add("done"); go.innerHTML = icOk; sub.textContent = fmt(f.size) + " · en el PC";
         doneN++; upd();
       } catch (e) {
-        el.classList.add("err"); sub.textContent = "No se pudo enviar. Vuelve a intentarlo.";
+        el.classList.add("err");
+        sub.textContent = (e && e.message && !/^\d+$/.test(e.message) ? e.message : "No se pudo enviar") + " · toca para reintentar";
+        go.innerHTML = '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>';
+        bytesDone -= counted; upd();
+        el.onclick = () => { el.onclick = null; queue.push(item); pump(); };
       }
     }
     function put(url, blob, onp) {
       return new Promise((res, rej) => {
         const x = new XMLHttpRequest();
         x.open("PUT", url);
+        x.timeout = 120000;
         x.upload.onprogress = e => onp(e.loaded);
         x.onload = () => {
           let j = {}; try { j = JSON.parse(x.responseText); } catch (_) { }
-          if (x.status === 200) res(j.got); else if (x.status === 409) rej({ got: j.got }); else rej(new Error(x.status));
+          if (x.status === 200) res(j);
+          else if (x.status === 409) rej({ got: j.got });
+          else { const e = new Error(j.error || "Error " + x.status); e.final = x.status === 404 || x.status === 507; rej(e); }
         };
-        x.onerror = () => rej(new Error("red"));
+        x.onerror = () => rej(new Error("Sin conexión con el PC"));
+        x.ontimeout = () => rej(new Error("El PC tarda en responder"));
         x.send(blob);
       });
     }
