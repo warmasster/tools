@@ -104,7 +104,9 @@ func (v *Vault) reload() {
 		return
 	}
 	var f fileData
-	if err := json.Unmarshal(b, &f); err != nil || f.V != fileVersion || f.KDF.Alg != "argon2id" || len(f.KDF.Salt) < 16 || len(f.Nonce) != 12 {
+	if err := json.Unmarshal(b, &f); err != nil || f.V != fileVersion || f.KDF.Alg != "argon2id" || len(f.KDF.Salt) < 16 || len(f.Nonce) != 12 ||
+		// Parámetros fuera de rango: con t=0 Argon2 falla y con m enorme se queda sin memoria.
+		f.KDF.Time < 1 || f.KDF.Time > 10 || f.KDF.Memory < 8*1024 || f.KDF.Memory > 1024*1024 || f.KDF.Threads < 1 || f.KDF.Threads > 16 {
 		v.err = ErrCorrupted
 		return
 	}
@@ -167,6 +169,11 @@ func (v *Vault) Create(master string) error {
 	defer v.mu.Unlock()
 	if v.file != nil {
 		return ErrExists
+	}
+	// Un archivo que ahora no se puede leer no se pisa con una bóveda vacía (ni su
+	// .bak, que es la versión buena anterior).
+	if _, err := os.Stat(v.path); v.err != nil || err == nil {
+		return errors.New("ya hay una bóveda en este PC aunque ahora no se puede leer: no se crea otra encima")
 	}
 	p := newParams()
 	key := derive(master, p)
@@ -332,14 +339,23 @@ func (v *Vault) ChangeMaster(old, newMaster string) error {
 		wipe(v.key)
 	}
 	v.key, v.data = key, data
+	// El .bak guardaba la versión con la maestra vieja: si se cambió porque alguien
+	// la vio, esa copia seguiría abriéndose con ella. Pasa a ser la nueva.
+	if b, err := os.ReadFile(v.path); err == nil {
+		writeSynced(v.path+".bak", b)
+	}
 	return nil
 }
 
 // Destroy borra la bóveda entera (pide la contraseña maestra para hacerlo).
 func (v *Vault) Destroy(master string) error {
 	v.mu.Lock()
-	f := v.file
+	f, damaged := v.file, v.err
 	v.mu.Unlock()
+	if f == nil && damaged != nil {
+		// Sin poder leerla no se puede comprobar la maestra: no se borra.
+		return errors.New("la bóveda no se puede leer, así que no se puede comprobar la contraseña maestra: no se borra (el archivo es " + v.path + ")")
+	}
 	if f != nil {
 		key := derive(master, f.KDF)
 		_, err := decrypt(key, f)
@@ -386,18 +402,38 @@ func (v *Vault) save(key []byte, p kdfParams, data *payload) error {
 		return err
 	}
 	if old, err := os.ReadFile(v.path); err == nil {
-		_ = os.WriteFile(v.path+".bak", old, 0o600)
+		writeSynced(v.path+".bak", old)
 	}
-	tmp := v.path + ".tmp"
-	if err := os.WriteFile(tmp, out, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, v.path); err != nil {
-		os.Remove(tmp)
+	if err := writeSynced(v.path, out); err != nil {
 		return err
 	}
 	v.file, v.err = f, nil
 	return nil
+}
+
+// writeSynced escribe en un temporal, lo fuerza al disco y lo renombra: si se va la
+// luz a mitad, queda el archivo anterior entero (sin el Sync, NTFS podía dejar el
+// nuevo vacío tras el renombrado).
+func writeSynced(path string, data []byte) error {
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		os.Remove(tmp)
+	}
+	return err
 }
 
 func newGCM(key []byte) (cipher.AEAD, error) {

@@ -102,7 +102,7 @@ func (in *Install) Installed() []InstalledApp {
 				LastOwner: s.Str("LastOwner"),
 				BuildID:   s.Str("buildid"),
 			}
-			if d := s.Str("installdir"); d != "" {
+			if d := s.Str("installdir"); d != "" && folderName(d) {
 				a.InstallDir = filepath.Join(lib.Path, "steamapps", "common", d)
 			}
 			a.SizeOnDisk, _ = strconv.ParseInt(s.Str("SizeOnDisk"), 10, 64)
@@ -231,11 +231,38 @@ var assetKeys = map[string][]string{
 func AssetRel(meta AppMeta, kind string) []string {
 	var out []string
 	for _, k := range assetKeys[kind] {
-		if v := meta.Assets[k]; v != "" {
+		if v := meta.Assets[k]; v != "" && SafeRel(v) {
 			out = append(out, v)
 		}
 	}
 	return append(out, assetFiles[kind]...)
+}
+
+// folderName: installdir es el nombre de una sola carpeta dentro de
+// steamapps\common (puede llevar apóstrofos, acentos…), nunca una ruta.
+func folderName(d string) bool {
+	d = strings.TrimSpace(d)
+	return d != "" && d != "." && d != ".." && !strings.ContainsAny(d, `/\:`)
+}
+
+// SafeRel: una ruta relativa que viene de los archivos de Steam (appinfo.vdf, un
+// appmanifest) y se une a una carpeta o a una URL. Solo letras, números y . _ - /,
+// sin «..»: así no puede salirse de la carpeta ni cambiar la dirección.
+func SafeRel(rel string) bool {
+	if rel == "" || len(rel) > 260 || strings.HasPrefix(rel, "/") {
+		return false
+	}
+	for _, part := range strings.Split(rel, "/") {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+	}
+	for _, r := range rel {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-' || r == '/' || r == ' ') {
+			return false
+		}
+	}
+	return true
 }
 
 // LocalImage busca una imagen del juego en appcache\librarycache\<appid>.
@@ -243,7 +270,7 @@ func AssetRel(meta AppMeta, kind string) []string {
 func (in *Install) LocalImage(appid uint32, kind string, meta AppMeta) string {
 	dir := in.Path("appcache", "librarycache", strconv.FormatUint(uint64(appid), 10))
 	if kind == "icon" {
-		if meta.Icon != "" {
+		if meta.Icon != "" && SafeRel(meta.Icon) && !strings.Contains(meta.Icon, "/") {
 			p := filepath.Join(dir, meta.Icon+".jpg")
 			if fileExists(p) {
 				return p

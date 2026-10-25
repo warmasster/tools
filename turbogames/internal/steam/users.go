@@ -124,8 +124,23 @@ func (in *Install) backup(path string) {
 	}
 	_ = os.MkdirAll(in.BackupDir, 0o755)
 	base := filepath.Base(path)
-	name := strings.TrimSuffix(base, filepath.Ext(base)) + "-" + time.Now().Format("20060102-150405") + filepath.Ext(base)
-	_ = os.WriteFile(filepath.Join(in.BackupDir, name), b, 0o644)
+	// Con milisegundos y sin pisar nunca una copia que ya exista: «Olvidar» hace dos
+	// copias seguidas del mismo archivo y, con segundos, la segunda borraba la
+	// primera (justo la que tenía la cuenta olvidada).
+	stamp := strings.TrimSuffix(base, filepath.Ext(base)) + "-" + time.Now().Format("20060102-150405.000")
+	for i := 0; i < 100; i++ {
+		name := fmt.Sprintf("%s-%02d%s", stamp, i, filepath.Ext(base)) // el contador mantiene el orden
+		f, err := os.OpenFile(filepath.Join(in.BackupDir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if os.IsExist(err) {
+			continue
+		}
+		if err == nil {
+			f.Write(b)
+			f.Sync()
+			f.Close()
+		}
+		break
+	}
 	prefix := strings.TrimSuffix(base, filepath.Ext(base)) + "-"
 	ents, _ := os.ReadDir(in.BackupDir)
 	var mine []string

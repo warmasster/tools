@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -353,17 +354,26 @@ func (a *App) OpenFolder(path string) error {
 	if path == "" {
 		return errors.New("no hay carpeta")
 	}
-	if _, err := os.Stat(path); err != nil {
+	st, err := os.Stat(path)
+	if err != nil {
 		return errors.New("Esa carpeta ya no existe")
+	}
+	if !st.IsDir() {
+		// explorer.exe con un archivo lo abriría (o lo ejecutaría si es un .exe)
+		return errors.New("Eso no es una carpeta")
 	}
 	cmd := exec.Command("explorer.exe", path)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	return cmd.Start()
 }
 
+var steamURLRe = regexp.MustCompile(`^steam://(install|validate|nav/games/details)/\d{1,10}$|^steam://open/main$`)
+
 // SteamURL abre una dirección steam:// (tienda, propiedades, verificar…).
 func (a *App) SteamURL(u string) error {
-	if !strings.HasPrefix(u, "steam://") {
+	// Solo lo que usa la ventana: instalar, verificar y ver un juego, o abrir Steam.
+	// steam://run/…//argumentos, uninstall, exit… no pasan.
+	if !steamURLRe.MatchString(u) {
 		return errors.New("dirección no válida")
 	}
 	in := a.steam()

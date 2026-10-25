@@ -46,6 +46,10 @@ func loadMetaStore(path string) *metaStore {
 				s.items[keyOf(m.Name)] = m
 			}
 		}
+	} else if !os.IsNotExist(err) {
+		// Dañado: se aparta en vez de pisarlo con el siguiente guardado (se perderían
+		// apodos, notas y etiquetas de todas las cuentas).
+		os.Rename(path, path+".dañado-"+time.Now().Format("20060102-150405"))
 	}
 	return s
 }

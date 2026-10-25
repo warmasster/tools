@@ -327,7 +327,19 @@ func write(b *bytes.Buffer, n *Node, depth int) {
 // lo cambia por el original.
 func WriteFile(path string, root *Node) error {
 	tmp := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".turbogames.tmp")
-	if err := os.WriteFile(tmp, root.Marshal(), 0o644); err != nil {
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(root.Marshal())
+	if err == nil {
+		err = f.Sync() // a disco antes de cambiarlo: un corte de luz no deja Steam sin cuentas
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {

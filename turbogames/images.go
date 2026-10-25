@@ -33,9 +33,16 @@ type imageServer struct {
 
 func newImageServer(a *App) *imageServer {
 	return &imageServer{
-		app:      a,
-		dir:      filepath.Join(dataDir(), "cache", "img"),
-		client:   &http.Client{Timeout: 15 * time.Second},
+		app: a,
+		dir: filepath.Join(dataDir(), "cache", "img"),
+		client: &http.Client{Timeout: 15 * time.Second,
+			// Solo los servidores de imágenes de Steam, siempre por https.
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 || req.URL.Scheme != "https" || !strings.HasSuffix(req.URL.Hostname(), ".steamstatic.com") {
+					return http.ErrUseLastResponse
+				}
+				return nil
+			}},
 		sem:      make(chan struct{}, 6),
 		missing:  map[string]time.Time{},
 		inflight: map[string]*sync.WaitGroup{},
@@ -153,7 +160,7 @@ func (s *imageServer) download(appid uint32, kind string, meta steam.AppMeta, ke
 	id := strconv.FormatUint(uint64(appid), 10)
 	var urls []string
 	if kind == "icon" {
-		if meta.Icon == "" {
+		if meta.Icon == "" || !steam.SafeRel(meta.Icon) || strings.Contains(meta.Icon, "/") {
 			return ""
 		}
 		urls = []string{"https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/" + id + "/" + meta.Icon + ".jpg"}
