@@ -4,6 +4,7 @@ import (
 	"embed"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -23,6 +24,17 @@ func main() {
 	if s := app.getSettings(); s.AlwaysAdmin && !isAdmin() && os.Getenv("TURBOCUT_NO_ELEVATE") == "" {
 		if err := relaunchAsAdmin(os.Args[1:]); err == nil {
 			return
+		}
+	}
+	if isAdmin() {
+		// Elevado, el navegador interno no hace caso de las variables WEBVIEW2_* que
+		// pueda haber dejado un programa sin permisos (abrir un puerto de depuración,
+		// usar otro WebView2…): con ellas manejaría una ventana de administrador.
+		for _, kv := range os.Environ() {
+			k, _, _ := strings.Cut(kv, "=")
+			if strings.HasPrefix(strings.ToUpper(k), "WEBVIEW2_") {
+				os.Unsetenv(k)
+			}
 		}
 	}
 

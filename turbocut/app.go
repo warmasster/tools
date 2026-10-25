@@ -226,7 +226,7 @@ func (a *App) Scan(path string) error {
 		var t *Tree
 		note := ""
 		if mode == "mft" {
-			t, err = mftScan(ctx, root, prog)
+			t, err = safeMFTScan(ctx, root, prog)
 			if err != nil && ctx.Err() == nil {
 				note = "No se pudo leer la MFT (" + err.Error() + "); se ha usado el modo normal."
 				modeMu.Lock()

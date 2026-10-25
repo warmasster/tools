@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -157,13 +158,36 @@ func lockingApps(files []string) []string {
 	return out
 }
 
+// explorerPath: la ruta va entre comillas en la línea de explorer.exe, así que una
+// comilla dentro la rompería (y dejaría colar otros argumentos).
+func explorerPath(path string) error {
+	if path == "" || strings.ContainsAny(path, "\"\r\n") || !filepath.IsAbs(path) {
+		return errors.New("ruta no válida")
+	}
+	return nil
+}
+
 func revealInExplorer(path string) error {
+	if err := explorerPath(path); err != nil {
+		return err
+	}
 	cmd := exec.Command("explorer.exe")
 	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: `explorer.exe /select,"` + path + `"`}
 	return cmd.Start()
 }
 
+// shellOpen abre el archivo con su programa. En modo turbo (administrador) se pide
+// al Explorador, que lo abre sin permisos de administrador: si no, un .exe o un
+// script del disco se ejecutaría elevado sin el aviso de Windows.
 func shellOpen(path string) error {
+	if isAdmin() {
+		if err := explorerPath(path); err != nil {
+			return err
+		}
+		cmd := exec.Command("explorer.exe")
+		cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: `explorer.exe "` + path + `"`}
+		return cmd.Start()
+	}
 	return windows.ShellExecute(0, ptr("open"), ptr(path), nil, nil, windows.SW_SHOWNORMAL)
 }
 

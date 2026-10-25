@@ -116,12 +116,12 @@ func (a *App) CancelDupes() {
 }
 
 // collectDupeCands agrupa por tamaño (con a.mu cogido para leer el árbol).
-func (a *App) collectDupeCands(o DupeOpts) ([][]dupeCand, string, int64, error) {
+func (a *App) collectDupeCands(o DupeOpts) ([][]dupeCand, string, int64, *Tree, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	t := a.tree
 	if t == nil {
-		return nil, "", 0, errNoScan
+		return nil, "", 0, nil, errNoScan
 	}
 	scope := o.Scope
 	if !t.alive(scope) || !t.Nodes[scope].dir() {
@@ -167,7 +167,7 @@ func (a *App) collectDupeCands(o DupeOpts) ([][]dupeCand, string, int64, error) 
 		}
 		groups = append(groups, g)
 	}
-	return groups, t.pathOf(scope), a.info.When, nil
+	return groups, t.pathOf(scope), a.info.When, t, nil
 }
 
 // regroup separa cada grupo según la clave calculada y deja los que tienen 2 o más.
@@ -192,7 +192,7 @@ func regroup(groups [][]dupeCand) [][]dupeCand {
 func (a *App) findDupes(ctx context.Context, o DupeOpts, progress func(DupeProgress)) (*DupeResult, error) {
 	start := time.Now()
 	progress(DupeProgress{Phase: "tamaños"})
-	groups, base, when, err := a.collectDupeCands(o)
+	groups, base, when, tree0, err := a.collectDupeCands(o)
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +272,12 @@ func (a *App) findDupes(ctx context.Context, o DupeOpts, progress func(DupeProgr
 	// Resultado, con los datos actuales del árbol.
 	a.mu.RLock()
 	t := a.tree
+	if t != tree0 {
+		// Mientras se leían los archivos se analizó otra cosa: los números de los
+		// elementos ya son de otro árbol y podrían señalar archivos distintos.
+		a.mu.RUnlock()
+		return nil, errors.New("El análisis ha cambiado mientras se buscaban duplicados: vuelve a buscarlos")
+	}
 	m := func(n *Node) int64 { return n.Size }
 	for _, g := range groups {
 		dg := DupeGroup{Size: g[0].size}

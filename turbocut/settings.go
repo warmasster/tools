@@ -26,6 +26,9 @@ func (s *Settings) normalize() {
 	if s.DeltaMin <= 0 {
 		s.DeltaMin = 100
 	}
+	if s.DeltaMin > 1<<20 { // 1 TB: más, y al pasarlo a bytes se desbordaría
+		s.DeltaMin = 1 << 20
+	}
 }
 
 func dataDir() string {

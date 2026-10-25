@@ -327,6 +327,17 @@ func appendUTF16(dst []byte, u []byte) []byte {
 
 // mftScan lee la MFT entera de la unidad y devuelve el árbol con raíz en root
 // (que puede ser la unidad, "C:\", o una carpeta dentro de ella).
+// safeMFTScan es mftScan, pero una MFT dañada que haga fallar la lectura se
+// convierte en error (y se usa el modo normal) en vez de cerrar TurboCUT.
+func safeMFTScan(ctx context.Context, root string, prog *Progress) (t *Tree, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			t, err = nil, fmt.Errorf("la MFT tiene datos que no se entienden: %v", r)
+		}
+	}()
+	return mftScan(ctx, root, prog)
+}
+
 func mftScan(ctx context.Context, root string, prog *Progress) (*Tree, error) {
 	vol := volumeOf(root)
 	v, err := openVolume(vol)
@@ -454,7 +465,9 @@ func mftScanVolume(ctx context.Context, v *mftVolume, vol, root string, prog *Pr
 	// Enlaza cada registro con su carpeta padre.
 	const rootRec = 5
 	for r := range t.Nodes {
-		t.Nodes[r].First, t.Nodes[r].Next = none, none
+		// Parent también: un registro que no se enlaza (padre borrado, metadatos de
+		// NTFS…) se quedaría con Parent = 0, y el registro 0 apunta a sí mismo.
+		t.Nodes[r].First, t.Nodes[r].Next, t.Nodes[r].Parent = none, none, none
 	}
 	t.Nodes[rootRec].Parent = none
 	var files, bytes int64

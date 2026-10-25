@@ -193,7 +193,8 @@ func (t *Tree) aggregate(id int32) {
 
 // addToAncestors suma (o resta) a todas las carpetas por encima de id.
 func (t *Tree) addToAncestors(id int32, size, alloc int64, files int32) {
-	for p := t.Nodes[id].Parent; p != none; p = t.Nodes[p].Parent {
+	steps := len(t.Nodes) // tope: un árbol dañado nunca debe dejarlo en bucle
+	for p := t.Nodes[id].Parent; p != none && steps > 0; p, steps = t.Nodes[p].Parent, steps-1 {
 		t.Nodes[p].Size += size
 		t.Nodes[p].Alloc += alloc
 		t.Nodes[p].Files += files
@@ -219,7 +220,7 @@ func (t *Tree) alive(id int32) bool {
 	if id < 0 || int(id) >= len(t.Nodes) {
 		return false
 	}
-	for n := id; ; n = t.Nodes[n].Parent {
+	for n, steps := id, len(t.Nodes); steps > 0; n, steps = t.Nodes[n].Parent, steps-1 {
 		if t.Nodes[n].Flags&fDeleted != 0 {
 			return false
 		}
@@ -230,6 +231,7 @@ func (t *Tree) alive(id int32) bool {
 			return false
 		}
 	}
+	return false // más pasos que nodos: hay un ciclo
 }
 
 // pathOf construye la ruta completa de id.
@@ -238,7 +240,7 @@ func (t *Tree) pathOf(id int32) string {
 		return t.RootPath
 	}
 	parts := []string{}
-	for n := id; n != t.Root && n != none; n = t.Nodes[n].Parent {
+	for n := id; n != t.Root && n != none && len(parts) < len(t.Nodes); n = t.Nodes[n].Parent {
 		parts = append(parts, t.name(n))
 	}
 	var b strings.Builder
@@ -258,7 +260,7 @@ func (t *Tree) relPath(id int32) string {
 		return ""
 	}
 	parts := []string{}
-	for n := id; n != t.Root && n != none; n = t.Nodes[n].Parent {
+	for n := id; n != t.Root && n != none && len(parts) < len(t.Nodes); n = t.Nodes[n].Parent {
 		parts = append(parts, t.name(n))
 	}
 	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
