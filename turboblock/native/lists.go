@@ -101,7 +101,20 @@ type cacheMeta struct {
 	Expires      float64   `json:"expiresHours"`
 }
 
-var httpClient = &http.Client{Timeout: 90 * time.Second}
+var httpClient = &http.Client{
+	Timeout: 90 * time.Second,
+	// Las listas se piden por https: una redirección a http dejaría a cualquiera en
+	// la red cambiar los filtros.
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("demasiadas redirecciones")
+		}
+		if req.URL.Scheme != "https" {
+			return errors.New("redirección sin https")
+		}
+		return nil
+	},
+}
 
 // FetchOptions controla cuándo se vuelve a pedir una lista al servidor.
 type FetchOptions struct {
@@ -167,6 +180,12 @@ func fetchCached(ctx context.Context, o FetchOptions, id, rawURL string, depth i
 	fresh := hasCache && time.Since(meta.Fetched) < time.Duration(meta.Expires*float64(time.Hour))
 	if !o.Offline && (!hasCache || o.Force || !fresh) {
 		body, newMeta, notModified, err := httpGet(ctx, rawURL, meta, hasCache)
+		var bad error
+		if err == nil && !notModified {
+			// Si lleva días rechazándose por encoger, se acepta: los autores pueden haber
+			// recortado la lista de verdad (y no se queda la vieja para siempre).
+			bad = plausibleList(body, cached, hasCache && time.Since(meta.Fetched) < 72*time.Hour)
+		}
 		switch {
 		case err != nil && hasCache:
 			// Sin red: se sigue con lo que hay.
@@ -175,6 +194,11 @@ func fetchCached(ctx context.Context, o FetchOptions, id, rawURL string, depth i
 		case notModified:
 			meta.Fetched = time.Now()
 			saveJSON(metaPath, meta)
+		case bad != nil && hasCache:
+			// Vacía, cortada o mucho más pequeña que la anterior: casi seguro un error
+			// del servidor. Se sigue con la buena (y se vuelve a pedir la próxima vez).
+		case bad != nil:
+			return "", time.Time{}, false, bad
 		default:
 			if !hasCache || string(cached) != body {
 				changed = true
@@ -225,6 +249,47 @@ func fetchCached(ctx context.Context, o FetchOptions, id, rawURL string, depth i
 	return text, meta.Fetched, changed, nil
 }
 
+// listRules cuenta las líneas que son filtros (o !#include), sin comentarios.
+func listRules(text string) int {
+	n := 0
+	for _, l := range strings.Split(text, "\n") {
+		l = strings.TrimSpace(l)
+		switch {
+		case l == "", strings.HasPrefix(l, "[Adblock"),
+			// comentario de archivo hosts («# …», «#texto»), pero no ##, #@#, #?#… (cosméticos)
+			strings.HasPrefix(l, "#") && !strings.HasPrefix(l, "##") && !strings.HasPrefix(l, "#@") &&
+				!strings.HasPrefix(l, "#?") && !strings.HasPrefix(l, "#$") && !strings.HasPrefix(l, "#%"):
+		case strings.HasPrefix(l, "!#include"):
+			n++
+		case strings.HasPrefix(l, "!"):
+		default:
+			n++
+		}
+	}
+	return n
+}
+
+// plausibleList decide si lo descargado parece la lista de verdad: no vacía, no
+// cortada en el tope de tamaño y (si checkShrink) no mucho más pequeña que la que había.
+func plausibleList(body string, prev []byte, checkShrink bool) error {
+	if len(body) >= maxListBytes {
+		return errors.New("la lista llegó cortada (demasiado grande)")
+	}
+	n := listRules(body)
+	if n == 0 {
+		return errors.New("la lista ha llegado vacía")
+	}
+	if checkShrink {
+		if old := listRules(string(prev)); old >= 100 && n < old*4/10 {
+			return fmt.Errorf("la lista nueva tiene %d filtros y la anterior %d: parece un error del servidor", n, old)
+		}
+	}
+	return nil
+}
+
+// maxListBytes: tope de tamaño de una lista descargada.
+const maxListBytes = 64 << 20
+
 func httpGet(ctx context.Context, rawURL string, prev cacheMeta, conditional bool) (string, cacheMeta, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
 	if err != nil {
@@ -250,7 +315,7 @@ func httpGet(ctx context.Context, rawURL string, prev cacheMeta, conditional boo
 	if resp.StatusCode != 200 {
 		return "", cacheMeta{}, false, fmt.Errorf("el servidor respondió %s", resp.Status)
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxListBytes))
 	if err != nil {
 		return "", cacheMeta{}, false, err
 	}

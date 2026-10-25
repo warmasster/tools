@@ -2,6 +2,8 @@ import { CATEGORIES, getSettings, saveSettings } from '../lib/settings.js';
 import { fmtNum, timeAgo } from '../lib/util.js';
 import { CAT_INFO, svg, donut, countUp, lastDays, sumCounts, fmtBytes } from './common.js';
 
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
 const $ = (id) => document.getElementById(id);
 const send = (msg) => chrome.runtime.sendMessage(msg);
 
@@ -75,7 +77,7 @@ async function renderSite() {
   countUp($('count'), total, fmtNum);
   $('count-cap').textContent = info.allowed ? 'TurboBLOCK está en pausa aquí' : total === 1 ? 'bloqueado en esta página' : 'bloqueados en esta página';
   $('ring').innerHTML = donut(parts, 72, 7);
-  $('legend').innerHTML = parts.map(([c, n]) => `<span class="chip" style="--c:${CAT_INFO[c]?.color || '#888'}"><i></i>${CAT_INFO[c]?.name || c} <b>${fmtNum(n)}</b></span>`).join('');
+  $('legend').innerHTML = parts.map(([c, n]) => `<span class="chip" style="--c:${CAT_INFO[c]?.color || '#888'}"><i></i>${esc(CAT_INFO[c]?.name || c)} <b>${fmtNum(n)}</b></span>`).join('');
 }
 
 // ---------- estadísticas y listas ----------

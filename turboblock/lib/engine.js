@@ -230,8 +230,10 @@ export async function learnEntityHost(host, list, tabId, frameId) {
   const cats = enabledCats(s);
   const { learned = {} } = await chrome.storage.local.get('learned');
   let changed = false;
+  if (typeof host !== 'string' || !/^[a-z0-9.-]{1,253}$/i.test(host) || !Array.isArray(list)) return;
   for (const [cat, bucket] of list) {
-    if (!cats.includes(cat)) continue;
+    // bucket forma parte del nombre del archivo: solo un número.
+    if (!cats.includes(cat) || !Number.isInteger(bucket) || bucket < 0 || bucket > 4096) continue;
     const key = `${cat}:${bucket}`;
     const hosts = learned[key] ||= [];
     if (hosts.includes(host)) continue;

@@ -85,7 +85,7 @@ async function renderPanel() {
 
 function barRow(c, v, max) {
   const info = CAT_INFO[c] || { name: c, color: '#888', icon: '' };
-  return `<div class="bar-row" style="--c:${info.color}"><span class="cic">${svg(info.icon)}</span><span>${info.name}</span><b>${fmtNum(v)}</b>
+  return `<div class="bar-row" style="--c:${info.color}"><span class="cic">${svg(info.icon)}</span><span>${esc(info.name)}</span><b>${fmtNum(v)}</b>
     <div class="track"><i data-w="${Math.max(2, (v / max) * 100)}%"></i></div></div>`;
 }
 

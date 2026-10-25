@@ -85,13 +85,16 @@ const handlers = {
     await apply('filtro');
   },
   // blocked.html
-  async allowOnce(msg) {
+  async allowOnce(msg, sender) {
     const h = normalizeHost(msg.host) || hostOf(msg.url);
     if (!h) return;
     const rules = await chrome.declarativeNetRequest.getSessionRules();
     const id = 1 + rules.reduce((m, r) => Math.max(m, r.id), 0);
+    // Solo en la pestaña donde se pulsó: el resto de pestañas siguen protegidas.
+    const condition = { requestDomains: [h], resourceTypes: ['main_frame'] };
+    if (sender.tab?.id >= 0) condition.tabIds = [sender.tab.id];
     await chrome.declarativeNetRequest.updateSessionRules({
-      addRules: [{ id, priority: 200, action: { type: 'allowAllRequests' }, condition: { requestDomains: [h], resourceTypes: ['main_frame'] } }],
+      addRules: [{ id, priority: 200, action: { type: 'allowAllRequests' }, condition }],
     });
   },
   // interfaz
@@ -132,9 +135,15 @@ const handlers = {
   async reapply() { await apply('manual'); },
 };
 
+// Lo que pueden pedir los scripts de contenido (corren dentro de las webs). El resto
+// solo desde las páginas de la extensión (ventanita, opciones, página bloqueada).
+const FROM_PAGES = new Set(['click', 'openPopup', 'allowPopups', 'sla', 'addFilter']);
+const EXT_URL = chrome.runtime.getURL('');
+
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   const h = handlers[msg?.type];
   if (!h) return false;
+  if (!FROM_PAGES.has(msg.type) && !(sender.id === chrome.runtime.id && sender.url?.startsWith(EXT_URL))) return false;
   Promise.resolve(h(msg, sender)).then((r) => reply(r ?? null), (e) => reply({ error: e.message }));
   return true;
 });
