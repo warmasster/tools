@@ -32,7 +32,10 @@ concurrency:
 
 jobs:
   release:
+    # Lanzado a mano desde otra rama no publica: la Release es la de main.
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 

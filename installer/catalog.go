@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -72,31 +75,34 @@ var httpClient = &http.Client{
 		TLSHandshakeTimeout:   15 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 	},
+	// GitHub redirige las descargas a su almacén: se sigue, pero nunca de https a http.
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("demasiadas redirecciones")
+		}
+		if via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
+			return errors.New("redirección insegura (sin https)")
+		}
+		return nil
+	},
 }
 
-func httpGet(url string) (*http.Response, error) {
-	req, err := http.NewRequest("GET", url, nil)
+func fetchManifest() (*Manifest, error) {
+	// Con plazo: una conexión que se queda colgada no deja la ventana esperando.
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	req, err := httpNewRequest(ctx, downloadBase()+"/manifest.json")
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "TurboSETUP/"+version)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		resp.Body.Close()
 		return nil, fmt.Errorf("GitHub respondió %s", resp.Status)
 	}
-	return resp, nil
-}
-
-func fetchManifest() (*Manifest, error) {
-	resp, err := httpGet(downloadBase() + "/manifest.json")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, err
@@ -105,7 +111,28 @@ func fetchManifest() (*Manifest, error) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, fmt.Errorf("el catálogo no es válido: %w", err)
 	}
+	m.clean()
 	return &m, nil
+}
+
+// safeName: ids y nombres de archivo del catálogo acaban en rutas y en el
+// registro, así que solo se aceptan letras, números, punto, guion y guion bajo.
+var safeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+// clean descarta lo que no tenga una forma válida (nunca debería pasar con el
+// manifest que genera release.ps1, pero así un dato raro no llega a disco).
+func (m *Manifest) clean() {
+	if !safeName.MatchString(m.Setup.Asset) {
+		m.Setup = Asset{}
+	}
+	tools := m.Tools[:0]
+	for _, t := range m.Tools {
+		if safeName.MatchString(t.ID) && safeName.MatchString(t.Name) && safeName.MatchString(t.Asset.Asset) &&
+			!strings.Contains(t.Name, "..") && !strings.Contains(t.Asset.Asset, "..") {
+			tools = append(tools, t)
+		}
+	}
+	m.Tools = tools
 }
 
 // newer dice si la versión a es más nueva que b ("1.10.0" > "1.9.2").

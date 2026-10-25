@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows/registry"
@@ -21,6 +22,15 @@ func TestE2EInstallUninstall(t *testing.T) {
 		t.Skip("define TURBOSETUP_E2E con la URL del servidor de prueba")
 	}
 	t.Setenv("TURBOSETUP_BASE", base)
+	// El acceso directo de TurboSETUP del menú Inicio es el de verdad (no depende de
+	// LOCALAPPDATA): se guarda y se deja como estaba, para no dejarlo apuntando a la
+	// carpeta temporal de la prueba.
+	link := startMenuLink("TurboSETUP")
+	if prev, err := os.ReadFile(link); err == nil {
+		t.Cleanup(func() { os.WriteFile(link, prev, 0o644) })
+	} else {
+		t.Cleanup(func() { os.Remove(link) })
+	}
 	t.Setenv("LOCALAPPDATA", t.TempDir())
 
 	m, err := fetchManifest()
@@ -94,7 +104,7 @@ func TestE2EBadChecksum(t *testing.T) {
 	}
 	t.Setenv("TURBOSETUP_BASE", base)
 	dst := filepath.Join(t.TempDir(), "x.exe")
-	a := Asset{Asset: "TurboCUT.exe", SHA256: "00"}
+	a := Asset{Asset: "TurboCUT.exe", SHA256: strings.Repeat("0", 64)}
 	if err := download(context.Background(), a, dst, func(int64, int64) {}); err == nil {
 		t.Fatal("debería fallar con un SHA-256 incorrecto")
 	}

@@ -82,8 +82,34 @@ func listInstalled() map[string]Installed {
 
 type progressFunc func(done, total int64)
 
+// errMismatch: lo descargado no es lo que dice el catálogo. Pasa un momento
+// mientras se publica una versión nueva (los .exe suben antes que el manifest).
+var errMismatch = errors.New("el archivo descargado no coincide con el del catálogo (SHA-256 distinto). Si se está publicando una versión nueva, prueba otra vez en un minuto")
+
+// errIncomplete: llegó otro tamaño del que dice el catálogo (descarga cortada, o
+// también una versión nueva publicándose en ese momento).
+var errIncomplete = errors.New("la descarga no llegó entera o no es la del catálogo; prueba otra vez")
+
+var errStalled = errors.New("la descarga se ha quedado parada: revisa la conexión y vuelve a intentarlo")
+
+// stallTimeout: si en este tiempo no llega ni un byte, se corta la descarga.
+var stallTimeout = 60 * time.Second
+
 // download baja un archivo de la Release a dst, comprobando tamaño y SHA-256.
 func download(ctx context.Context, a Asset, dst string, onProgress progressFunc) error {
+	if len(a.SHA256) != 64 {
+		return errors.New("el catálogo no trae la huella (SHA-256) de este archivo: no se instala sin comprobarlo")
+	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	idle := time.AfterFunc(stallTimeout, func() { cancel(errStalled) })
+	defer idle.Stop()
+	canceled := func() error {
+		if errors.Is(context.Cause(ctx), errStalled) {
+			return errStalled
+		}
+		return context.Canceled
+	}
 	req, err := httpNewRequest(ctx, downloadBase()+"/"+a.Asset)
 	if err != nil {
 		return err
@@ -91,7 +117,7 @@ func download(ctx context.Context, a Asset, dst string, onProgress progressFunc)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return context.Canceled
+			return canceled()
 		}
 		return fmt.Errorf("no se pudo conectar con GitHub: %w", err)
 	}
@@ -118,6 +144,7 @@ func download(ctx context.Context, a Asset, dst string, onProgress progressFunc)
 	for {
 		n, rerr := resp.Body.Read(buf)
 		if n > 0 {
+			idle.Reset(stallTimeout)
 			if _, err := f.Write(buf[:n]); err != nil {
 				f.Close()
 				os.Remove(dst)
@@ -137,7 +164,7 @@ func download(ctx context.Context, a Asset, dst string, onProgress progressFunc)
 			f.Close()
 			os.Remove(dst)
 			if ctx.Err() != nil {
-				return context.Canceled
+				return canceled()
 			}
 			return fmt.Errorf("la descarga se cortó: %w", rerr)
 		}
@@ -149,11 +176,11 @@ func download(ctx context.Context, a Asset, dst string, onProgress progressFunc)
 	}
 	if a.Size > 0 && done != a.Size {
 		os.Remove(dst)
-		return fmt.Errorf("la descarga llegó incompleta (%d de %d bytes)", done, a.Size)
+		return fmt.Errorf("%w (llegaron %d de %d bytes)", errIncomplete, done, a.Size)
 	}
-	if a.SHA256 != "" && !strings.EqualFold(hex.EncodeToString(h.Sum(nil)), a.SHA256) {
+	if !strings.EqualFold(hex.EncodeToString(h.Sum(nil)), a.SHA256) {
 		os.Remove(dst)
-		return errors.New("el archivo descargado no coincide con el de GitHub (SHA-256 distinto)")
+		return errMismatch
 	}
 	return nil
 }
@@ -163,7 +190,12 @@ func download(ctx context.Context, a Asset, dst string, onProgress progressFunc)
 // Devuelve true si el viejo seguía abierto.
 func replaceFile(src, dst string) (inUse bool, err error) {
 	old := dst + ".old"
-	os.Remove(old)
+	if os.Remove(old) != nil {
+		if _, e := os.Stat(old); e == nil {
+			// El .old de una actualización anterior sigue abierto: otro nombre.
+			old = fmt.Sprintf("%s.%d.old", dst, time.Now().UnixNano())
+		}
+	}
 	if _, err := os.Stat(dst); err == nil {
 		if err := os.Rename(dst, old); err != nil {
 			return false, err
@@ -341,13 +373,27 @@ func uninstallTool(id string) (string, error) {
 	os.Remove(desktopLink(name))
 	registry.DeleteKey(registry.CURRENT_USER, regKeyName(id))
 	defer refreshTurboMENU(id)
-	if dir != "" && strings.HasPrefix(strings.ToLower(dir), strings.ToLower(rootDir())) {
-		os.RemoveAll(dir)
+	if insideRoot(dir) {
+		if err := os.RemoveAll(dir); err != nil {
+			// Algo sigue abierto (p. ej. Chrome con el puente de una extensión): lo que
+			// quede se borra la próxima vez que se abra TurboSETUP.
+			msg += ". Quedan archivos en uso en " + dir + ": cierra el programa (o Chrome, si es una extensión) y abre TurboSETUP otra vez para terminar de borrarlos"
+		}
 	}
 	if len(listInstalled()) == 0 {
 		os.Remove(startMenuLink("TurboSETUP"))
 	}
 	return msg, nil
+}
+
+// insideRoot: dir es una carpeta de herramienta dentro de Programs\Turbo (nunca la propia raíz).
+func insideRoot(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	root := strings.ToLower(filepath.Clean(rootDir())) + string(os.PathSeparator)
+	return strings.HasPrefix(strings.ToLower(filepath.Clean(dir))+string(os.PathSeparator), root) &&
+		!strings.EqualFold(filepath.Clean(dir), filepath.Clean(rootDir()))
 }
 
 // removeEverythingLater borra la carpeta Turbo entera cuando este proceso termine
@@ -357,18 +403,72 @@ func removeEverythingLater() {
 	if _, err := os.Stat(root); err != nil {
 		return
 	}
-	cmd := exec.Command("cmd", "/c", fmt.Sprintf(`ping -n 4 127.0.0.1 >nul & rmdir /s /q "%s"`, root))
+	cmd := exec.Command("cmd")
 	hideWindow(cmd)
+	// La línea se escribe a mano: exec escaparía las comillas como \" y cmd.exe no
+	// entiende eso (la ruta llegaba rota y no se borraba nada).
+	cmd.SysProcAttr.CmdLine = fmt.Sprintf(`cmd /d /c "ping -n 4 127.0.0.1 >nul & rmdir /s /q "%s""`, root)
 	cmd.Start()
 }
 
-// cleanupOldFiles borra los .old que dejaron actualizaciones de programas que estaban abiertos.
+// cleanupOldFiles borra lo que dejaron actualizaciones de programas que estaban
+// abiertos (.old), descargas cortadas (.part, .new) y carpetas de herramientas
+// que ya no están instaladas pero no se pudieron borrar al quitarlas.
 func cleanupOldFiles() {
-	matches, _ := filepath.Glob(filepath.Join(rootDir(), "*.old"))
-	more, _ := filepath.Glob(filepath.Join(rootDir(), "*", "*.old"))
-	for _, m := range append(matches, more...) {
-		os.Remove(m)
+	root := rootDir()
+	pats := []string{"*.old"}
+	if otherSetupRunning() {
+		// Otro TurboSETUP puede estar descargando o instalando: solo los .old.
+		for _, m := range globBoth(root, "*.old") {
+			os.Remove(m)
+		}
+		return
 	}
+	pats = append(pats, "*.part", "*.new")
+	for _, pat := range pats {
+		for _, m := range globBoth(root, pat) {
+			os.Remove(m)
+		}
+	}
+	// Sin poder leer las claves de desinstalación no se sabe qué está instalado.
+	k, err := registry.OpenKey(registry.CURRENT_USER, uninstallKey, registry.ENUMERATE_SUB_KEYS)
+	if err != nil {
+		return
+	}
+	k.Close()
+	installed := map[string]bool{}
+	for _, in := range listInstalled() {
+		if in.Exe != "" {
+			installed[strings.ToLower(filepath.Dir(in.Exe))] = true
+			installed[strings.ToLower(filepath.Base(filepath.Dir(in.Exe)))] = true
+		}
+		if in.Name != "" {
+			installed[strings.ToLower(in.Name)] = true // cada herramienta va en Turbo\<Nombre>
+		}
+	}
+	entries, _ := os.ReadDir(root)
+	for _, e := range entries {
+		dir := filepath.Join(root, e.Name())
+		// Se comprueba por ruta y por nombre: una ruta guardada de otra forma (nombre
+		// corto 8.3, otra letra de unidad…) no debe hacer pasar por huérfana una instalada.
+		if e.IsDir() && !installed[strings.ToLower(dir)] && !installed[strings.ToLower(e.Name())] && orphanToolDir(dir) {
+			os.RemoveAll(dir)
+		}
+	}
+}
+
+// globBoth busca el patrón en la raíz y en las carpetas de cada herramienta.
+func globBoth(root, pat string) []string {
+	a, _ := filepath.Glob(filepath.Join(root, pat))
+	b, _ := filepath.Glob(filepath.Join(root, "*", pat))
+	return append(a, b...)
+}
+
+// orphanToolDir: carpeta que dejó una herramienta desinstalada. Solo se tocan las
+// que tienen un .exe (las de las herramientas) y ninguna clave de desinstalación.
+func orphanToolDir(dir string) bool {
+	exes, _ := filepath.Glob(filepath.Join(dir, "*.exe"))
+	return len(exes) > 0 && insideRoot(dir)
 }
 
 func cliUninstall(id string) int {
@@ -390,10 +490,12 @@ func cliUninstall(id string) int {
 		messageBox("Desinstalar "+name, err.Error(), mbError)
 		return 1
 	}
+	messageBox("Desinstalar "+name, msg+".", mbInfo)
+	// Después del aviso: el borrado espera unos segundos a que este TurboSETUP se
+	// cierre, y mientras el aviso está abierto su .exe no se puede borrar.
 	if len(listInstalled()) == 0 {
 		removeEverythingLater()
 	}
-	messageBox("Desinstalar "+name, msg+".", mbInfo)
 	return 0
 }
 

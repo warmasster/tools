@@ -25,9 +25,13 @@ func NewApp() *App { return &App{running: map[string]context.CancelFunc{}} }
 
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 
-// shutdown: si ya no queda ninguna herramienta, no dejamos ni la carpeta.
+// shutdown: si ya no queda ninguna herramienta, no dejamos ni la carpeta. Si se
+// cierra a mitad de una instalación (la herramienta aún no está registrada), no.
 func (a *App) shutdown(ctx context.Context) {
-	if len(listInstalled()) == 0 {
+	a.mu.Lock()
+	busy := len(a.running) > 0
+	a.mu.Unlock()
+	if !busy && len(listInstalled()) == 0 {
 		removeEverythingLater()
 	}
 }
@@ -96,9 +100,22 @@ func (a *App) Install(id string, desktop bool) (*InstallResult, error) {
 		cancel()
 	}()
 
-	res, err := installTool(ctx, t, desktop, func(done, total int64) {
+	progress := func(done, total int64) {
 		wruntime.EventsEmit(a.ctx, "progress", map[string]any{"id": id, "done": done, "total": total})
-	})
+	}
+	res, err := installTool(ctx, t, desktop, progress)
+	if errors.Is(err, errMismatch) || errors.Is(err, errIncomplete) {
+		// Justo se está publicando una versión: el .exe ya es el nuevo y el catálogo
+		// guardado aún el viejo. Se vuelve a leer el catálogo y se reintenta una vez.
+		if m2, e := fetchManifest(); e == nil {
+			a.mu.Lock()
+			a.man = m2
+			a.mu.Unlock()
+			if t2 := m2.find(id); t2 != nil {
+				res, err = installTool(ctx, t2, desktop, progress)
+			}
+		}
+	}
 	if errors.Is(err, context.Canceled) {
 		return nil, errors.New("cancelado")
 	}

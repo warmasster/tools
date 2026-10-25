@@ -8,6 +8,8 @@
   const api = hasGo ? window.go.main.App : demoApi();
   const rt = window.runtime || demoRuntime();
 
+  // Las que son extensión de Chrome (TurboMENU también es «setup», pero no es extensión).
+  const EXT = new Set(["turbodl", "turboblock", "turbovault"]);
   const ICONS = { turbosend: "icons/turbosend.svg", turbocut: "icons/turbocut.svg", turbodl: "icons/turbodl.png", turboblock: "icons/turboblock.svg", turbomenu: "icons/turbomenu.svg", turbogames: "icons/turbogames.svg", turbovault: "icons/turbovault.svg" };
   const I = {
     down: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
@@ -107,7 +109,7 @@
       if (canOpen) actions += `<button class="btn ghost sm" data-act="open">Abrir</button>`;
       actions += `<button class="btn amber sm" data-act="install">${ic("up")}Actualizar</button>`;
     } else if (t.installed) {
-      if (!isApp && t.available && canOpen) actions += `<button class="ibtn" data-act="install" title="Reinstalar: vuelve a poner el motor y la extensión">${ic("redo")}</button>`;
+      if (!isApp && t.available && canOpen) actions += `<button class="ibtn" data-act="install" title="${EXT.has(t.id) ? "Reinstalar: vuelve a poner el motor y la extensión" : "Reinstalar"}">${ic("redo")}</button>`;
       if (canOpen) actions += `<button class="btn primary sm" data-act="open">${ic("open")}Abrir</button>`;
       else if (t.available) actions += `<button class="btn ghost sm" data-act="install" title="Vuelve a instalar el motor y te recuerda cómo cargar la extensión">${ic("redo")}Reinstalar</button>`;
     } else if (t.available) {
@@ -151,7 +153,7 @@
     const txt = el.querySelector(".prog-t");
     if (b.phase === "setup") {
       bar.classList.add("indet");
-      txt.textContent = "Instalando… sigue los pasos de la ventana que se abre";
+      txt.textContent = EXT.has(id) ? "Instalando… sigue los pasos de la ventana que se abre" : "Instalando…";
       el.querySelector("[data-act=cancel]").hidden = true;
       return;
     }
@@ -204,9 +206,11 @@
     const t = S.cat.tools.find((x) => x.id === id);
     unId = id;
     $("#un-title").textContent = `¿Desinstalar ${t.name}?`;
-    $("#un-text").textContent = t.kind === "setup"
+    $("#un-text").textContent = EXT.has(t.id)
       ? `Se quita el motor nativo y la copia de la extensión. Después, quita también ${t.name} en chrome://extensions.`
-      : "Se borra el programa y sus accesos directos. Tus ajustes y archivos no se tocan.";
+      : t.id === "turbomenu"
+        ? "Se quita «Turbo» del clic derecho y el programa. Tus ajustes no se tocan."
+        : "Se borra el programa y sus accesos directos. Tus ajustes y archivos no se tocan.";
     $("#m-uninstall").hidden = false;
   }
   $("#un-go").addEventListener("click", async () => {

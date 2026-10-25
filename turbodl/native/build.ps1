@@ -18,11 +18,16 @@ $version = (Get-Content ..\manifest.json -Raw | ConvertFrom-Json).version
 # 2. Icono, versión y manifiesto de Windows (.syso), sin descargar nada.
 Push-Location tools\winres
 go run . -icons ..\..\..\icons -out ..\..\rsrc_windows_amd64.syso -version $version
+$code = $LASTEXITCODE
 Pop-Location
+if ($code) { throw "No se pudo generar el icono" }
 
 # 3. Comprobar y compilar.
 go vet .
+if ($LASTEXITCODE) { throw "go vet falló" }
 go test -short .
+if ($LASTEXITCODE) { throw "Las pruebas fallaron" }
 go build -trimpath -ldflags "-s -w -X main.version=$version" -o ..\TurboDL.exe .
+if ($LASTEXITCODE) { throw "go build falló" }
 Write-Host "Listo: $(Resolve-Path ..\TurboDL.exe) (versión $version)"
 Write-Host "Doble clic en TurboDL.exe para instalar."

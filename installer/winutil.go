@@ -8,7 +8,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
+	"unsafe"
 
 	ole "github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
@@ -120,6 +122,25 @@ func confirmBox(title, text string) bool {
 	m, _ := windows.UTF16PtrFromString(text)
 	r, _ := windows.MessageBox(0, m, t, windows.MB_YESNO|windows.MB_ICONQUESTION|windows.MB_SETFOREGROUND)
 	return r == 6 // IDYES
+}
+
+// otherSetupRunning dice si hay otro TurboSETUP abierto (por ejemplo instalando),
+// para no limpiar descargas o carpetas que esté usando.
+func otherSetupRunning() bool {
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return true // sin saberlo, mejor no tocar nada
+	}
+	defer windows.CloseHandle(snap)
+	self := uint32(os.Getpid())
+	var e windows.ProcessEntry32
+	e.Size = uint32(unsafe.Sizeof(e))
+	for err = windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
+		if e.ProcessID != self && strings.EqualFold(windows.UTF16ToString(e.ExeFile[:]), "TurboSETUP.exe") {
+			return true
+		}
+	}
+	return false
 }
 
 func waitForProcess(pid int) {
