@@ -45,7 +45,10 @@ export function collect() {
 }
 
 async function doCollect() {
-  const { statsSeen = 0 } = await chrome.storage.local.get('statsSeen');
+  let { statsSeen = 0 } = await chrome.storage.local.get('statsSeen');
+  // Una marca del futuro (el reloj del PC estuvo adelantado) dejaría de contar hasta
+  // que la hora real la alcanzara: se descarta.
+  if (statsSeen > Date.now() + 60_000) statsSeen = 0;
   let info;
   try {
     info = await chrome.declarativeNetRequest.getMatchedRules({ minTimeStamp: statsSeen + 1 });

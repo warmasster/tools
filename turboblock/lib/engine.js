@@ -59,11 +59,19 @@ async function applyNow(reason) {
     try {
       await chrome.declarativeNetRequest.updateEnabledRulesets({ enableRulesetIds: enable, disableRulesetIds: disable });
     } catch (e) {
-      errors.push('No se pudieron activar todas las listas: ' + e.message);
-      // Por partes: que al menos entren las que caben.
-      for (const c of enable) {
-        try { await chrome.declarativeNetRequest.updateEnabledRulesets({ enableRulesetIds: [c] }); } catch {}
+      // Por partes: primero se quitan las que sobran (si no, no se quitaba ninguna) y
+      // luego entran las que quepan, las más importantes antes (malware antes que anuncios).
+      if (disable.length) {
+        try { await chrome.declarativeNetRequest.updateEnabledRulesets({ disableRulesetIds: disable }); } catch {}
       }
+      const order = ['base', 'malware', 'privacy', 'ads', 'cookies', 'annoyances'];
+      const left = [];
+      for (const c of [...enable].sort((a, b) => order.indexOf(a) - order.indexOf(b))) {
+        try { await chrome.declarativeNetRequest.updateEnabledRulesets({ enableRulesetIds: [c] }); } catch { left.push(c); }
+      }
+      errors.push(left.length
+        ? `Chrome no deja activar más reglas: se han quedado fuera ${left.join(', ')} (${e.message})`
+        : 'No se pudieron activar todas las listas a la vez: ' + e.message);
     }
   }
 
@@ -113,7 +121,7 @@ async function applyNow(reason) {
   await updateBadge(s);
 
   await chrome.storage.local.set({
-    status: { applied: Date.now(), build: meta.build, cats, errors, userErrors: user.errors, ms: Math.round(performance.now() - t0), reason },
+    status: { applied: Date.now(), build: meta.build, cats, errors, userErrors: user.errors.slice(0, 200), ms: Math.round(performance.now() - t0), reason },
   });
 }
 

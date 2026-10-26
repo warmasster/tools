@@ -60,7 +60,17 @@ export function init() {
     pendingBlank.delete(d.tabId);
     if (Date.now() - p.t < 5000) decide({ ...p.d, url: d.url }, p.ctx).catch(() => {});
   });
-  chrome.tabs.onRemoved.addListener((tabId) => { clicks.delete(tabId); pendingBlank.delete(tabId); });
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    clicks.delete(tabId);
+    pendingBlank.delete(tabId);
+    // El contador de ventanas bloqueadas de esa pestaña ya no sirve.
+    chrome.storage.session.get('tabPopups').then(({ tabPopups }) => {
+      if (tabPopups && tabId in tabPopups) {
+        delete tabPopups[tabId];
+        return chrome.storage.session.set({ tabPopups });
+      }
+    }).catch(() => {});
+  });
 }
 
 async function onCreated(d) {

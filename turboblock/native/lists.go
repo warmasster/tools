@@ -161,6 +161,11 @@ func fetchList(ctx context.Context, o FetchOptions, s Source) (*ListText, bool, 
 
 var includeRe = regexp.MustCompile(`(?m)^!#include +(\S+)\s*$`)
 
+// includeNameRe y maxIncludes: lo que se acepta en un !#include de una lista.
+var includeNameRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
+
+const maxIncludes = 20
+
 // fetchCached baja una URL con caché y resuelve sus !#include (solo archivos de la
 // misma carpeta, como uBlock Origin).
 func fetchCached(ctx context.Context, o FetchOptions, id, rawURL string, depth int) (string, time.Time, bool, error) {
@@ -224,10 +229,16 @@ func fetchCached(ctx context.Context, o FetchOptions, id, rawURL string, depth i
 			return "", time.Time{}, false, err
 		}
 		var firstErr error
+		includes := 0
 		text = includeRe.ReplaceAllStringFunc(text, func(line string) string {
 			name := includeRe.FindStringSubmatch(line)[1]
-			if strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "..") {
-				return "" // solo archivos de la misma carpeta
+			// Solo archivos de la misma carpeta, con nombre normal (sin «:», que en NTFS
+			// crearía un flujo alternativo) y como mucho 20 por lista.
+			if !includeNameRe.MatchString(name) || strings.Contains(name, "..") {
+				return ""
+			}
+			if includes++; includes > maxIncludes {
+				return ""
 			}
 			u := *base
 			u.Path = path.Join(path.Dir(base.Path), name)
