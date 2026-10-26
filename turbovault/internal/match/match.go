@@ -16,6 +16,9 @@ import (
 	"net"
 	"net/url"
 	"strings"
+
+	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
 )
 
 // Site es una web ya interpretada.
@@ -56,6 +59,11 @@ func parse(raw string) (Site, bool, bool) {
 		return Site{}, false, false
 	}
 	h := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	// Webs con acentos (münchen.de): Chrome manda la forma xn--…, así que lo
+	// guardado se pasa a esa forma para que casen.
+	if a, err := idna.Lookup.ToASCII(h); err == nil && a != "" {
+		h = a
+	}
 	h = strings.TrimPrefix(h, "www.")
 	if h == "" || strings.ContainsAny(h, ` /\@*`) {
 		return Site{}, false, false
@@ -119,6 +127,11 @@ func Score(entry, page string) int {
 	}
 	// "*.com" o "*.es" no cuentan: tiene que haber al menos un nombre y su dominio.
 	if !strings.Contains(e.Host, ".") {
+		return 0
+	}
+	// Ni sobre un sufijo público: «*.github.io» o «*.co.uk» casarían con webs de
+	// cualquiera.
+	if ps, _ := publicsuffix.PublicSuffix(e.Host); ps == e.Host {
 		return 0
 	}
 	if strings.HasSuffix(p.Host, "."+e.Host) {
