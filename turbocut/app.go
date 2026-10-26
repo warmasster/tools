@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"runtime/debug"
 	"sort"
@@ -730,6 +731,11 @@ func (a *App) Refresh(id int32) (*RefreshResult, error) {
 	}
 	nid := t.Nodes[id].Parent
 	if _, err := os.Stat(t.pathOf(id)); err != nil {
+		// Solo se quita si ya no existe: sin permiso, una unidad de red que tarda o el
+		// antivirus no son motivo para que desaparezca del análisis.
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, errors.New("No se puede leer esa carpeta ahora mismo: " + err.Error())
+		}
 		if id == t.Root {
 			return nil, errors.New("La carpeta analizada ya no existe")
 		}

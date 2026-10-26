@@ -533,6 +533,8 @@ func parseRecord(rec []byte, r uint32, w uint8, nd *Node, ax *mftAux, arena []by
 	var pseq uint16
 	var nameOff uint32
 	var nameLen uint16
+	var reparseTag uint32
+	var hasTag bool
 
 	forAttrs(rec, func(typ uint32, a []byte) bool {
 		switch typ {
@@ -562,6 +564,10 @@ func parseRecord(rec []byte, r uint32, w uint8, nd *Node, ax *mftAux, arena []by
 			arena = appendUTF16(arena, c[0x42:0x42+nl*2])
 			nameOff = uint32(off)
 			nameLen = uint16(len(arena) - off)
+		case 0xC0: // $REPARSE_POINT: los 4 primeros bytes dicen de qué tipo es
+			if c := residentContent(a); len(c) >= 4 {
+				reparseTag, hasTag = le32(c, 0), true
+			}
 		case 0x80: // $DATA sin nombre (el contenido del archivo)
 			if a[9] != 0 {
 				break
@@ -602,7 +608,11 @@ func parseRecord(rec []byte, r uint32, w uint8, nd *Node, ax *mftAux, arena []by
 	if fattr&windows.FILE_ATTRIBUTE_SYSTEM != 0 {
 		nd.Flags |= fSystem
 	}
-	if fattr&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 && flags&2 != 0 {
+	// Enlace solo si es una unión o un enlace simbólico (como en el modo normal). Las
+	// carpetas de OneDrive y otras con punto de reanálisis son carpetas de verdad, con
+	// sus archivos dentro: antes no salían en Buscar, Duplicados ni Limpieza.
+	if fattr&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 && flags&2 != 0 &&
+		(!hasTag || reparseTag == reparseMountPoint || reparseTag == reparseSymlink) {
 		nd.Flags |= fLink
 	}
 	if fattr&(attrRecallOnData|attrRecallOnOpen|windows.FILE_ATTRIBUTE_OFFLINE) != 0 {
