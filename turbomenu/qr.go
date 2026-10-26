@@ -7,6 +7,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -98,7 +99,6 @@ type qrSession struct {
 	uploads   map[string]*qrUpload
 	upOrder   []*qrUpload
 	visits    int
-	lastPush  time.Time
 	onChange  func()
 	notify    chan struct{}
 	quit      chan struct{}
@@ -212,7 +212,7 @@ func newQRSession(mode string, paths []string, dest string, onChange func()) (*q
 		w.WriteHeader(404)
 		io.WriteString(w, expiredPage)
 	})
-	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 20 * time.Second}
+	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 20 * time.Second, IdleTimeout: 2 * time.Minute}
 	go s.srv.Serve(s.ln)
 
 	s.tunnel = newTunnel(cacheDir(), s.nonce, s.changed)
@@ -261,7 +261,7 @@ func (s *qrSession) notifier() {
 
 func (s *qrSession) guard(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.PathValue("tok") != s.token {
+		if subtle.ConstantTimeCompare([]byte(r.PathValue("tok")), []byte(s.token)) != 1 {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(404)
 			io.WriteString(w, expiredPage)
@@ -269,6 +269,8 @@ func (s *qrSession) guard(h http.HandlerFunc) http.HandlerFunc {
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Robots-Tag", "noindex")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		h(w, r)
 	}
 }

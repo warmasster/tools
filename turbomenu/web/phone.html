@@ -90,7 +90,7 @@ button.it{width:100%;font:inherit;text-align:left;cursor:pointer}
   // Una descarga con su progreso. El navegador descarga por su cuenta; la página le pregunta
   // al PC cómo va (el móvil no suele enseñar nada hasta el final).
   function downloader(url, ui) {
-    let st = "idle", timer = 0, id = "", t0 = 0;
+    let st = "idle", timer = 0, id = "", t0 = 0, cutAt = 0;
     const stop = () => { clearInterval(timer); timer = 0; };
     async function poll() {
       let j;
@@ -100,7 +100,14 @@ button.it{width:100%;font:inherit;text-align:left;cursor:pointer}
         return;
       }
       if (j.done) { stop(); st = "done"; ui("done", j); return; }
-      if (j.failed) { stop(); st = "failed"; ui("failed", j); return; }
+      // Un corte puede ser el navegador del móvil que vuelve a pedir el archivo él solo:
+      // se espera unos segundos a ver si sigue antes de darlo por cortado.
+      if (j.failed) {
+        cutAt = cutAt || Date.now();
+        if (Date.now() - cutAt > 6000) { stop(); st = "failed"; ui("failed", j); }
+        return;
+      }
+      cutAt = 0;
       st = "active"; ui("active", j);
     }
     return () => {
@@ -110,7 +117,7 @@ button.it{width:100%;font:inherit;text-align:left;cursor:pointer}
       a.href = url + (url.includes("?") ? "&" : "?") + "d=" + id;
       a.setAttribute("download", "");
       document.body.appendChild(a); a.click(); a.remove();
-      st = "waiting"; t0 = Date.now(); ui("waiting");
+      st = "waiting"; t0 = Date.now(); cutAt = 0; ui("waiting");
       stop(); timer = setInterval(poll, 600);
     };
   }

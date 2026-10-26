@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -36,7 +37,18 @@ func processAlive(pid int) bool {
 	}
 	defer windows.CloseHandle(h)
 	var code uint32
-	return windows.GetExitCodeProcess(h, &code) == nil && code == 259 // STILL_ACTIVE
+	if windows.GetExitCodeProcess(h, &code) != nil || code != 259 { // STILL_ACTIVE
+		return false
+	}
+	// Si TurboSEND se cerró de golpe, control.json se queda y su PID puede ser ya de
+	// otro programa: entonces no se le manda nada (y se arranca TurboSEND).
+	buf := make([]uint16, windows.MAX_LONG_PATH)
+	n := uint32(len(buf))
+	if windows.QueryFullProcessImageName(h, 0, &buf[0], &n) != nil {
+		return true // sin poder saberlo, como antes
+	}
+	name := strings.ToLower(filepath.Base(windows.UTF16ToString(buf[:n])))
+	return strings.Contains(name, "turbosend") || strings.Contains(name, "enviador")
 }
 
 func readControl() *sendControl {
