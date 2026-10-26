@@ -18,11 +18,15 @@ export function openDB() {
     dbPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = () => {
+        // Solo se crea lo que falte: así, el día que suba DB_VERSION, una base que ya
+        // existe no falla al abrirse (createObjectStore lanzaría ConstraintError).
         const db = req.result;
-        const dl = db.createObjectStore('downloads', { keyPath: 'id' });
-        dl.createIndex('deliveryId', 'deliveryId');
-        db.createObjectStore('segments', { keyPath: 'id' });
-        db.createObjectStore('history', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('downloads')) {
+          const dl = db.createObjectStore('downloads', { keyPath: 'id' });
+          dl.createIndex('deliveryId', 'deliveryId');
+        }
+        if (!db.objectStoreNames.contains('segments')) db.createObjectStore('segments', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('history')) db.createObjectStore('history', { keyPath: 'id' });
       };
       req.onsuccess = () => {
         const db = req.result;

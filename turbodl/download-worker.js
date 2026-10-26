@@ -165,7 +165,9 @@ async function runConnection(seg, conn, myGen) {
     } catch (e) {
       if (stopping || conn.yielded || myGen !== gen) return;
       if (e instanceof ChangedError) { restartChanged(e.message, e.fresh); return; }
-      if (e.fatal) throw e;
+      // Disco lleno no es un fallo de conexión: reintentar no sirve y el mensaje
+      // («Demasiados fallos de conexión») confundía.
+      if (e.fatal || e?.name === 'QuotaExceededError') throw e;
       if (seg.pos > startPos) retries = 0; // hubo progreso: el fallo es puntual
       if (++retries > MAX_RETRIES) throw new Error(`Demasiados fallos de conexión (${e.message || e})`);
       if (rec.mode === 'single') {
