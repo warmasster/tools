@@ -7,7 +7,7 @@ Gestor de descargas multiconexión que funciona **entero dentro de Chrome**, sin
 - hasta 64 conexiones, sin el límite de 6 por servidor de Chrome;
 - una conexión TCP por trabajador, aunque el servidor sea HTTP/2;
 - reparte las conexiones entre las IPs del servidor;
-- escribe directamente en la carpeta final, sin copia.
+- escribe directamente en la carpeta final, sin copia, y marca el archivo como descargado de Internet, igual que Chrome.
 
 Todo lo demás (interceptación, gestor, pausa y reanudación) funciona igual.
 

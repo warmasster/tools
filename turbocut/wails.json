@@ -13,7 +13,7 @@
   "info": {
     "companyName": "TurboCUT",
     "productName": "TurboCUT",
-    "productVersion": "1.1.0",
+    "productVersion": "1.1.1",
     "copyright": "Fernando",
     "comments": "Analiza el disco, busca archivos al instante y encuentra duplicados"
   }

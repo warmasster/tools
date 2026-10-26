@@ -9,7 +9,7 @@ Bloqueador de anuncios, rastreadores, malware y ventanas emergentes para Chrome 
   - **Cualquier web con Google IMA** (el SDK de anuncios de vídeo más usado): se cambia por uno que responde «no hay anuncios» y el reproductor pasa directo al vídeo. Las peticiones VAST/VMAP reciben una respuesta vacía.
   - **Streams HLS y DASH**: `m3u-prune` y `xml-prune` quitan los anuncios metidos en el propio manifiesto (Paramount+, Fox, Discovery+…, según las listas).
 - **Rastreadores**: EasyPrivacy y uBlock Privacy.
-- **Malware y estafas**: uBlock Badware y URLhaus. Si entras en una web peligrosa sale un aviso con «Volver atrás» o «Entrar de todas formas».
+- **Malware y estafas**: uBlock Badware y URLhaus. Si entras en una web peligrosa sale un aviso con «Volver atrás» o «Entrar de todas formas» (solo para esa pestaña).
 - **Avisos de cookies** y **Molestias** (botones sociales, carteles de suscripción, avisos de notificaciones…): desactivadas al instalar, se activan en el popup.
 - **Ventanas emergentes**: cierra las *popunder* (las que una web abre aprovechando tu clic en cualquier parte) y enseña un aviso en la página con **Abrir** y **Permitir en esta web**. Lo que abres tú (enlaces con Ctrl o botón central, `target=_blank`, botones como «Compartir») no se toca.
 - **Peticiones de notificaciones** (opcional): las webs que preguntan «¿Permitir notificaciones?» reciben un no sin que salga la pregunta.

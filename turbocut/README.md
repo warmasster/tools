@@ -24,7 +24,7 @@ Analiza un disco o una carpeta a toda velocidad, te enseña qué ocupa más y te
 ## Uso
 
 - **Analizar**: pulsa una unidad, usa «Elegir una carpeta…» o arrastra una carpeta a la ventana.
-- **Moverse**: un clic en una carpeta para entrar (o Intro), Retroceso para subir, Alt+← para volver atrás, Ctrl+F para buscar (Esc vuelve a donde estabas). En los archivos, doble clic los abre.
+- **Moverse**: un clic en una carpeta para entrar (o Intro), Retroceso para subir, Alt+← para volver atrás, Ctrl+F para buscar (Esc vuelve a donde estabas). En los archivos, doble clic los abre (en modo turbo los abre el Explorador, sin permisos de administrador).
 - **Borrar uno**: el icono de la papelera de cada fila, o Supr (Mayús+Supr lo borra para siempre).
 - **Seleccionar varios**: el botón «Seleccionar» enseña las casillas. También vale Ctrl+clic o Espacio.
 - **Botón derecho**: abrir, mostrar en el Explorador, copiar ruta, volver a leer la carpeta o borrar.

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TurboDL",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Gestor de descargas multiconexión dentro de Chrome: descarga por partes en paralelo, pausa, reanuda y sobrevive a cerrar el navegador.",
   "minimum_chrome_version": "116",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApbitmZIwF2SpPDB7G+tQ2avWoQh5kucrLGipO8EIUAeSPor91VNJAj3T7ZCA3nq5P0YhwGRKZWI7upfiq66XVMHgCtUtekwbulGIOsd2/EfVdWkiiyn2OkoLeQ05xgEvYI8I8XfPYT+ct2hyAveZ0REJhhAtWRlUhg0s06cgR5C9v3F15wYNr7hG9pbetTG2x1Xr2T0SkRtPmAjwjaS4Re4bbJxmYISO9GipImezoEoZp8sNPeH3pjaTkFlPaZH0JmwEYdV0G2nuKP7asPbsrxH2oUjJ65pTvrr5PuxeBNN6MDR50ZlOPKjqrYV8D6t/Zjwq3BWD3FEqDdzYJqnjwwIDAQAB",

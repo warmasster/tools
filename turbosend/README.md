@@ -13,7 +13,7 @@ Envía y recibe archivos y carpetas de cualquier tamaño desde tu PC, en chats. 
 - **Lo que te envían**:
   - Aparece en el chat y tú pulsas **Descargar**. La autodescarga se activa en Ajustes (con límite de tamaño opcional) o en cada chat desde el menú ⋯.
   - La subida va en bloques de 16 MB con CRC32, con varias conexiones a la vez, y se puede reanudar.
-  - Se guarda en `Descargas\TurboSEND\<chat>\`, marcada como descargada de Internet.
+  - Se guarda en `Descargas\TurboSEND\<chat>\`, marcada como descargada de Internet. «Abrir» no ejecuta programas ni scripts que te manden (`.exe`, `.bat`, `.lnk`…): los enseña en su carpeta.
   - Quien envía tiene que tener el chat abierto. Si recarga la página, se le pide volver a elegir los archivos y continúa donde se quedó.
 - **Dominio propio (opcional)**: en Ajustes pones la dirección (`enviar.tudominio.com`) y el token del túnel. Dentro de la app están los pasos. Si falla o lo dejas vacío, se usa el enlace temporal.
 - **Sin ventanas de terminal**: `cloudflared` se ejecuta oculto y se cierra con la app. Si no lo tienes, TurboSEND lo descarga de GitHub (el oficial; comprueba que la firma sea de Cloudflare).

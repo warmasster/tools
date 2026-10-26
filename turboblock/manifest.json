@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TurboBLOCK",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Bloquea anuncios, rastreadores, malware y ventanas emergentes. Ligero: el filtrado lo hace Chrome por dentro.",
   "minimum_chrome_version": "121",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsJ/ONWx/bRm042YDOp7P/GeTrV3F0f9QW/ZHKVbvd+b/rhhhhozi0B83OkfSPAL5Xt1Gyi6YStcFU2O7hXhbdT628+/Vl6yIKTgaOKR4wJfZNsE5WcSlLHrYvtdOcP8pY087MY4bERXDcIqA0NtYlpCp+dtpTlzYosbWAEIuecAGzorLgrCkV0U8oWNietsZYxmbY0X8vPfNMf8Aj0IBhfaWQTJvE8Z+sM2RYHwL3ogezFE4GfE9KIt9D9fQwlSkoFVPa4rVT4KJVr9p47mJ+IDa493krLPqk/mcqbxkugD+xUOvEWnSpFhwWetj91JK9FSh397JZfG7IzX/BGRbMQIDAQAB",
