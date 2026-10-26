@@ -268,15 +268,10 @@ type ForgetOptions struct {
 // bóveda).
 func (a *App) ForgetAccount(name string, o ForgetOptions) error {
 	in := a.steam()
-	if o.Vault && a.vault.Exists() {
-		if err := a.vault.Set(keyOf(name), vault.Entry{}); err != nil {
-			if errors.Is(err, vault.ErrLocked) {
-				return errors.New("Desbloquea la bóveda para borrar sus datos")
-			}
-			return err
-		}
-		a.touchVault()
-		_ = a.metas.update(name, func(m *Meta) { m.HasSecret = false })
+	// Se comprueba antes de tocar nada, pero sus datos se borran al final: si cerrar
+	// Steam o editar sus archivos falla, la cuenta sigue ahí y sus datos también.
+	if o.Vault && a.vault.Exists() && !a.vault.Unlocked() {
+		return errors.New("Desbloquea la bóveda para borrar sus datos")
 	}
 	inSteam := false
 	if in != nil {
@@ -300,6 +295,9 @@ func (a *App) ForgetAccount(name string, o ForgetOptions) error {
 			}
 		}
 		if err := in.Forget(name); err != nil {
+			if wasRunning {
+				_ = in.Start(a.steamArgs()...) // que no se quede Steam cerrado
+			}
 			return err
 		}
 		if wasRunning {
@@ -310,6 +308,16 @@ func (a *App) ForgetAccount(name string, o ForgetOptions) error {
 			_ = in.Start(args...)
 		}
 		inSteam = false
+	}
+	if o.Vault && a.vault.Exists() {
+		if err := a.vault.Set(keyOf(name), vault.Entry{}); err != nil {
+			if errors.Is(err, vault.ErrLocked) {
+				return errors.New("Desbloquea la bóveda para borrar sus datos")
+			}
+			return err
+		}
+		a.touchVault()
+		_ = a.metas.update(name, func(m *Meta) { m.HasSecret = false })
 	}
 	if inSteam {
 		// Steam la sigue recordando: solo se oculta para que no vuelva a salir
@@ -380,6 +388,9 @@ func (a *App) SteamURL(u string) error {
 	if in == nil {
 		return steam.ErrNotFound
 	}
+	if a.busySwitching() {
+		return errors.New("Espera a que termine el cambio de cuenta")
+	}
 	return in.OpenURL(u)
 }
 
@@ -388,6 +399,9 @@ func (a *App) OpenSteam() error {
 	in := a.steam()
 	if in == nil {
 		return steam.ErrNotFound
+	}
+	if a.busySwitching() {
+		return errors.New("Espera a que termine el cambio de cuenta")
 	}
 	if in.Running() {
 		return in.OpenURL("steam://open/main")

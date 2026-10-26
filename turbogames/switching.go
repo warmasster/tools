@@ -45,6 +45,14 @@ func (a *App) beginSwitch() bool {
 	return true
 }
 
+// busySwitching: hay un cambio de cuenta en marcha. Abrir Steam o un juego a la vez
+// lo cruzaría (Steam entraría con la cuenta vieja y el cambio fallaría).
+func (a *App) busySwitching() bool {
+	a.switchMu.Lock()
+	defer a.switchMu.Unlock()
+	return a.switching
+}
+
 func (a *App) endSwitch() {
 	a.switchMu.Lock()
 	a.switching = false
@@ -241,6 +249,9 @@ func (a *App) PlayGame(appid uint32, account string) (SwitchResult, error) {
 		return SwitchResult{}, errors.New("falta el juego")
 	}
 	if account == "" {
+		if a.busySwitching() {
+			return SwitchResult{}, errors.New("Espera a que termine el cambio de cuenta")
+		}
 		if !in.Running() {
 			if err := in.Start(append(a.steamArgs(), steam.RunGameArgs(appid)...)...); err != nil {
 				return SwitchResult{}, err
