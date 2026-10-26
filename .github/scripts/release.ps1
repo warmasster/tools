@@ -48,8 +48,14 @@ function Build-One($entry, $version) {
     Write-Host $out
     if ($code) {
         if ($env:GITHUB_ACTIONS) {
-            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|falló|fallaron|panic|error|Error|\.go:\d+|exit status' } | Select-Object -Last 40
-            foreach ($l in $lines) { Write-Host "::error::$($entry.name): $($l.Trim())" }
+            # GitHub enseña como mucho 10 avisos por paso: primero un resumen con todo.
+            $all = $out -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+            $pkgs = $all | Where-Object { $_ -match '^FAIL\s+\S' } | ForEach-Object { ($_ -split '\s+')[1] }
+            $tests = $all | Where-Object { $_ -match '^--- FAIL' } | ForEach-Object { ($_ -split '\s+')[2] }
+            if ($pkgs) { Write-Host "::error::$($entry.name): paquetes con fallos: $($pkgs -join ' · ')" }
+            if ($tests) { Write-Host "::error::$($entry.name): pruebas que fallan: $($tests -join ' · ')" }
+            $detail = $all | Where-Object { $_ -match '_test\.go:\d+|panic|falló|fallaron|error|Error|\.go:\d+:\d+' } | Select-Object -First 8
+            foreach ($l in $detail) { Write-Host "::error::$($entry.name): $l" }
         }
         throw "Falló la compilación de $($entry.name)"
     }

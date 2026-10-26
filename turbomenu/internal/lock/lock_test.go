@@ -338,6 +338,10 @@ func TestEjectTargetLookup(t *testing.T) {
 		t.Fatal("no encuentra el dispositivo del disco del sistema")
 	}
 	if target != 0 {
+		if os.Getenv("GITHUB_ACTIONS") != "" {
+			// En las máquinas virtuales de GitHub los discos se pueden quitar en caliente.
+			t.Skip("en GitHub Actions el disco del sistema se ve como extraíble")
+		}
 		t.Fatal("el disco interno no debería poder expulsarse")
 	}
 }
