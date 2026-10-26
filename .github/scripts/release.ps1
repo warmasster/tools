@@ -38,8 +38,21 @@ function Ensure-Wails {
 function Build-One($entry, $version) {
     Write-Host "`n=== $($entry.name) $version ==="
     Ensure-Wails
-    & (Join-Path $root $entry.build) | Out-Host
-    if ($LASTEXITCODE) { throw "Falló la compilación de $($entry.name)" }
+    # En un proceso aparte para quedarse con todo lo que escribe aunque falle. En
+    # GitHub, las líneas del error salen como avisos del workflow, que se ven sin
+    # iniciar sesión (el registro completo no).
+    $shell = (Get-Process -Id $PID).Path
+    $out = & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root $entry.build) 2>&1 | Out-String
+    $code = $LASTEXITCODE
+    Set-Location $root
+    Write-Host $out
+    if ($code) {
+        if ($env:GITHUB_ACTIONS) {
+            $lines = $out -split "`r?`n" | Where-Object { $_ -match 'FAIL|falló|fallaron|panic|error|Error|\.go:\d+|exit status' } | Select-Object -Last 40
+            foreach ($l in $lines) { Write-Host "::error::$($entry.name): $($l.Trim())" }
+        }
+        throw "Falló la compilación de $($entry.name)"
+    }
     $exe = Join-Path $root $entry.output
     $item = Get-Item $exe
     return [ordered]@{
