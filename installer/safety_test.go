@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/windows/registry"
 )
 
 func TestManifestClean(t *testing.T) {
@@ -69,5 +71,25 @@ func TestDownloadNeedsHash(t *testing.T) {
 	err := download(context.Background(), Asset{Asset: "TurboCUT.exe"}, filepath.Join(t.TempDir(), "x"), func(int64, int64) {})
 	if err == nil || !strings.Contains(err.Error(), "huella") {
 		t.Errorf("sin SHA-256 no debería descargar: %v", err)
+	}
+}
+
+// Un TurboSETUP más viejo no sustituye a la copia instalada.
+func TestSetupCopyNoDowngrade(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	prev := installedSetupVersion()
+	t.Cleanup(func() {
+		if prev != "" {
+			setSetupVersion(prev)
+		} else {
+			registry.DeleteKey(registry.CURRENT_USER, setupRegKey)
+		}
+	})
+	os.MkdirAll(rootDir(), 0o755)
+	os.WriteFile(setupPath(), []byte("copia nueva"), 0o644)
+	setSetupVersion("99.0.0")
+	ensureSetupCopy()
+	if b, _ := os.ReadFile(setupPath()); string(b) != "copia nueva" {
+		t.Error("un TurboSETUP más viejo ha sustituido a la copia instalada")
 	}
 }

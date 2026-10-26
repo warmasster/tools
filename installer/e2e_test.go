@@ -26,6 +26,11 @@ func TestE2EInstallUninstall(t *testing.T) {
 	// LOCALAPPDATA): se guarda y se deja como estaba, para no dejarlo apuntando a la
 	// carpeta temporal de la prueba.
 	link := startMenuLink("TurboSETUP")
+	if prevVer := installedSetupVersion(); prevVer != "" {
+		t.Cleanup(func() { setSetupVersion(prevVer) })
+	} else {
+		t.Cleanup(func() { registry.DeleteKey(registry.CURRENT_USER, setupRegKey) })
+	}
 	if prev, err := os.ReadFile(link); err == nil {
 		t.Cleanup(func() { os.WriteFile(link, prev, 0o644) })
 	} else {

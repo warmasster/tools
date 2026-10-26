@@ -302,15 +302,45 @@ func ensureSetupCopy() {
 		return
 	}
 	dst := setupPath()
-	if !strings.EqualFold(filepath.Clean(self), filepath.Clean(dst)) {
+	_, dstErr := os.Stat(dst)
+	installed := installedSetupVersion()
+	switch {
+	case strings.EqualFold(filepath.Clean(self), filepath.Clean(dst)):
+		setSetupVersion(version)
+	case dstErr == nil && installed != "" && newer(installed, version):
+		// Es un TurboSETUP más viejo (p. ej. uno que quedó en Descargas): no sustituye
+		// a la copia instalada, que es la que usan los «Desinstalar» de Windows.
+	default:
 		tmp := dst + ".new"
 		if err := copyFile(self, tmp); err == nil {
 			if _, err := replaceFile(tmp, dst); err != nil {
 				os.Remove(tmp)
+			} else {
+				setSetupVersion(version)
 			}
 		}
 	}
 	createShortcut(startMenuLink("TurboSETUP"), dst, "Instala y actualiza las herramientas Turbo")
+}
+
+// La versión de la copia instalada de TurboSETUP se apunta en el registro.
+const setupRegKey = `Software\Turbo`
+
+func installedSetupVersion() string {
+	k, err := registry.OpenKey(registry.CURRENT_USER, setupRegKey, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer k.Close()
+	v, _, _ := k.GetStringValue("SetupVersion")
+	return v
+}
+
+func setSetupVersion(v string) {
+	if k, _, err := registry.CreateKey(registry.CURRENT_USER, setupRegKey, registry.SET_VALUE); err == nil {
+		k.SetStringValue("SetupVersion", v)
+		k.Close()
+	}
 }
 
 func copyFile(src, dst string) error {
@@ -399,6 +429,7 @@ func insideRoot(dir string) bool {
 // removeEverythingLater borra la carpeta Turbo entera cuando este proceso termine
 // (se usa al quitar la última herramienta: no deja nada atrás).
 func removeEverythingLater() {
+	registry.DeleteKey(registry.CURRENT_USER, setupRegKey)
 	root := rootDir()
 	if _, err := os.Stat(root); err != nil {
 		return
