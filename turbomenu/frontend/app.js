@@ -764,7 +764,13 @@
         if (m) m.textContent = q.cfStatus === "preparing" && q.cfProgress ? `Descargando lo necesario… ${Math.round(q.cfProgress * 100)} %` : q.cfStatus === "error" ? q.cfMessage || "" : "";
       }
       // actividad
-      const items = mode === "send" ? (q.downloads || []).slice(-6).reverse().map((d) => `<div class="item ${d.done ? "ok" : ""}"><div class="ic">${ic(d.done ? "check" : "download")}</div><div class="nm"><b>${esc(d.name)}</b><span>${d.done ? "Descargado en el móvil" : `${fmtSize(d.bytes)} de ${fmtSize(d.total)}${d.speed ? " · " + fmtSize(d.speed) + "/s" : ""}`}</span></div><span class="rt">${d.done ? "" : (d.total ? Math.floor((d.bytes / d.total) * 100) : 0) + " %"}</span>${d.done ? "" : `<div class="pbar sm"><i style="width:${d.total ? (d.bytes / d.total) * 100 : 0}%"></i></div>`}</div>`)
+      const dlRow = (d) => {
+        const pc = d.total ? Math.min(100, (d.bytes / d.total) * 100) : 0;
+        const live = !d.done && !d.failed;
+        const txt = d.done ? "Descargado en el móvil" : d.failed ? `Se cortó en el ${Math.floor(pc)} % (lo canceló o perdió la conexión)` : `${fmtSize(d.bytes)} de ${fmtSize(d.total)}${d.speed ? " · " + fmtSize(d.speed) + "/s" : ""}`;
+        return `<div class="item ${d.done ? "ok" : d.failed ? "err" : ""}"><div class="ic">${ic(d.done ? "check" : d.failed ? "alert" : "download")}</div><div class="nm"><b>${esc(d.name)}</b><span>${txt}</span></div><span class="rt">${live ? Math.floor(pc) + " %" : ""}</span>${live ? `<div class="pbar sm"><i style="width:${pc}%"></i></div>` : ""}</div>`;
+      };
+      const items = mode === "send" ? (q.downloads || []).slice(-3).reverse().map(dlRow)
         : (q.uploads || []).map((u) => `<div class="item ${u.done ? "ok" : ""}"><div class="ic">${ic(u.done ? "check" : "upload")}</div><div class="nm"><b>${esc(u.name)}</b><span>${u.done ? fmtSize(u.size) + " · guardado" : `${fmtSize(u.got)} de ${fmtSize(u.size)}`}</span></div>${u.done ? `<span class="acts"><button class="ibtn" data-open="${esc(u.final)}" title="Abrir">${ic("play")}</button></span>` : `<span class="rt">${u.size ? Math.floor((u.got / u.size) * 100) : 0} %</span><div class="pbar sm"><i style="width:${u.size ? (u.got / u.size) * 100 : 0}%"></i></div>`}</div>`);
       const html = items.join("");
       const box = $("#qr-items");

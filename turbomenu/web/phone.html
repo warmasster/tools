@@ -45,6 +45,17 @@ svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-lin
 .sum{display:flex;justify-content:space-between;margin-top:14px;font-size:13.5px;color:var(--muted)}
 .sum b{color:var(--txt)}
 input[type=file]{display:none}
+button.it{width:100%;font:inherit;text-align:left;cursor:pointer}
+.pcard{margin-top:12px;padding:13px 14px;border-radius:15px;background:var(--panel);border:1px solid var(--brd)}
+.pcard .bar{height:6px}
+.ptxt{margin-top:9px;font-size:13.5px;color:var(--muted);line-height:1.4}
+.ptxt b{color:var(--txt)}
+.pcard.done{border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.07)}
+.pcard.done .bar i{background:linear-gradient(90deg,#10b981,#22d3ee)}
+.pcard.waiting .bar i{animation:pl 1.2s ease-in-out infinite}
+@keyframes pl{50%{opacity:.35}}
+.nudge{animation:nd .35s}
+@keyframes nd{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
 .center{min-height:60vh;display:grid;place-items:center;text-align:center;color:var(--muted)}
 .spin{width:28px;height:28px;border-radius:50%;border:3px solid rgba(255,255,255,.12);border-top-color:#22d3ee;animation:s .8s linear infinite;margin:0 auto 12px}
 @keyframes s{to{transform:rotate(360deg)}}
@@ -70,21 +81,90 @@ input[type=file]{display:none}
     if (info.mode === "receive") receive(info); else send(info);
   }).catch(() => { $root.innerHTML = '<div class="center"><div><div style="font-size:42px">⏳</div><h2 style="color:var(--txt)">Este enlace ya no funciona</h2>Se cerró la ventana en el PC.</div></div>'; });
 
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const android = /Android/.test(navigator.userAgent);
+  const where = ios ? "Lo tienes en la app Archivos → Descargas (o en la flecha ↓ de Safari)."
+    : android ? "Lo tienes en la carpeta Descargas y en la notificación de descarga." : "Lo tienes en la carpeta Descargas.";
+  const eta = s => !isFinite(s) || s <= 0 ? "" : s < 60 ? "quedan " + Math.max(1, Math.round(s)) + " s" : "quedan " + Math.round(s / 60) + " min";
+
+  // Una descarga con su progreso. El navegador descarga por su cuenta; la página le pregunta
+  // al PC cómo va (el móvil no suele enseñar nada hasta el final).
+  function downloader(url, ui) {
+    let st = "idle", timer = 0, id = "", t0 = 0;
+    const stop = () => { clearInterval(timer); timer = 0; };
+    async function poll() {
+      let j;
+      try { j = await (await fetch(base + "/dl/" + id, { cache: "no-store" })).json(); } catch (_) { return; }
+      if (!j.started) {
+        if (Date.now() - t0 > 12000) { stop(); st = "stuck"; ui("stuck"); }
+        return;
+      }
+      if (j.done) { stop(); st = "done"; ui("done", j); return; }
+      if (j.failed) { stop(); st = "failed"; ui("failed", j); return; }
+      st = "active"; ui("active", j);
+    }
+    return () => {
+      if (st === "waiting" || st === "active") { ui("again"); return; }
+      id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const a = document.createElement("a");
+      a.href = url + (url.includes("?") ? "&" : "?") + "d=" + id;
+      a.setAttribute("download", "");
+      document.body.appendChild(a); a.click(); a.remove();
+      st = "waiting"; t0 = Date.now(); ui("waiting");
+      stop(); timer = setInterval(poll, 600);
+    };
+  }
+
+  // Pinta el estado de una descarga en una tarjeta (bar = barra, txt = texto).
+  function painter(card, bar, txt, label) {
+    return (s, j) => {
+      card.hidden = false; card.className = "pcard " + s;
+      const pc = j && j.total ? Math.min(100, j.bytes / j.total * 100) : 0;
+      if (s === "waiting") { bar.style.width = "3%"; txt.innerHTML = "<b>Empezando…</b> Si el navegador pregunta, acepta la descarga."; }
+      if (s === "active") { bar.style.width = pc + "%"; txt.innerHTML = "<b>Descargando " + Math.floor(pc) + " %</b> · " + fmt(j.bytes) + " de " + fmt(j.total) + (j.speed ? " · " + fmt(j.speed) + "/s · " + eta((j.total - j.bytes) / j.speed) : ""); }
+      if (s === "done") { bar.style.width = "100%"; txt.innerHTML = "<b>✓ Descargado.</b> " + where; label && label("Descargar otra vez"); }
+      if (s === "failed") { txt.innerHTML = "<b>Se ha cortado.</b> Toca otra vez para volver a intentarlo."; }
+      if (s === "stuck") {
+        bar.style.width = "0";
+        txt.innerHTML = "<b>No ha empezado.</b> Mira si el navegador te pide permiso, o vuelve a tocar." +
+          (location.protocol === "http:" ? " Con el enlace Directo, algunos navegadores avisan de que la descarga «no es segura»: elige Conservar o Descargar igualmente." : "");
+      }
+      if (s === "again") { card.classList.add("nudge"); setTimeout(() => card.classList.remove("nudge"), 400); }
+    };
+  }
+
   function send(info) {
     const one = info.files.length === 1;
     let h = '<div class="hero"><h1>' + esc(one ? info.files[0].name.split("/").pop() : info.name) + '</h1><p>' +
       (one ? fmt(info.total) : info.files.length + " archivos · " + fmt(info.total)) + ' · desde ' + esc(info.pc || "el PC") + '</p></div>';
-    if (one) {
-      h += '<a class="btn" href="' + base + '/f/0" download>' + icDown + 'Descargar</a>';
-    } else {
-      h += '<a class="btn" href="' + base + '/zip">' + icDown + 'Descargar todo (ZIP)</a><div class="list">';
+    const card = '<div class="pcard" hidden><div class="bar"><i></i></div><div class="ptxt"></div></div>';
+    h += '<button class="btn" id="main">' + icDown + '<span>' + (one ? "Descargar" : "Descargar todo (ZIP)") + '</span></button>' + card.replace("pcard", "pcard main");
+    if (!one) {
+      h += '<div class="list">';
       info.files.forEach((f, i) => {
-        h += '<a class="it" href="' + base + '/f/' + i + '" download><span class="ic">' + icFile + '</span><span class="nm"><b>' + esc(f.name.split("/").pop()) + '</b><span>' + esc(fmt(f.size)) + (f.name.includes("/") ? " · " + esc(f.name.slice(0, f.name.lastIndexOf("/"))) : "") + '</span></span><span class="go">' + icDown + '</span></a>';
+        h += '<button class="it" data-i="' + i + '"><span class="ic">' + icFile + '</span><span class="nm"><b>' + esc(f.name.split("/").pop()) + '</b><span class="sub">' + esc(fmt(f.size)) + (f.name.includes("/") ? " · " + esc(f.name.slice(0, f.name.lastIndexOf("/"))) : "") + '</span></span><span class="go">' + icDown + '</span><span class="bar" hidden><i></i></span></button>';
       });
       h += '</div>';
     }
     h += '<p class="note">El enlace funciona mientras la ventana siga abierta en el PC.</p>';
     $root.innerHTML = h;
+
+    const main = document.getElementById("main"), mc = document.querySelector(".pcard.main");
+    const label = t => (main.querySelector("span").textContent = t);
+    main.onclick = downloader(one ? base + "/f/0" : base + "/zip", painter(mc, mc.querySelector(".bar i"), mc.querySelector(".ptxt"), label));
+    document.querySelectorAll(".it[data-i]").forEach(el => {
+      const sub = el.querySelector(".sub"), bar = el.querySelector(".bar"), go = el.querySelector(".go"), orig = sub.innerHTML;
+      el.onclick = downloader(base + "/f/" + el.dataset.i, (s, j) => {
+        bar.hidden = s === "done" || s === "stuck";
+        const pc = j && j.total ? Math.min(100, j.bytes / j.total * 100) : 0;
+        if (s === "waiting") { bar.firstChild.style.width = "3%"; sub.textContent = "Empezando…"; }
+        if (s === "active") { bar.firstChild.style.width = pc + "%"; sub.textContent = Math.floor(pc) + " % · " + fmt(j.bytes) + " de " + fmt(j.total) + (j.speed ? " · " + fmt(j.speed) + "/s" : ""); }
+        if (s === "done") { el.classList.add("done"); go.innerHTML = icOk; sub.textContent = "Descargado · " + orig.replace(/<[^>]+>/g, ""); }
+        if (s === "failed") { el.classList.add("err"); sub.textContent = "Se ha cortado · toca para reintentar"; }
+        if (s === "stuck") { sub.textContent = "No ha empezado · toca otra vez"; }
+        if (s === "again") { el.classList.add("nudge"); setTimeout(() => el.classList.remove("nudge"), 400); }
+      });
+    });
   }
 
   function receive(info) {

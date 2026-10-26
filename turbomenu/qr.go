@@ -41,13 +41,19 @@ type ShareFile struct {
 	ModTime int64  `json:"-"`
 }
 
+// qrDownload es una descarga desde el móvil. Si el navegador la retoma (petición con
+// Range) o la página pregunta por ella, se identifica por el id que pone la página.
 type qrDownload struct {
-	Name  string  `json:"name"`
-	Bytes int64   `json:"bytes"`
-	Total int64   `json:"total"`
-	Done  bool    `json:"done"`
-	Speed float64 `json:"speed"`
-	start time.Time
+	ID     string  `json:"id"`
+	Name   string  `json:"name"`
+	Bytes  int64   `json:"bytes"` // hasta dónde ha llegado (incluye lo de peticiones anteriores)
+	Total  int64   `json:"total"`
+	Done   bool    `json:"done"`
+	Speed  float64 `json:"speed"`
+	Active int     `json:"active"` // conexiones enviando ahora mismo
+	Failed bool    `json:"failed"` // se cortó sin terminar
+	start  time.Time
+	sent   int64 // bytes de esta racha (para la velocidad)
 }
 
 // qrUpload es un archivo que llega del móvil. El avance va en atómicos para que la
@@ -197,6 +203,7 @@ func newQRSession(mode string, paths []string, dest string, onChange func()) (*q
 	mux.HandleFunc("GET /q/{tok}/f/{i}", s.guard(s.handleFile))
 	mux.HandleFunc("HEAD /q/{tok}/f/{i}", s.guard(s.handleFile))
 	mux.HandleFunc("GET /q/{tok}/zip", s.guard(s.handleZip))
+	mux.HandleFunc("GET /q/{tok}/dl/{id}", s.guard(s.handleDownload))
 	mux.HandleFunc("POST /q/{tok}/up", s.guard(s.handleUpStart))
 	mux.HandleFunc("PUT /q/{tok}/up/{id}", s.guard(s.handleUpChunk))
 	mux.HandleFunc("GET /q/{tok}/a/{file}", s.guard(s.handleAsset))
@@ -334,16 +341,77 @@ func contentDisposition(name string) string {
 	return fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, ascii, url.PathEscape(name))
 }
 
-func (s *qrSession) track(name string, total int64) *qrDownload {
-	d := &qrDownload{Name: name, Total: total, start: time.Now()}
-	s.mu.Lock()
-	s.downloads = append(s.downloads, d)
-	if len(s.downloads) > 40 {
-		s.downloads = s.downloads[len(s.downloads)-40:]
+// cleanID deja solo letras y números (el id lo inventa la página del móvil).
+func cleanID(id string) string {
+	if len(id) > 40 {
+		id = id[:40]
 	}
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+			return ""
+		}
+	}
+	return id
+}
+
+// track empieza (o retoma) una descarga. offset es desde dónde se envía esta vez.
+func (s *qrSession) track(id, name string, total, offset int64) *qrDownload {
+	s.mu.Lock()
+	var d *qrDownload
+	if id != "" {
+		for _, x := range s.downloads {
+			if x.ID == id {
+				d = x
+				break
+			}
+		}
+	}
+	if d == nil {
+		d = &qrDownload{ID: id, Name: name, Total: total}
+		s.downloads = append(s.downloads, d)
+		if len(s.downloads) > 40 {
+			s.downloads = s.downloads[len(s.downloads)-40:]
+		}
+	}
+	d.Bytes, d.Done, d.Failed = offset, false, false
+	d.Active++
+	d.start, d.sent = time.Now(), 0
 	s.mu.Unlock()
 	s.changed()
 	return d
+}
+
+// untrack cierra una petición de la descarga.
+func (s *qrSession) untrack(d *qrDownload) {
+	s.mu.Lock()
+	d.Active--
+	d.Done = d.Bytes >= d.Total
+	d.Failed = !d.Done && d.Active == 0
+	s.mu.Unlock()
+	s.changed()
+}
+
+func (s *qrSession) download(id string) (qrDownload, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, d := range s.downloads {
+		if d.ID == id {
+			return *d, true
+		}
+	}
+	return qrDownload{}, false
+}
+
+// handleDownload le dice a la página del móvil cómo va su descarga.
+func (s *qrSession) handleDownload(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	d, ok := s.download(cleanID(r.PathValue("id")))
+	if !ok {
+		json.NewEncoder(w).Encode(map[string]any{"started": false})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{"started": true, "bytes": d.Bytes, "total": d.Total, "done": d.Done,
+		"speed": d.Speed, "active": d.Active, "failed": d.Failed})
 }
 
 type progressWriter struct {
@@ -356,18 +424,28 @@ func (p *progressWriter) Write(b []byte) (int, error) {
 	n, err := p.w.Write(b)
 	p.s.mu.Lock()
 	p.d.Bytes += int64(n)
+	p.d.sent += int64(n)
 	if el := time.Since(p.d.start).Seconds(); el > 0.3 {
-		p.d.Speed = float64(p.d.Bytes) / el
-	}
-	push := time.Since(p.s.lastPush) > 300*time.Millisecond
-	if push {
-		p.s.lastPush = time.Now()
+		p.d.Speed = float64(p.d.sent) / el
 	}
 	p.s.mu.Unlock()
-	if push {
-		p.s.changed()
-	}
+	p.s.changed()
 	return n, err
+}
+
+// rangeStart lee desde qué byte pide el navegador («Range: bytes=N-»).
+func rangeStart(r *http.Request) int64 {
+	v := r.Header.Get("Range")
+	if !strings.HasPrefix(v, "bytes=") {
+		return 0
+	}
+	v = strings.TrimPrefix(v, "bytes=")
+	if i := strings.IndexAny(v, "-,"); i > 0 {
+		if n, err := strconv.ParseInt(v[:i], 10, 64); err == nil {
+			return n
+		}
+	}
+	return 0
 }
 
 func (s *qrSession) handleFile(w http.ResponseWriter, r *http.Request) {
@@ -393,13 +471,10 @@ func (s *qrSession) handleFile(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "", time.Unix(f.ModTime, 0), fh)
 		return
 	}
-	d := s.track(filepath.Base(f.Rel), f.Size)
+	d := s.track(cleanID(r.URL.Query().Get("d")), filepath.Base(f.Rel), f.Size, rangeStart(r))
 	pw := &rangeTracker{ResponseWriter: w, pw: &progressWriter{w: w, d: d, s: s}}
 	http.ServeContent(pw, r, "", time.Unix(f.ModTime, 0), fh)
-	s.mu.Lock()
-	d.Done = d.Bytes >= d.Total
-	s.mu.Unlock()
-	s.changed()
+	s.untrack(d)
 }
 
 // rangeTracker cuenta los bytes que realmente salen hacia el móvil.
@@ -418,13 +493,10 @@ func (s *qrSession) handleZip(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Length", strconv.FormatInt(size, 10))
 	h.Set("Content-Disposition", contentDisposition(name))
 	w.WriteHeader(200)
-	d := s.track(name, size)
+	d := s.track(cleanID(r.URL.Query().Get("d")), name, size, 0)
 	buf := make([]byte, 1<<20)
 	writeZip(&progressWriter{w: w, d: d, s: s}, entries, buf)
-	s.mu.Lock()
-	d.Done = d.Bytes >= d.Total
-	s.mu.Unlock()
-	s.changed()
+	s.untrack(d)
 }
 
 // ---------- subidas desde el móvil ----------

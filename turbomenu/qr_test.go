@@ -225,4 +225,38 @@ func TestQRSend(t *testing.T) {
 	if st := s.state(); len(st.Downloads) != 3 {
 		t.Fatalf("la ventana ve %d descargas", len(st.Downloads))
 	}
+
+	// Con id de la página: el navegador la retoma (Range) y sigue siendo una sola descarga.
+	status := func() map[string]any {
+		r, err := c.Get(base + "/dl/abc123")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		var j map[string]any
+		json.NewDecoder(r.Body).Decode(&j)
+		return j
+	}
+	if j := status(); j["started"] != false {
+		t.Fatalf("antes de empezar: %v", j)
+	}
+	req, _ = http.NewRequest("GET", base+"/f/0?d=abc123", nil)
+	req.Header.Set("Range", "bytes=0-999")
+	r, _ = c.Do(req)
+	io.Copy(io.Discard, r.Body)
+	r.Body.Close()
+	if j := status(); j["done"] != false || j["failed"] != true || j["bytes"].(float64) != 1000 {
+		t.Fatalf("a medias: %v", j)
+	}
+	req, _ = http.NewRequest("GET", base+"/f/0?d=abc123", nil)
+	req.Header.Set("Range", "bytes=1000-")
+	r, _ = c.Do(req)
+	io.Copy(io.Discard, r.Body)
+	r.Body.Close()
+	if j := status(); j["done"] != true || j["bytes"].(float64) != float64(len(a)) {
+		t.Fatalf("terminada: %v", j)
+	}
+	if st := s.state(); len(st.Downloads) != 4 {
+		t.Fatalf("la ventana ve %d descargas (deberían ser 4)", len(st.Downloads))
+	}
 }
