@@ -31,7 +31,7 @@ func extensionModified(userData string) string {
 	extCheckMu.Lock()
 	defer extCheckMu.Unlock()
 	key := strings.ToLower(userData)
-	if t, ok := extCheckAt[key]; ok && time.Since(t) < 15*time.Second {
+	if t, ok := extCheckAt[key]; ok && time.Since(t) < extCheckTTL(extCheckRes[key]) {
 		return extCheckRes[key]
 	}
 	bases := browserDataDirs()
@@ -39,18 +39,37 @@ func extensionModified(userData string) string {
 		bases = append(bases, userData)
 	}
 	bad := ""
-	for _, dir := range chromeExtensionPathsIn(bases) {
+	dirs := chromeExtensionPathsIn(bases)
+	for _, dir := range dirs {
 		if b := compareExtension(dir); b != "" {
 			bad = b
 			break
 		}
 	}
+	if len(dirs) == 0 {
+		// Quien pregunta es la extensión, así que está cargada en algún sitio: si no
+		// aparece en ningún perfil no se puede comprobar, y sin comprobar no se dan
+		// contraseñas (antes se daba por buena). Recién cargada, el navegador tarda
+		// unos segundos en apuntarla.
+		bad = notFoundMsg + "; si acabas de cargarla, espera unos segundos"
+	}
 	extCheckAt[key], extCheckRes[key] = time.Now(), bad
-	if bad != "" || key == "" {
+	if (bad != "" || key == "") && !strings.HasPrefix(bad, notFoundMsg) {
 		extCheckBad = bad
 	}
 	return bad
 }
+
+// extCheckTTL: un resultado se recuerda 15 s, pero «no aparece en los perfiles» solo
+// 3 s (recién cargada, el navegador tarda un momento en apuntarla).
+func extCheckTTL(res string) time.Duration {
+	if strings.HasPrefix(res, notFoundMsg) {
+		return 3 * time.Second
+	}
+	return 15 * time.Second
+}
+
+const notFoundMsg = "no aparece en los perfiles del navegador"
 
 func compareExtension(dir string) string {
 	want := map[string][]byte{}

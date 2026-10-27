@@ -312,6 +312,9 @@ type ExtInfo struct {
 	Loaded    []string `json:"loaded"`
 	Host      bool     `json:"host"`
 	ID        string   `json:"id"`
+	// Browser y Opened: qué página de extensiones abrió SetupExtension.
+	Browser *browser `json:"browser,omitempty"`
+	Opened  bool     `json:"opened"`
 }
 
 // ExtensionInfo dice dónde está la extensión y si Chrome la tiene cargada.
@@ -321,8 +324,8 @@ func (a *App) ExtensionInfo() ExtInfo {
 	return ExtInfo{Dir: dir, Installed: err == nil, Loaded: chromeExtensionPaths(), Host: hostRegistered(), ID: extensionID}
 }
 
-// SetupExtension deja la extensión lista y abre chrome://extensions con la
-// ruta copiada (Chrome no deja instalarla sola).
+// SetupExtension deja la extensión lista y abre la página de extensiones del
+// navegador con la ruta copiada (el navegador no deja instalarla sola).
 func (a *App) SetupExtension() (ExtInfo, error) {
 	if err := registerHost(); err != nil {
 		return a.ExtensionInfo(), err
@@ -331,8 +334,10 @@ func (a *App) SetupExtension() (ExtInfo, error) {
 		return a.ExtensionInfo(), err
 	}
 	setClipboard(extensionDir(), false)
-	openInChrome("chrome://extensions/")
-	return a.ExtensionInfo(), nil
+	b, opened := openExtensionsPage()
+	info := a.ExtensionInfo()
+	info.Browser, info.Opened = &b, opened
+	return info, nil
 }
 
 // ---------- ventana ----------

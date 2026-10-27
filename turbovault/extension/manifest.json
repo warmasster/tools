@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TurboVAULT",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Rellena las contraseñas que guardas en TurboVAULT, cifradas en tu PC. Nada sale de tu equipo.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1fjWKxiWrpMKSsCB0jHsgfP6zHpuG3u7IcKmmKKwDadTwmmVEb0SQG3RvwGzKqDAM9QpOMdjOyYI5bYraxnWTW553o8uv82W/cXIcmDBIBEJ8n8QvsIBdC84IN/N50JBw59lBfCWk87B6JBalEclQuAb/ZbyGN28KgDsoTbbxL60GtnLDWslFZD7iAhTT6Px+lUxmOK4fyRGh8IpRKFXeP0bb/23J+RoXtWxpZYg7mm5UG7t46QXywn2dW2AzA7qKVzDJ4bG5vrUzee+QfL8BGx4401KGalk3ASwhKpml4lV0+6BJSxauIfcn7opYkn/LN2ylBvL/W8j80GmmRZ1CQIDAQAB",
   "minimum_chrome_version": "116",

@@ -59,8 +59,16 @@ func runHost(origin string) int {
 		return 1
 	}
 	// El puente solo tiene sentido si lo lanza un navegador.
-	if _, err := winsec.BrowserAncestor(windows.GetCurrentProcessId()); err != nil {
+	_, bpid, err := winsec.BrowserProcess(windows.GetCurrentProcessId())
+	if err != nil {
 		logf("puente no lanzado por un navegador: %v", err)
+		return 1
+	}
+	// Y el otro extremo de su entrada y su salida tiene que ser ese navegador: el padre
+	// se puede falsificar al lanzar un proceso, pero quien lo lanza así tiene él las
+	// tuberías (Chrome crea las suyas y se las pasa por cmd.exe).
+	if in, out := winsec.StdioPipeServers(); in != bpid || out != bpid {
+		logf("puente con la entrada o la salida de otro proceso (%d, %d; navegador %d)", in, out, bpid)
 		return 1
 	}
 	in := bufio.NewReader(os.Stdin)

@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -305,23 +304,15 @@ func cliSetup() int {
 	}
 	if !already {
 		setClipboard(extDir, false)
-		opened := openInChrome("chrome://extensions/")
-		where := "En la pestaña de extensiones que se acaba de abrir:"
-		if !opened {
-			where = "Abre Chrome y escribe chrome://extensions en la barra de direcciones. Luego:"
-		}
-		messageBox("TurboVAULT · último paso", where+`
-
-  1. Activa «Modo de desarrollador» (arriba a la derecha).
-  2. Pulsa «Cargar descomprimida».
-  3. Pega la ruta en la barra de la ventana (Ctrl+V; ya está copiada) y pulsa «Seleccionar carpeta».
+		b, opened := openExtensionsPage()
+		messageBox("TurboVAULT · último paso", loadSteps(b, opened)+`
 
 La extensión está en:
 `+extDir+`
 
-Chrome no deja que un programa instale extensiones por su cuenta: este paso se hace una sola vez. Después, al abrir TurboVAULT por primera vez, crearás tu contraseña maestra.`, false)
+El navegador no deja que un programa instale extensiones por su cuenta: este paso se hace una sola vez. Después, al abrir TurboVAULT por primera vez, crearás tu contraseña maestra.`, false)
 	} else {
-		messageBox("TurboVAULT", "TurboVAULT actualizado.\n\nLa extensión de Chrome se pone al día sola. Si tenías la 1.0.0, esta vez pulsa el botón de recargar (↻) de TurboVAULT en chrome://extensions o reinicia Chrome.", false)
+		messageBox("TurboVAULT", "TurboVAULT actualizado.\n\nLa extensión del navegador se pone al día sola. Si tenías la 1.0.0, esta vez pulsa el botón de recargar (↻) de TurboVAULT en la página de extensiones (chrome://extensions, edge://extensions…) o reinicia el navegador.", false)
 	}
 	spawnDetached()
 	fmt.Println("TurboVAULT instalado. Está en la bandeja, junto a la flechita de la barra de tareas.")
@@ -340,7 +331,7 @@ func cliUninstall() int {
 	os.Remove(hostManifestPath())
 	os.RemoveAll(extensionDir())
 	os.RemoveAll(filepath.Join(localDir(), "webview"))
-	fmt.Println("TurboVAULT desinstalado. Tu bóveda sigue en " + dataDir() + " (cifrada). Quita también la extensión en chrome://extensions.")
+	fmt.Println("TurboVAULT desinstalado. Tu bóveda sigue en " + dataDir() + " (cifrada). Quita también la extensión en la página de extensiones del navegador (chrome://extensions, edge://extensions…).")
 	return 0
 }
 
@@ -361,7 +352,18 @@ func browserDataDirs() []string {
 		// si no se miran, una extensión cambiada cargada ahí no se detectaría.
 		filepath.Join(la, "Vivaldi", "User Data"),
 		filepath.Join(la, "Google", "Chrome Beta", "User Data"),
+		filepath.Join(la, "Google", "Chrome Dev", "User Data"),
 		filepath.Join(la, "Google", "Chrome SxS", "User Data"),
+		filepath.Join(la, "Microsoft", "Edge Beta", "User Data"),
+		filepath.Join(la, "Microsoft", "Edge Dev", "User Data"),
+		filepath.Join(la, "Microsoft", "Edge SxS", "User Data"),
+		filepath.Join(la, "BraveSoftware", "Brave-Browser-Beta", "User Data"),
+		filepath.Join(la, "BraveSoftware", "Brave-Browser-Nightly", "User Data"),
+		// Opera guarda el perfil en Roaming\Opera Software\<versión> (las versiones
+		// nuevas, con varios perfiles, un nivel más abajo: …\Opera Stable\Default).
+		filepath.Join(os.Getenv("APPDATA"), "Opera Software"),
+		filepath.Join(os.Getenv("APPDATA"), "Opera Software", "Opera Stable"),
+		filepath.Join(os.Getenv("APPDATA"), "Opera Software", "Opera GX Stable"),
 	}
 }
 
@@ -402,35 +404,4 @@ func chromeExtensionPathsIn(bases []string) []string {
 		}
 	}
 	return out
-}
-
-func findChrome() string {
-	const key = `SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe`
-	for _, root := range []registry.Key{registry.CURRENT_USER, registry.LOCAL_MACHINE} {
-		if k, err := registry.OpenKey(root, key, registry.QUERY_VALUE); err == nil {
-			p, _, err := k.GetStringValue("")
-			k.Close()
-			if err == nil && p != "" {
-				return p
-			}
-		}
-	}
-	for _, p := range []string{
-		filepath.Join(os.Getenv("ProgramFiles"), `Google\Chrome\Application\chrome.exe`),
-		filepath.Join(os.Getenv("ProgramFiles(x86)"), `Google\Chrome\Application\chrome.exe`),
-		filepath.Join(os.Getenv("LOCALAPPDATA"), `Google\Chrome\Application\chrome.exe`),
-	} {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return ""
-}
-
-func openInChrome(url string) bool {
-	chrome := findChrome()
-	if chrome == "" {
-		return false
-	}
-	return exec.Command(chrome, url).Start() == nil
 }

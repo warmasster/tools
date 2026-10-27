@@ -139,6 +139,28 @@ func BrowserProcess(pid uint32) (string, uint32, error) {
 	return "", 0, errors.New("la conexión no viene de un navegador conocido")
 }
 
+var procPipeServerPID = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetNamedPipeServerProcessId")
+
+// StdioPipeServers devuelve qué proceso creó la tubería de la entrada y la de la
+// salida estándar de este proceso (0 si no son tuberías).
+func StdioPipeServers() (in, out uint32) {
+	get := func(which uint32) uint32 {
+		h, err := windows.GetStdHandle(which)
+		if err != nil || h == 0 || h == windows.InvalidHandle {
+			return 0
+		}
+		var pid uint32
+		if procPipeServerPID.Find() != nil {
+			return 0
+		}
+		if r, _, _ := procPipeServerPID.Call(uintptr(h), uintptr(unsafe.Pointer(&pid))); r == 0 {
+			return 0
+		}
+		return pid
+	}
+	return get(windows.STD_INPUT_HANDLE), get(windows.STD_OUTPUT_HANDLE)
+}
+
 func browserName(exe string) string {
 	switch exe {
 	case "chrome.exe":

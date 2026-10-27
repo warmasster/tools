@@ -92,7 +92,7 @@ type State struct {
 	Count      int       `json:"count"`
 	Version    string    `json:"version"`
 	Paired     bool      `json:"paired"`
-	ExtBad     string    `json:"extBad,omitempty"` // la extensión cargada no es la original
+	ExtBad     string    `json:"extBad,omitempty"`     // la extensión cargada no es la original
 	ExtVersion string    `json:"extVersion,omitempty"` // versión de la extensión que trae este TurboVAULT
 	Pair       *PairInfo `json:"pair,omitempty"`
 }
@@ -134,8 +134,8 @@ type Agent struct {
 	breached  map[string]int // id → veces que aparece en filtraciones (solo en memoria)
 	breachAt  int64
 
-	winMu    sync.Mutex
-	windows  map[uint32]bool // ventanas lanzadas por el agente y aún vivas
+	winMu   sync.Mutex
+	windows map[uint32]bool // ventanas lanzadas por el agente y aún vivas
 
 	unlockMu sync.Mutex
 	lockGen  atomic.Uint64

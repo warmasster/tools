@@ -33,12 +33,33 @@ func newTestAgent(t *testing.T) *Agent {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("TURBOVAULT_DIR", dir)
-	t.Setenv("TURBOVAULT_BROWSERS", "") // sin mirar los navegadores de este PC
+	// Sin mirar los navegadores de este PC: un perfil de prueba con la extensión
+	// original cargada (si no aparece en ningún perfil, no recibe contraseñas).
+	fakeBrowser(t, dir)
 	settingsMu.Lock()
 	settings = nil
 	settingsMu.Unlock()
 	a := newAgent("", "")
 	return a
+}
+
+// fakeBrowser deja en dir un perfil de navegador con la extensión instalada cargada.
+func fakeBrowser(t *testing.T, dir string) {
+	t.Helper()
+	ext, err := installExtension()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Join(dir, "navegador")
+	os.MkdirAll(filepath.Join(base, "Default"), 0o700)
+	prefs, _ := json.Marshal(map[string]any{"extensions": map[string]any{"settings": map[string]any{extensionID: map[string]any{"path": ext}}}})
+	if err := os.WriteFile(filepath.Join(base, "Default", "Preferences"), prefs, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TURBOVAULT_BROWSERS", base)
+	extCheckMu.Lock()
+	extCheckAt, extCheckRes = map[string]time.Time{}, map[string]string{}
+	extCheckMu.Unlock()
 }
 
 func app() *connState { return &connState{peer: peer{Role: roleApp}} }
@@ -465,4 +486,35 @@ func TestExtCopyLimited(t *testing.T) {
 		t.Fatalf("copiar historial desde el navegador: %v", err)
 	}
 	must(t, a, e, "copy", map[string]string{"id": it.ID, "field": "password", "url": "https://x.com"}, nil)
+}
+
+// Si la extensión no aparece en ningún perfil no se puede comprobar: no recibe
+// contraseñas (antes se daba por buena).
+func TestExtensionNotFoundIsRefused(t *testing.T) {
+	a := newTestAgent(t)
+	t.Setenv("TURBOVAULT_BROWSERS", t.TempDir()) // ningún perfil con la extensión
+	extCheckMu.Lock()
+	extCheckAt, extCheckRes = map[string]time.Time{}, map[string]string{}
+	extCheckMu.Unlock()
+	must(t, a, app(), "create", map[string]string{"master": testMaster}, nil)
+	if _, err := do(t, a, ext(), "pairRequest", map[string]string{"hash": "x"}); err == nil || !strings.Contains(err.Error(), "no encuentra la extensión") {
+		t.Fatalf("debería negarse: %v", err)
+	}
+}
+
+// «No la encuentro» no es «la han cambiado»: ni alarma ni aviso en la ventana.
+func TestExtensionNotFoundIsNoAlarm(t *testing.T) {
+	a := newTestAgent(t)
+	t.Setenv("TURBOVAULT_BROWSERS", t.TempDir())
+	extCheckMu.Lock()
+	extCheckAt, extCheckRes, extCheckWarn, extCheckBad = map[string]time.Time{}, map[string]string{}, false, ""
+	extCheckMu.Unlock()
+	must(t, a, app(), "create", map[string]string{"master": testMaster}, nil)
+	do(t, a, ext(), "pairRequest", map[string]string{"hash": "x"})
+	extCheckMu.Lock()
+	warned, bad := extCheckWarn, extCheckBad
+	extCheckMu.Unlock()
+	if warned || bad != "" {
+		t.Fatalf("no debería avisar de extensión modificada (aviso=%v, %q)", warned, bad)
+	}
 }

@@ -10,7 +10,7 @@
 //   node dev/run-tests.js [--headed] [--keep] [--nobuild] [--shots carpeta]
 
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -154,6 +154,13 @@ try {
   await chrome.launch();
   const id = await chrome.loadExtension(EXT);
   check(id === EXT_ID, `ID de la extensión fijo (${id})`);
+  // TurboVAULT solo da contraseñas a la extensión si la encuentra en el perfil, y Chrome
+  // tarda unos segundos en apuntarla (como al cargarla a mano).
+  const inPrefs = () => ['Secure Preferences', 'Preferences'].some((f) => {
+    try { return readFileSync(join(tmp, 'perfil', 'Default', f), 'utf8').includes(EXT_ID); } catch { return false; }
+  });
+  for (let i = 0; i < 120 && !inPrefs(); i++) await sleep(250);
+  check(inPrefs(), 'Chrome apunta la extensión en el perfil');
 
   const sw = (e) => chrome.evalSW(e);
   let s = null;
@@ -303,6 +310,12 @@ try {
     const again = await shadowQuery('.menu .it');
     if (again) await clickModel(again);
     await sleep(500);
+    // Las páginas de prueba van por http: antes de rellenar avisa y pide confirmación.
+    const sure = await shadowQuery('.menu [data-sure]', 6);
+    check(!!sure, 'en una web sin https avisa y pide confirmación antes de rellenar');
+    vals = await ev(`[document.querySelector('#user').value, document.querySelector('#pw').value]`);
+    check(!vals[0] && !vals[1], 'y hasta confirmar no rellena nada');
+    if (sure) { await sleep(500); await clickModel(sure); await sleep(500); }
     vals = await ev(`[document.querySelector('#user').value, document.querySelector('#pw').value]`);
     check(vals[0] === 'fernando' && vals[1] === 'Clave-De-Prueba-91!', `con el menú a la vista, rellena usuario y contraseña (${vals[0]})`);
   }
@@ -339,6 +352,8 @@ try {
       await sleep(500);
       await clickModel(dItem);
       await sleep(500);
+      const dSure = await shadowQuery('.menu [data-sure]', 6);
+      if (dSure) { await sleep(500); await clickModel(dSure); await sleep(500); }
       const dv = await ev(`[document.querySelector('#duser').value, document.querySelector('#dpw').value]`);
       check(dv[0] === 'fernando' && dv[1] === 'Clave-De-Prueba-91!', 'y rellena dentro del diálogo');
     }

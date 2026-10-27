@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"time"
 
@@ -80,6 +80,11 @@ func (a *Agent) dispatch(cs *connState, cmd string, raw json.RawMessage) (any, e
 			bad := extensionModified(cs.peer.UserData)
 			if cs.peer.LoadExt {
 				bad = "el navegador carga extensiones por línea de órdenes"
+			}
+			if strings.HasPrefix(bad, notFoundMsg) {
+				// No es que esté cambiada: aún no se puede comprobar (recién cargada). Sin
+				// alarma ni aviso; se vuelve a mirar en unos segundos.
+				return nil, errCode("notfound", "TurboVAULT aún no encuentra la extensión en los perfiles del navegador (si acabas de cargarla, el navegador tarda unos segundos en apuntarla). Vuelve a intentarlo en un momento.")
 			}
 			if bad != "" {
 				a.warnExtension(bad)

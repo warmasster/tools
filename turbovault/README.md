@@ -32,7 +32,9 @@ Gestor de contraseñas que guarda todo **cifrado en tu PC**, con extensión para
 - En formularios de **registro** o de **cambio de contraseña** ofrece una contraseña segura y la pone en los dos campos.
 - Al enviar un formulario ofrece **guardar** la contraseña (o **actualizarla** si ha cambiado), también en la página siguiente si la web cambia de página al entrar. «Nunca aquí» deja de preguntarlo en esa web.
 - El menú del icono enseña lo guardado para la web abierta (rellenar, copiar usuario, contraseña o código 2FA), busca en toda la bóveda y genera contraseñas.
-- Funciona también en Edge, Brave y Vivaldi.
+- Funciona también en Edge, Brave y Vivaldi (el asistente abre la página de extensiones del navegador que uses, con sus pasos).
+- En una web **sin https** (salvo las de tu propio PC) avisa antes de rellenar: lo que se rellena ahí viaja sin cifrar.
+- Nunca rellena campos escondidos: fuera de la página, transparentes o diminutos.
 - **Se actualiza sola**: cuando TurboVAULT trae una versión nueva de la extensión, ella misma se recarga y se pone en las pestañas abiertas, sin pasar por `chrome://extensions`.
 - Si TurboVAULT no contesta, la extensión espera cada vez más entre intentos (hasta un minuto) en lugar de reintentar sin parar.
 
@@ -71,8 +73,8 @@ Gestor de contraseñas que guarda todo **cifrado en tu PC**, con extensión para
 - La extensión **nunca ve la bóveda entera** ni la contraseña maestra: pide a TurboVAULT la contraseña de una entrada concreta para la web en la que está, y TurboVAULT comprueba él mismo que esa entrada es de esa web.
 - La contraseña maestra **nunca se escribe en el navegador**: si la bóveda está cerrada, la extensión abre una ventanita de TurboVAULT para escribirla allí.
 - **Vinculación**: un navegador nuevo no recibe nada hasta que lo apruebas en TurboVAULT comprobando un código de 6 cifras que enseñan los dos. La aprobación se guarda cifrada dentro de la bóveda, y se puede desvincular en Ajustes.
-- TurboVAULT comprueba que quien le habla es **su propio programa** (el mismo archivo, no solo la misma ruta) lanzado por un navegador **firmado por su fabricante** (Google, Microsoft, Brave…), con el identificador fijo de su extensión. Si algo de eso no cuadra, rechaza la conexión.
-- Comprueba que **la extensión cargada en el navegador es exactamente la original** que lleva dentro: si alguien cambia uno de sus archivos, deja de darle contraseñas, lo apunta en la actividad y avisa para reinstalarla.
+- TurboVAULT comprueba que quien le habla es **su propio programa** (el mismo archivo, no solo la misma ruta) lanzado por un navegador **firmado por su fabricante** (Google, Microsoft, Brave…), con el identificador fijo de su extensión. Además, el puente comprueba que **su entrada y su salida son del propio navegador**: un programa que lo lance haciéndose pasar por Chrome (falsificando el proceso padre) tendría él esas tuberías. Si algo de eso no cuadra, rechaza la conexión.
+- Comprueba que **la extensión cargada en el navegador es exactamente la original** que lleva dentro: si alguien cambia uno de sus archivos, deja de darle contraseñas, lo apunta en la actividad y avisa para reinstalarla. Si no la encuentra en ningún perfil del navegador (y por tanto no puede comprobarla), tampoco.
 - Una pestaña no puede preguntar «¿guardo esto?» más de 5 veces por minuto, y solo al enviar un formulario de verdad.
 - Si el navegador pide **demasiadas contraseñas seguidas** (más de 15 en un minuto o 150 en una hora), TurboVAULT **se cierra** y avisa: es lo que haría una extensión maliciosa intentando sacarlas todas.
 

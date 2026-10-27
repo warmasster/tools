@@ -41,15 +41,15 @@ const (
 )
 
 var (
-	kernel32              = windows.NewLazySystemDLL("kernel32.dll")
-	procWaitNamedPipe     = kernel32.NewProc("WaitNamedPipeW")
-	procGetClientPID      = kernel32.NewProc("GetNamedPipeClientProcessId")
-	procGetServerPID      = kernel32.NewProc("GetNamedPipeServerProcessId")
-	ErrBusy               = errors.New("otro programa ya usa la tubería de TurboVAULT")
-	ErrClosed             = errors.New("conexión cerrada")
-	errTimeout            = errors.New("tiempo de espera agotado")
-	errTooBig             = errors.New("mensaje demasiado grande")
-	ErrPeerRejected       = errors.New("el otro lado de la conexión no es TurboVAULT")
+	kernel32          = windows.NewLazySystemDLL("kernel32.dll")
+	procWaitNamedPipe = kernel32.NewProc("WaitNamedPipeW")
+	procGetClientPID  = kernel32.NewProc("GetNamedPipeClientProcessId")
+	procGetServerPID  = kernel32.NewProc("GetNamedPipeServerProcessId")
+	ErrBusy           = errors.New("otro programa ya usa la tubería de TurboVAULT")
+	ErrClosed         = errors.New("conexión cerrada")
+	errTimeout        = errors.New("tiempo de espera agotado")
+	errTooBig         = errors.New("mensaje demasiado grande")
+	ErrPeerRejected   = errors.New("el otro lado de la conexión no es TurboVAULT")
 )
 
 // Name devuelve el nombre de la tubería del usuario actual.

@@ -1463,7 +1463,7 @@
         <div class="srow"><div><b>Cambiar la contraseña maestra</b><span>También cambia la clave interna de cifrado: las copias viejas siguen abriéndose solo con la contraseña de entonces.</span></div>
           <button class="btn ghost sm" id="st-master">Cambiar…</button></div></div>
       <div class="card"><h3>${ic('browser')}Navegador</h3>
-        <div class="srow"><div><b>Extensión</b><span>${extLoaded ? 'Cargada en el navegador.' : 'Aún no está cargada en Chrome.'} ${ext.host ? '' : 'El puente con el navegador no está registrado.'}</span>
+        <div class="srow"><div><b>Extensión</b><span>${extLoaded ? 'Cargada en el navegador.' : 'Aún no está cargada en el navegador.'} ${ext.host ? '' : 'El puente con el navegador no está registrado.'}</span>
           <span class="mono">${esc(ext.dir)}</span></div>
           <button class="btn ${extLoaded ? 'ghost' : 'primary'} sm" id="st-ext">${extLoaded ? 'Reinstalar' : 'Preparar'}</button></div>
         ${pairs.length ? pairs.map((p) => `<div class="srow"><div><b>${esc(p.name || 'Navegador')}</b><span>Vinculado ${esc(fmtDate(p.created))}</span></div><button class="btn ghost xs danger-txt" data-unpair="${esc(p.hash)}">Desvincular</button></div>`).join('')
@@ -1491,13 +1491,17 @@
 
   async function setupExtension() {
     try {
-      await api.SetupExtension();
+      const info = (await api.SetupExtension()) || {};
+      const b = info.browser || { name: 'Chrome', page: 'chrome://extensions/', load: 'Cargar descomprimida', toggle: 'arriba a la derecha' };
+      const where = info.opened
+        ? `Se ha abierto <span class="mono">${esc(b.page)}</span> en ${esc(b.name)} y la ruta de la extensión ya está copiada.`
+        : 'La ruta de la extensión ya está copiada. Abre tu navegador y escribe <span class="mono">chrome://extensions</span> (<span class="mono">edge://extensions</span> en Edge) en la barra de direcciones.';
       modal({
-        title: 'Cargar la extensión en Chrome',
-        body: `<p class="mtext">Se ha abierto <span class="mono">chrome://extensions</span> y la ruta de la extensión ya está copiada.</p>
-          <ol class="mtext" style="padding-left:18px;margin:0 0 10px"><li>Activa <b>Modo de desarrollador</b> (arriba a la derecha).</li>
-          <li>Pulsa <b>Cargar descomprimida</b>.</li><li>Pega la ruta (Ctrl+V) en la barra de la ventana y pulsa <b>Seleccionar carpeta</b>.</li></ol>
-          <p class="mtext">Chrome no deja que un programa instale extensiones por su cuenta; este paso se hace una sola vez. Después, fija la extensión en la barra (icono del puzle).</p>`,
+        title: `Cargar la extensión en ${esc(info.opened ? b.name : 'el navegador')}`,
+        body: `<p class="mtext">${where}</p>
+          <ol class="mtext" style="padding-left:18px;margin:0 0 10px"><li>Activa <b>Modo de desarrollador</b> (${esc(b.toggle)}).</li>
+          <li>Pulsa <b>${esc(b.load)}</b>.</li><li>Pega la ruta (Ctrl+V) en la barra de la ventana y pulsa <b>Seleccionar carpeta</b>.</li></ol>
+          <p class="mtext">El navegador no deja que un programa instale extensiones por su cuenta; este paso se hace una sola vez. Después, fija la extensión en la barra (icono del puzle).</p>`,
         foot: '<button class="btn primary sm" data-close>Entendido</button>',
       });
       if (S.view === 'settings') renderSettings();

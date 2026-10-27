@@ -122,7 +122,7 @@ func Read(r io.Reader) (*Result, error) {
 		if i < 0 || i >= len(row) {
 			return ""
 		}
-		return strings.TrimSpace(row[i])
+		return unguard(strings.TrimSpace(row[i]))
 	}
 	getRaw := func(row []string, f string) string {
 		i := idx[f]
@@ -162,16 +162,56 @@ func latin1ToUTF8(b []byte) []byte {
 }
 
 // Write escribe una exportación con las columnas de Chrome más notas y 2FA.
+//
+// Una celda que empieza por =, @, + o - es una fórmula para Excel o LibreOffice:
+// un título o una nota puestos por una web («=HYPERLINK(…)») se ejecutarían al
+// abrir el CSV. Esas celdas van con un apóstrofo delante (Excel lo oculta y lo trata
+// como texto). La contraseña y el 2FA no se tocan, para que se importen bien en
+// otros gestores; un teléfono como +34 600… tampoco, porque no es una fórmula.
 func Write(w io.Writer, recs []Record) error {
 	cw := csv.NewWriter(w)
 	if err := cw.Write([]string{"name", "url", "username", "password", "note", "totp"}); err != nil {
 		return err
 	}
 	for _, r := range recs {
-		if err := cw.Write([]string{r.Title, r.URL, r.Username, r.Password, r.Notes, r.TOTP}); err != nil {
+		if err := cw.Write([]string{guard(r.Title), guard(r.URL), guard(r.Username), r.Password, guard(r.Notes), r.TOTP}); err != nil {
 			return err
 		}
 	}
 	cw.Flush()
 	return cw.Error()
+}
+
+// formula: Excel lo tomaría como fórmula al abrir el CSV.
+func formula(s string) bool {
+	if s == "" {
+		return false
+	}
+	switch s[0] {
+	case '=', '@', '\t', '\r':
+		return true
+	case '+', '-':
+		// +34 600 111 222 o -5: números, no fórmulas.
+		for _, r := range s[1:] {
+			if (r < '0' || r > '9') && r != ' ' && r != '.' && r != ',' {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func guard(s string) string {
+	if formula(s) {
+		return "'" + s
+	}
+	return s
+}
+
+// unguard quita el apóstrofo que pone guard (al volver a importar una exportación).
+func unguard(s string) string {
+	if strings.HasPrefix(s, "'") && formula(s[1:]) {
+		return s[1:]
+	}
+	return s
 }

@@ -90,8 +90,19 @@
     if (!el || !el.isConnected || el.disabled) return false;
     const r = el.getBoundingClientRect();
     if (r.width < 24 || r.height < 12) return false;
+    // Fuera de la página por arriba o por la izquierda (left: -9999px y parecidos): una
+    // web puede esconder ahí campos para que se rellenen sin que lo veas. (Por la
+    // derecha o por abajo no se mira: las webs que se desplazan dentro de un recuadro
+    // tienen campos legítimos ahí; en las de derecha a izquierda, tampoco a la izquierda.)
+    const rtl = getComputedStyle(document.documentElement).direction === 'rtl';
+    if (r.bottom + scrollY <= 0 || (!rtl && r.right + scrollX <= 0)) return false;
     const cs = getComputedStyle(el);
-    return cs.visibility !== 'hidden' && cs.display !== 'none' && parseFloat(cs.opacity || '1') > 0.05;
+    if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity || '1') <= 0.05) return false;
+    // Transparente por estar dentro de algo transparente.
+    for (let p = el.parentElement, i = 0; p && i < 12; p = p.parentElement, i++) {
+      if (parseFloat(getComputedStyle(p).opacity || '1') <= 0.05) return false;
+    }
+    return true;
   }
   const attrs = (el) => [el.name, el.id, el.getAttribute('placeholder'), el.getAttribute('aria-label'), acOf(el)].join(' ');
   const scopeOf = (el) => el.form || el.closest('form') || document;
@@ -520,7 +531,7 @@
     const st = res.state || {};
     const list = (res.matches || []).filter((m) => currentKind !== 'otp' || m.hasTotp);
     const host = res.host || pageHost();
-    let h = `<div class="hd">${LOGO}<span><b>TurboVAULT</b> · ${esc(host)}</span></div>`;
+    let h = `<div class="hd">${LOGO}<span><b>TurboVAULT</b> · ${esc(host)}${insecure ? ' · <b style="color:#fbbf24">sin https</b>' : ''}</span></div>`;
     if (!st.agent) {
       h += `<div class="msg"><b>TurboVAULT no responde</b>${esc(st.error || 'Comprueba que está instalado.')}</div>`;
     } else if (!st.exists) {
@@ -572,7 +583,16 @@
   function menuMsg(t) { setMenu(`<div class="hd">${LOGO}<span><b>TurboVAULT</b></span></div><div class="msg">${esc(t)}</div>`); }
 
   // ---------- rellenar ----------
-  async function fill(id) {
+  // Web sin https (salvo las de este PC): lo que se rellena viaja sin cifrar.
+  const insecure = location.protocol === 'http:' && !/^(localhost|127\.0\.0\.1|\[::1\])$|\.localhost$/.test(location.hostname);
+
+  async function fill(id, sure = false) {
+    if (insecure && !sure && currentKind !== 'otp') {
+      setMenu(`<div class="hd">${LOGO}<span><b>TurboVAULT</b></span></div><div class="msg"><b>Esta web no usa https</b>Lo que rellenes viaja sin cifrar: cualquiera en tu misma red (un wifi público, por ejemplo) podría verlo.</div><div class="row"><button class="btn" data-sure="1">Rellenar igualmente</button></div>`);
+      const b = menuEl.querySelector('[data-sure]');
+      if (b) onRealClick(b, () => fill(id, true));
+      return;
+    }
     let data;
     try { data = await bg({ type: currentKind === 'otp' ? 'totp' : 'fill', id }); } catch (e) { menuMsg(e.message); return; }
     closeMenu();

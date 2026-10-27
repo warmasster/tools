@@ -76,7 +76,7 @@ window.__tvMock = function () {
     Protect: async () => {},
     KillOtherAgent: async () => {},
     ExtensionInfo: async () => ({ dir: 'C:\\Users\\yo\\AppData\\Local\\TurboVAULT\\extension', installed: true, loaded: [], host: true, id: 'x' }),
-    SetupExtension: async () => ({}),
+    SetupExtension: async () => ({ opened: true, browser: { name: 'Edge', page: 'edge://extensions/', load: 'Cargar desempaquetada', toggle: 'en la columna de la izquierda' } }),
     Call: async (cmd, a) => {
       a = a || {};
       await new Promise((r) => setTimeout(r, cmd === 'unlock' ? 400 : 30));
