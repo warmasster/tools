@@ -4,6 +4,12 @@
 # publicado y solo compila y sube los que han cambiado. Al final sube el
 # manifest.json nuevo, que es lo que lee TurboSETUP.
 #
+# Cada .exe se sube dos veces, siempre antes que el manifest: con la versión en el
+# nombre (TurboSEND-2.1.2.exe, sin sustituir nunca nada: es lo que baja TurboSETUP
+# 1.0.7 o posterior) y con su nombre de siempre (para el enlace del README y los
+# TurboSETUP de antes). Así el manifest nunca anuncia un archivo a medio subir, y si
+# algo falla antes de subirlo, la siguiente ejecución lo vuelve a intentar todo.
+#
 #   .github/scripts/release.ps1            # en GitHub Actions (usa gh)
 #   .github/scripts/release.ps1 -Force     # recompila y sube todo
 #   .github/scripts/release.ps1 -OutDir dist   # en local: deja todo en dist\ sin subir nada
@@ -62,12 +68,18 @@ function Build-One($entry, $version) {
     $exe = Join-Path $root $entry.output
     $item = Get-Item $exe
     return [ordered]@{
-        version = $version
-        asset   = $item.Name
-        size    = $item.Length
-        sha256  = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
-        path    = $exe
+        version  = $version
+        asset    = $item.Name
+        size     = $item.Length
+        sha256   = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+        download = Versioned-Name $item.Name $version
+        path     = $exe
     }
+}
+
+# TurboSEND.exe + 2.1.2 -> TurboSEND-2.1.2.exe
+function Versioned-Name($asset, $version) {
+    return [IO.Path]::GetFileNameWithoutExtension($asset) + "-" + $version + [IO.Path]::GetExtension($asset)
 }
 
 # --- manifest publicado ahora mismo ---
@@ -106,10 +118,13 @@ function Pick($entry, $prevAsset) {
     $v = Read-Version (Join-Path $root $entry.version)
     if (-not $Force -and $prevAsset -and $prevAsset.version -eq $v -and $prevAsset.sha256) {
         Write-Host "$($entry.name) $v sin cambios"
-        return [ordered]@{ version = $v; asset = $prevAsset.asset; size = $prevAsset.size; sha256 = $prevAsset.sha256 }
+        $same = [ordered]@{ version = $v; asset = $prevAsset.asset; size = $prevAsset.size; sha256 = $prevAsset.sha256 }
+        # Publicado antes de los nombres con versión: sigue sin él hasta su próxima versión.
+        if ($prevAsset.download) { $same.download = $prevAsset.download }
+        return $same
     }
     $b = Build-One $entry $v
-    $script:uploads += $b.path
+    $script:uploads += [pscustomobject]@{ path = $b.path; download = $b.download }
     $b.Remove("path")
     return $b
 }
@@ -119,10 +134,12 @@ $tools = @()
 foreach ($t in $cat.tools) {
     $prevT = $old.tools | Where-Object { $_.id -eq $t.id } | Select-Object -First 1
     $a = Pick $t $prevT
-    $tools += [ordered]@{
+    $row = [ordered]@{
         id = $t.id; name = $t.name; summary = $t.summary; kind = $t.kind; open = [bool]$t.open; dir = $t.dir
         version = $a.version; asset = $a.asset; size = $a.size; sha256 = $a.sha256
     }
+    if ($a.download) { $row.download = $a.download }
+    $tools += $row
 }
 
 if ($uploads.Count -eq 0 -and -not $Force) {
@@ -149,19 +166,51 @@ $notes = @(
 $notesPath = Join-Path $work "notes.md"
 Write-Utf8 $notesPath ($notes -join "`n")
 
+# Copias con la versión en el nombre, en la carpeta de trabajo.
+foreach ($u in $uploads) {
+    $u | Add-Member -NotePropertyName versioned -NotePropertyValue (Join-Path $work $u.download) -Force
+    Copy-Item $u.path $u.versioned -Force
+}
+
 if ($local) {
-    foreach ($u in $uploads) { Copy-Item $u $OutDir -Force }
+    foreach ($u in $uploads) {
+        Copy-Item $u.path $OutDir -Force
+        Copy-Item $u.versioned $OutDir -Force
+    }
     Copy-Item $manifestPath $OutDir -Force
     Write-Host "`nListo en $OutDir"
     exit 0
 }
 
-# Primero los .exe y después el manifest: así nunca anuncia algo que aún no está subido.
+# 1. Los .exe con versión: nombres nuevos, no pisan nada que se esté descargando.
 foreach ($u in $uploads) {
-    gh release upload $tag $u --clobber
-    if ($LASTEXITCODE) { throw "No se pudo subir $u" }
+    gh release upload $tag $u.versioned --clobber
+    if ($LASTEXITCODE) { throw "No se pudo subir $($u.download)" }
 }
+# 2. Los de nombre fijo (README y TurboSETUP de antes de la 1.0.7). Los nuevos no los
+# usan, así que cambiarlos ahora no les afecta.
+foreach ($u in $uploads) {
+    gh release upload $tag $u.path --clobber
+    if ($LASTEXITCODE) { throw "No se pudo subir $($u.path)" }
+}
+# 3. El manifest, el último: desde aquí TurboSETUP ve la versión nueva, ya entera.
 gh release upload $tag $manifestPath --clobber
 if ($LASTEXITCODE) { throw "No se pudo subir manifest.json" }
 gh release edit $tag --notes-file $notesPath
+
+# 4. Se borran las copias con versión de hace más de una publicación (la anterior se
+# queda: alguien con el catálogo viejo puede estar bajándola ahora mismo).
+$keep = @{}
+foreach ($a in @($setup) + $tools) { if ($a.download) { $keep[$a.download] = $true } }
+foreach ($a in @($old.setup) + @($old.tools)) { if ($a -and $a.download) { $keep[$a.download] = $true } }
+$stems = (@($setup) + $tools) | ForEach-Object { [regex]::Escape([IO.Path]::GetFileNameWithoutExtension($_.asset)) }
+$pattern = '^(' + ($stems -join '|') + ')-\d[0-9A-Za-z.]*\.exe$'
+$names = gh release view $tag --json assets --jq '.assets[].name'
+foreach ($n in $names) {
+    if ($n -match $pattern -and -not $keep[$n]) {
+        Write-Host "Borrando la copia vieja $n"
+        gh release delete-asset $tag $n --yes
+        if ($LASTEXITCODE) { Write-Host "No se pudo borrar $n (no pasa nada: se intenta en la próxima publicación)" }
+    }
+}
 Write-Host "`nPublicado: $($uploads.Count) programa(s) nuevo(s)."

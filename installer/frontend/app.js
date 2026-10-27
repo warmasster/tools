@@ -78,7 +78,7 @@
       for (const [id, p] of S.busy) paintProgress(id, p);
     }
 
-    const pending = c.tools.filter((t) => t.available && (!t.installed || t.update));
+    const pending = c.tools.filter((t) => t.available && (!t.installed || t.update || t.broken));
     const all = $("#all");
     all.hidden = pending.length < 2;
     const ups = pending.filter((t) => t.update).length;
@@ -89,7 +89,9 @@
   function card(t) {
     const icon = ICONS[t.id] ? `<img class="tool-ic" src="${ICONS[t.id]}" alt="">` : '<div class="tool-ic blank"></div>';
     let chip, actions = "";
-    if (t.update) {
+    if (t.broken) {
+      chip = `<span class="chip bad" title="Está registrada pero su programa ya no está en la carpeta de instalación">${ic("err")}Falta el programa</span>`;
+    } else if (t.update) {
       chip = `<span class="chip up">${esc(t.installedVersion)} → ${esc(t.version)}</span>`;
     } else if (t.installed) {
       chip = `<span class="chip ok">${ic("ok")}Instalado · ${esc(t.installedVersion)}</span>`;
@@ -105,7 +107,9 @@
     } else if (t.url) {
       actions += `<button class="ibtn" data-act="gh" title="Ver en GitHub">${ic("gh")}</button>`;
     }
-    if (t.update) {
+    if (t.broken) {
+      if (t.available) actions += `<button class="btn amber sm" data-act="install" title="Vuelve a descargarla en su sitio">${ic("redo")}Reparar</button>`;
+    } else if (t.update) {
       if (canOpen) actions += `<button class="btn ghost sm" data-act="open">Abrir</button>`;
       actions += `<button class="btn amber sm" data-act="install">${ic("up")}Actualizar</button>`;
     } else if (t.installed) {
@@ -194,7 +198,7 @@
   }
 
   async function installAll() {
-    const pending = S.cat.tools.filter((t) => t.available && (!t.installed || t.update));
+    const pending = S.cat.tools.filter((t) => t.available && (!t.installed || t.update || t.broken));
     $("#all").disabled = true;
     for (const t of pending) await install(t.id);
     $("#all").disabled = false;
@@ -206,8 +210,10 @@
     const t = S.cat.tools.find((x) => x.id === id);
     unId = id;
     $("#un-title").textContent = `¿Desinstalar ${t.name}?`;
-    $("#un-text").textContent = EXT.has(t.id)
-      ? `Se quita el motor nativo y la copia de la extensión. Después, quita también ${t.name} en chrome://extensions.`
+    $("#un-text").textContent = t.broken
+      ? `Falta su programa: se vuelve a descargar un momento para que quite todo lo que dejó puesto${EXT.has(t.id) ? " (después, quita la extensión en la página de extensiones del navegador)" : ""}. Tus datos no se tocan.`
+      : EXT.has(t.id)
+      ? `Se quita el motor nativo y la copia de la extensión. Después, quita también ${t.name} en la página de extensiones de tu navegador (chrome://extensions, edge://extensions…).`
       : t.id === "turbomenu"
         ? "Se quita «Turbo» del clic derecho y el programa. Tus ajustes no se tocan."
         : "Se borra el programa y sus accesos directos. Tus ajustes y archivos no se tocan.";
@@ -269,6 +275,7 @@
       { id: "turbocut", name: "TurboCUT", kind: "app", version: "1.0.0", size: 12.1e6, available: true, installed: true, installedVersion: "1.0.0", summary: "Analiza el disco a toda velocidad y te ayuda a liberar espacio.", url: "#" },
       { id: "turbodl", name: "TurboDL", kind: "setup", version: "1.1.0", size: 7.4e6, available: true, summary: "Gestor de descargas multiconexión para Chrome, con motor nativo de hasta 64 conexiones.", url: "#" },
       { id: "turbovault", name: "TurboVAULT", kind: "setup", open: true, version: "1.0.1", size: 12.8e6, available: true, installed: true, installedVersion: "1.0.1", summary: "Tus contraseñas cifradas en tu PC, con extensión para Chrome que rellena y guarda al iniciar sesión, códigos 2FA, generador y copias en USB.", url: "#" },
+      { id: "turbomenu", name: "TurboMENU", kind: "setup", open: true, version: "1.0.2", size: 14.1e6, available: true, installed: true, broken: true, installedVersion: "1.0.1", summary: "Añade «Turbo» al clic derecho.", url: "#" },
       { id: "turbogames", name: "TurboGAMES", kind: "app", version: "1.0.0", size: 11.2e6, available: true, summary: "Todas tus cuentas de Steam a un clic, con sus contraseñas en una bóveda cifrada, y tus juegos con sus portadas y quién los ha jugado.", url: "#" },
     ];
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -277,7 +284,7 @@
       async Install(id) {
         const t = tools.find((x) => x.id === id);
         for (let d = 0; d <= t.size; d += t.size / 25) { await sleep(60); window.runtime_emit && window.runtime_emit({ id, done: d, total: t.size }); }
-        t.installed = true; t.installedVersion = t.version; t.update = false;
+        t.installed = true; t.installedVersion = t.version; t.update = false; t.broken = false;
         return { message: t.name + " " + t.version + " instalado" };
       },
       async Uninstall(id) { const t = tools.find((x) => x.id === id); t.installed = false; t.update = false; return t.name + " desinstalado"; },

@@ -94,6 +94,7 @@ a:hover { color: var(--txt); }
 .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--brd); color: var(--muted); white-space: nowrap; }
 .chip.ok { color: #6ee7b7; background: rgba(52,211,153,.09); border-color: rgba(52,211,153,.28); }
 .chip.up { color: #fcd34d; background: rgba(251,191,36,.1); border-color: rgba(251,191,36,.3); }
+.chip.bad { color: #fca5a5; background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.3); }
 
 /* ---------- contenido ---------- */
 .main { flex: 1; min-height: 0; overflow-y: auto; }

@@ -49,6 +49,12 @@ func TestE2EInstallUninstall(t *testing.T) {
 	if _, ok := listInstalled()["turbocut"]; ok {
 		t.Skip("TurboCUT ya está instalado de verdad; no lo toco")
 	}
+	if _, ok := brokenInstalls()["turbocut"]; ok {
+		t.Skip("TurboCUT está registrado de verdad (sin su programa); no lo toco")
+	}
+	if tool.Download == "" {
+		t.Error("el catálogo de prueba no trae el nombre con versión")
+	}
 
 	var last int64
 	res, err := installTool(context.Background(), tool, false, func(done, total int64) { last = done })
@@ -82,6 +88,25 @@ func TestE2EInstallUninstall(t *testing.T) {
 		t.Fatalf("reinstalar: %v", err)
 	}
 
+	// Si alguien borra el programa a mano: sale como «falta el programa» y se repara.
+	os.Remove(exe)
+	if _, ok := brokenInstalls()["turbocut"]; !ok {
+		t.Fatal("sin el .exe debería salir como roto")
+	}
+	for _, tv := range buildView(m, nil).Tools {
+		if tv.ID == "turbocut" && (!tv.Broken || !tv.Installed) {
+			t.Errorf("vista sin el .exe: %+v", tv)
+		}
+	}
+	if _, err := installTool(context.Background(), tool, false, func(int64, int64) {}); err != nil {
+		t.Fatalf("reparar: %v", err)
+	}
+	if _, ok := listInstalled()["turbocut"]; !ok {
+		t.Fatal("tras reparar debería estar instalado")
+	}
+
+	// Y se puede desinstalar estando roto.
+	os.Remove(exe)
 	msg, err := uninstallTool("turbocut")
 	if err != nil {
 		t.Fatal(err)

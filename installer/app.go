@@ -31,7 +31,7 @@ func (a *App) shutdown(ctx context.Context) {
 	a.mu.Lock()
 	busy := len(a.running) > 0
 	a.mu.Unlock()
-	if !busy && len(listInstalled()) == 0 {
+	if !busy && len(listInstalled()) == 0 && len(brokenInstalls()) == 0 {
 		removeEverythingLater()
 	}
 }
@@ -104,9 +104,10 @@ func (a *App) Install(id string, desktop bool) (*InstallResult, error) {
 		wruntime.EventsEmit(a.ctx, "progress", map[string]any{"id": id, "done": done, "total": total})
 	}
 	res, err := installTool(ctx, t, desktop, progress)
-	if errors.Is(err, errMismatch) || errors.Is(err, errIncomplete) {
-		// Justo se está publicando una versión: el .exe ya es el nuevo y el catálogo
-		// guardado aún el viejo. Se vuelve a leer el catálogo y se reintenta una vez.
+	if errors.Is(err, errMismatch) || errors.Is(err, errIncomplete) || errors.Is(err, errGone) {
+		// El catálogo guardado es viejo: con un catálogo de antes de los nombres con
+		// versión, el .exe ya es el nuevo; con uno de hace mucho, su archivo ya no
+		// está. Se vuelve a leer el catálogo y se reintenta una vez.
 		if m2, e := fetchManifest(); e == nil {
 			a.mu.Lock()
 			a.man = m2

@@ -32,9 +32,22 @@ func downloadBase() string {
 
 type Asset struct {
 	Version string `json:"version"`
-	Asset   string `json:"asset"`
-	Size    int64  `json:"size"`
-	SHA256  string `json:"sha256"`
+	// Asset: nombre del .exe instalado (y en la Release, para los TurboSETUP viejos).
+	Asset  string `json:"asset"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
+	// Download: copia del mismo .exe con la versión en el nombre (TurboSEND-2.1.2.exe).
+	// Se sube antes que el catálogo y no se sustituye nunca, así que lo que anuncia el
+	// catálogo siempre está entero aunque se esté publicando otra versión.
+	Download string `json:"download,omitempty"`
+}
+
+// remoteName: el archivo que se pide a la Release.
+func (a Asset) remoteName() string {
+	if a.Download != "" {
+		return a.Download
+	}
+	return a.Asset
 }
 
 type Tool struct {
@@ -125,14 +138,23 @@ func (m *Manifest) clean() {
 	if !safeName.MatchString(m.Setup.Asset) {
 		m.Setup = Asset{}
 	}
+	m.Setup.cleanDownload()
 	tools := m.Tools[:0]
 	for _, t := range m.Tools {
 		if safeName.MatchString(t.ID) && safeName.MatchString(t.Name) && safeName.MatchString(t.Asset.Asset) &&
 			!strings.Contains(t.Name, "..") && !strings.Contains(t.Asset.Asset, "..") {
+			t.Asset.cleanDownload()
 			tools = append(tools, t)
 		}
 	}
 	m.Tools = tools
+}
+
+// cleanDownload: un nombre versionado raro se ignora y se usa el de siempre.
+func (a *Asset) cleanDownload() {
+	if a.Download != "" && (!safeName.MatchString(a.Download) || strings.Contains(a.Download, "..")) {
+		a.Download = ""
+	}
 }
 
 // newer dice si la versión a es más nueva que b ("1.10.0" > "1.9.2").
@@ -167,7 +189,9 @@ type ToolView struct {
 	Installed        bool   `json:"installed"`
 	InstalledVersion string `json:"installedVersion"`
 	Update           bool   `json:"update"`
-	URL              string `json:"url"`
+	// Broken: está registrada pero falta su .exe (lo borraron a mano o un antivirus).
+	Broken bool   `json:"broken"`
+	URL    string `json:"url"`
 }
 
 type CatalogView struct {
@@ -203,6 +227,32 @@ func buildView(m *Manifest, fetchErr error) *CatalogView {
 			seen[t.ID] = true
 			v.Tools = append(v.Tools, tv)
 		}
+	}
+	// Registradas a las que les falta el programa: se pueden reparar (volver a
+	// instalar) o desinstalar, que quita también lo que dejaron puesto.
+	for id, in := range brokenInstalls() {
+		if _, ok := installed[id]; ok {
+			continue
+		}
+		found := false
+		for i := range v.Tools {
+			if v.Tools[i].ID == id {
+				v.Tools[i].Installed, v.Tools[i].Broken = true, true
+				v.Tools[i].InstalledVersion = in.Version
+				found = true
+			}
+		}
+		if !found {
+			name := in.Name
+			if name == "" {
+				name = id
+			}
+			v.Tools = append(v.Tools, ToolView{
+				ID: id, Name: name, Kind: in.Kind, Installed: true, Broken: true, InstalledVersion: in.Version,
+				URL: "https://github.com/" + repo,
+			})
+		}
+		seen[id] = true
 	}
 	// Instaladas que ya no están en el catálogo (o sin conexión): que se puedan abrir y quitar.
 	for id, in := range installed {

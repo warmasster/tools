@@ -43,10 +43,18 @@ type Installed struct {
 	Version string
 	Kind    string
 	Exe     string
+	Missing bool // registrada, pero su .exe ya no está
 }
 
 // listInstalled lee las herramientas instaladas de las entradas de desinstalación.
-func listInstalled() map[string]Installed {
+func listInstalled() map[string]Installed { return installEntries(false) }
+
+// brokenInstalls: registradas cuyo .exe ya no existe (lo borraron a mano o se lo
+// llevó un antivirus). Pueden seguir dejando cosas puestas: el clic derecho, el
+// arranque con Windows o el puente de una extensión.
+func brokenInstalls() map[string]Installed { return installEntries(true) }
+
+func installEntries(missing bool) map[string]Installed {
 	out := map[string]Installed{}
 	k, err := registry.OpenKey(registry.CURRENT_USER, uninstallKey, registry.ENUMERATE_SUB_KEYS)
 	if err != nil {
@@ -69,11 +77,13 @@ func listInstalled() map[string]Installed {
 		in.Exe, _, _ = sk.GetStringValue("DisplayIcon")
 		sk.Close()
 		if in.Exe != "" {
-			if _, err := os.Stat(in.Exe); err != nil {
-				continue // la borraron a mano
+			if _, err := os.Stat(in.Exe); errors.Is(err, os.ErrNotExist) {
+				in.Missing = true // la borraron a mano
 			}
 		}
-		out[strings.TrimPrefix(n, "Turbo.")] = in
+		if in.Missing == missing {
+			out[strings.TrimPrefix(n, "Turbo.")] = in
+		}
 	}
 	return out
 }
@@ -91,6 +101,10 @@ var errMismatch = errors.New("el archivo descargado no coincide con el del catá
 var errIncomplete = errors.New("la descarga no llegó entera o no es la del catálogo; prueba otra vez")
 
 var errStalled = errors.New("la descarga se ha quedado parada: revisa la conexión y vuelve a intentarlo")
+
+// errGone: el archivo ya no está en la Release (el catálogo leído es de hace rato
+// y desde entonces se han publicado dos versiones).
+var errGone = errors.New("ese archivo ya no está publicado: vuelve a cargar la lista")
 
 // stallTimeout: si en este tiempo no llega ni un byte, se corta la descarga.
 var stallTimeout = 60 * time.Second
@@ -110,7 +124,7 @@ func download(ctx context.Context, a Asset, dst string, onProgress progressFunc)
 		}
 		return context.Canceled
 	}
-	req, err := httpNewRequest(ctx, downloadBase()+"/"+a.Asset)
+	req, err := httpNewRequest(ctx, downloadBase()+"/"+a.remoteName())
 	if err != nil {
 		return err
 	}
@@ -122,8 +136,11 @@ func download(ctx context.Context, a Asset, dst string, onProgress progressFunc)
 		return fmt.Errorf("no se pudo conectar con GitHub: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == 404 && a.Download != "" {
+		return errGone
+	}
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("GitHub respondió %s al pedir %s", resp.Status, a.Asset)
+		return fmt.Errorf("GitHub respondió %s al pedir %s", resp.Status, a.remoteName())
 	}
 	total := a.Size
 	if total <= 0 {
@@ -366,6 +383,9 @@ func copyFile(src, dst string) error {
 func uninstallTool(id string) (string, error) {
 	in, ok := listInstalled()[id]
 	if !ok {
+		if b, broken := brokenInstalls()[id]; broken {
+			return uninstallBroken(id, b)
+		}
 		return "", errors.New("no está instalada")
 	}
 	name := in.Name
@@ -399,6 +419,11 @@ func uninstallTool(id string) (string, error) {
 		}
 	}
 
+	return finishUninstall(id, name, dir, msg), nil
+}
+
+// finishUninstall quita accesos directos, la entrada de Windows y la carpeta.
+func finishUninstall(id, name, dir, msg string) string {
 	os.Remove(startMenuLink(name))
 	os.Remove(desktopLink(name))
 	registry.DeleteKey(registry.CURRENT_USER, regKeyName(id))
@@ -410,10 +435,117 @@ func uninstallTool(id string) (string, error) {
 			msg += ". Quedan archivos en uso en " + dir + ": cierra el programa (o Chrome, si es una extensión) y abre TurboSETUP otra vez para terminar de borrarlos"
 		}
 	}
-	if len(listInstalled()) == 0 {
+	if len(listInstalled()) == 0 && len(brokenInstalls()) == 0 {
 		os.Remove(startMenuLink("TurboSETUP"))
 	}
-	return msg, nil
+	return msg
+}
+
+// uninstallBroken desinstala una herramienta a la que le falta el .exe. Las que se
+// instalan solas (clic derecho, extensiones) dejan cosas que solo su programa sabe
+// quitar del todo, así que se vuelve a bajar a su sitio y se le pide que se
+// desinstale. Sin conexión se quita lo que se conoce del registro.
+func uninstallBroken(id string, in Installed) (string, error) {
+	name := in.Name
+	if name == "" {
+		name = id
+	}
+	dir := ""
+	if in.Exe != "" {
+		dir = filepath.Dir(in.Exe)
+	}
+	msg := name + " desinstalado"
+	if in.Kind == "setup" {
+		if err := restoreExe(id, in.Exe); err == nil {
+			out, err := runHidden(in.Exe, "uninstall")
+			if err == nil {
+				if s := strings.TrimSpace(out); s != "" {
+					msg = s
+				}
+			} else {
+				cleanupLeftovers(id)
+			}
+		} else {
+			cleanupLeftovers(id)
+			msg += ". Faltaba su programa y no se pudo bajar para que se quitara del todo; se ha quitado lo que deja en el registro"
+		}
+	}
+	return finishUninstall(id, name, dir, msg), nil
+}
+
+// restoreExe vuelve a bajar el .exe de una herramienta a la ruta donde estaba.
+func restoreExe(id, exe string) error {
+	if exe == "" || !insideRoot(filepath.Dir(exe)) {
+		return errors.New("ruta desconocida")
+	}
+	m, err := fetchManifest()
+	if err != nil {
+		return err
+	}
+	t := m.find(id)
+	if t == nil || !strings.EqualFold(filepath.Base(exe), t.Asset.Asset) {
+		return errors.New("no está en el catálogo")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	part := exe + ".part"
+	if err := download(ctx, t.Asset, part, func(int64, int64) {}); err != nil {
+		return err
+	}
+	if err := os.Rename(part, exe); err != nil {
+		os.Remove(part)
+		return err
+	}
+	return nil
+}
+
+// Puentes de las extensiones: mismas claves que registran sus instaladores.
+var nativeHostKeys = []string{
+	`Software\Google\Chrome\NativeMessagingHosts\`,
+	`Software\Microsoft\Edge\NativeMessagingHosts\`,
+	`Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\`,
+	`Software\Chromium\NativeMessagingHosts\`,
+	`Software\Vivaldi\NativeMessagingHosts\`,
+}
+
+// cleanupLeftovers quita del registro lo que deja cada herramienta «setup» (sin su
+// .exe no se puede hacer mejor). Los datos del usuario (bóveda, ajustes) no se tocan.
+func cleanupLeftovers(id string) {
+	const run = `Software\Microsoft\Windows\CurrentVersion\Run`
+	host := map[string]string{"turbodl": "com.turbodl.native", "turboblock": "com.turboblock.native", "turbovault": "com.turbovault.native"}[id]
+	if host != "" {
+		for _, k := range nativeHostKeys {
+			registry.DeleteKey(registry.CURRENT_USER, k+host)
+		}
+	}
+	switch id {
+	case "turbovault":
+		deleteRunValue(run, "TurboVAULT")
+	case "turbomenu":
+		deleteRunValue(run, "TurboMENU")
+		for _, root := range []string{`*`, `Directory`, `Directory\Background`} {
+			deleteTree(registry.CURRENT_USER, `Software\Classes\`+root+`\shell\TurboMENU`)
+		}
+	}
+}
+
+func deleteRunValue(key, name string) {
+	if k, err := registry.OpenKey(registry.CURRENT_USER, key, registry.SET_VALUE); err == nil {
+		k.DeleteValue(name)
+		k.Close()
+	}
+}
+
+// deleteTree borra una clave con todas sus subclaves.
+func deleteTree(root registry.Key, path string) {
+	if k, err := registry.OpenKey(root, path, registry.ENUMERATE_SUB_KEYS); err == nil {
+		subs, _ := k.ReadSubKeyNames(-1)
+		k.Close()
+		for _, s := range subs {
+			deleteTree(root, path+`\`+s)
+		}
+	}
+	registry.DeleteKey(root, path)
 }
 
 // insideRoot: dir es una carpeta de herramienta dentro de Programs\Turbo (nunca la propia raíz).
@@ -505,6 +637,9 @@ func orphanToolDir(dir string) bool {
 func cliUninstall(id string) int {
 	in, ok := listInstalled()[id]
 	if !ok {
+		in, ok = brokenInstalls()[id]
+	}
+	if !ok {
 		registry.DeleteKey(registry.CURRENT_USER, regKeyName(id))
 		messageBox("TurboSETUP", "Esa herramienta ya no está instalada.", mbInfo)
 		return 0
@@ -524,7 +659,7 @@ func cliUninstall(id string) int {
 	messageBox("Desinstalar "+name, msg+".", mbInfo)
 	// Después del aviso: el borrado espera unos segundos a que este TurboSETUP se
 	// cierre, y mientras el aviso está abierto su .exe no se puede borrar.
-	if len(listInstalled()) == 0 {
+	if len(listInstalled()) == 0 && len(brokenInstalls()) == 0 {
 		removeEverythingLater()
 	}
 	return 0
