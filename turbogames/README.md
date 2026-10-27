@@ -10,21 +10,23 @@ Todas tus cuentas de Steam a un clic, sin el límite del selector de Steam, con 
 - **Salen solas**: todas las cuentas que Steam recuerda en este PC, con su foto de perfil, su nombre visible y su usuario. Puedes añadir también cuentas que Steam no conoce todavía.
 - **Cambiar de cuenta**: pulsa «Entrar» (o doble clic, o Intro). TurboGAMES cierra Steam con cuidado (`steam.exe -shutdown`, y a la fuerza solo si no responde), deja la cuenta elegida como la de inicio automático y vuelve a abrir Steam, que entra directamente. Una pantalla va enseñando cada paso.
   - Antes de cerrar Steam pregunta (se puede desactivar en Ajustes o con «No volver a preguntar»), y avisa si la cuenta no tiene la sesión guardada y si tienes su contraseña en la bóveda. Si hay un juego abierto, pregunta siempre.
+  - Solo abre `steam.exe` si está firmado por Valve, y a la fuerza solo cierra procesos de la carpeta de Steam (no cualquiera que se llame `steam.exe`).
   - **Entrar sin conexión** (el botón del wifi tachado): el modo sin conexión de Steam. Solo se puede si la cuenta tiene la sesión guardada en este PC.
 - **Sesión guardada o no**: cada cuenta dice si Steam tiene su sesión guardada («Sesión guardada»: entra sin contraseña) o no («Pide contraseña»). Si Steam pide la contraseña al cambiar, la pantalla de cambio ofrece copiar el usuario y la contraseña.
 - **Ficha de cada cuenta**: apodo, etiquetas (para filtrar: `#smurf`, `#familia`…), notas, fijar arriba y ocultar. Esto no es secreto y se guarda en `cuentas.json`.
 - **Sus juegos**: a qué ha jugado cada cuenta en este PC y cuántas horas, con un botón para jugar con ella.
 - **Añadir una cuenta**: se guarda con su usuario y, si quieres, su contraseña (en la bóveda); «Guardar y entrar» cambia a ella al momento. La primera vez Steam pide la contraseña: marcando «Recordarme» ya no vuelve a pedirla. Las cuentas con las que entres directamente en Steam salen solas. Comprueba el usuario mientras lo escribes (que no esté vacío, que no sea el correo, solo letras sin acentos, números y `_`, de 3 a 64) y que no la tengas ya; si estaba oculta, vuelve a la lista.
-- **Olvidar una cuenta**: la quita de la lista. Si además marcas «Que Steam también la olvide», TurboGAMES la quita de `loginusers.vdf` y borra su sesión guardada en este PC (en los servidores de Steam no se toca nada).
+- **Olvidar una cuenta**: la quita de la lista. Si además marcas «Que Steam también la olvide», TurboGAMES la quita de `loginusers.vdf` y borra su sesión guardada en este PC, también de las copias de seguridad (en los servidores de Steam no se toca nada).
 - Antes de tocar `loginusers.vdf` o `local.vdf`, TurboGAMES guarda una copia en `%APPDATA%\TurboGAMES\copias` (las 10 últimas de cada uno).
 
 ## Bóveda (opcional)
 
 - Guarda de cada cuenta su contraseña, el correo y su contraseña, el código de recuperación de Steam Guard y notas privadas.
-- Va cifrada con una **contraseña maestra** que no se guarda en ningún sitio: la clave se saca con Argon2id (64 MB, 3 pasadas) y los datos van con AES-256-GCM, que además detecta cualquier cambio en el archivo. **Si olvidas la contraseña maestra, no hay forma de recuperar lo que haya dentro.**
+- Va cifrada con una **contraseña maestra** (de al menos 12 caracteres) que no se guarda en ningún sitio: la clave se saca con Argon2id (256 MB, 6 pasadas, como TurboVAULT) y los datos van con AES-256-GCM, que además detecta cualquier cambio en el archivo. **Si olvidas la contraseña maestra, no hay forma de recuperar lo que haya dentro.**
+  - Las bóvedas de versiones anteriores (64 MB, 3 pasadas, maestra de 8) se siguen abriendo igual y se refuerzan solas la primera vez que las abres; la maestra no cambia.
 - **Comprueba lo que guardas**: el correo, que el código de recuperación sea una R y 5 números, que la contraseña del correo tenga su correo y avisa si la contraseña empieza o acaba con un espacio o si tienes Bloq Mayús activado. Si cierras con cambios sin guardar, pregunta.
 - **Copiar sin dejar rastro**: lo que copias de la bóveda no entra en el historial del portapapeles de Windows (Win+V) ni en el portapapeles en la nube, y se borra solo a los 20 s (configurable) si no has copiado otra cosa después.
-- **Se cierra sola** tras 5 minutos sin usarla (configurable) y siempre al cerrar TurboGAMES.
+- **Se cierra sola** tras 5 minutos sin usarla (configurable), al bloquear Windows (Win+L), al suspender el PC y siempre al cerrar TurboGAMES.
 - Desde el candado de la barra de título: cerrarla, cambiar la contraseña maestra o borrarla entera.
 - El archivo es `%APPDATA%\TurboGAMES\boveda.dat` (y `boveda.dat.bak`, la versión anterior por si el disco falla a mitad de guardar).
 

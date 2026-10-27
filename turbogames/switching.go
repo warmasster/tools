@@ -113,6 +113,10 @@ func (a *App) SwitchTo(r SwitchRequest) (SwitchResult, error) {
 		a.emit("switch", SwitchProgress{Name: name, Step: step, Detail: detail})
 	}
 
+	// Antes de tocar nada: si steam.exe no es de Valve, ni se cierra ni se prepara la cuenta.
+	if err := in.CheckSigned(); err != nil {
+		return res, err
+	}
 	st := in.ReadStatus()
 	// ya está dentro con esa cuenta: no hace falta reiniciar nada
 	if st.Running && target != 0 && st.ActiveUser == target && !r.Offline {

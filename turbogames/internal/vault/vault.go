@@ -1,8 +1,10 @@
 // Package vault guarda datos secretos (contraseñas, correos, códigos de
 // recuperación) cifrados en un archivo local con una contraseña maestra.
 //
-// La clave se saca de la contraseña maestra con Argon2id (64 MB de memoria,
-// 3 pasadas), así que probar contraseñas a lo bruto es muy lento. Los datos van
+// La clave se saca de la contraseña maestra con Argon2id (256 MB de memoria,
+// 6 pasadas, como TurboVAULT), así que probar contraseñas a lo bruto es muy lento.
+// Las bóvedas creadas con los parámetros de antes (64 MB, 3 pasadas) se siguen
+// abriendo y se refuerzan solas la primera vez que se abren. Los datos van
 // cifrados y autenticados con AES-256-GCM: si alguien cambia un solo byte del
 // archivo, no se abre. La contraseña maestra no se guarda en ningún sitio y la
 // clave solo está en memoria mientras la bóveda está abierta.
@@ -14,6 +16,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -28,16 +31,20 @@ import (
 const (
 	fileVersion = 1
 	aadText     = "TurboGAMES boveda v1"
-	// MinMaster es la longitud mínima de la contraseña maestra.
-	MinMaster = 8
+	// MinMaster es la longitud mínima de una contraseña maestra nueva (al crear o
+	// cambiarla). Las de antes, de 8, siguen abriendo su bóveda.
+	MinMaster = 12
 )
+
+// defaultKDF: los parámetros de las bóvedas nuevas (las pruebas los bajan).
+var defaultKDF = kdfParams{Time: 6, Memory: 256 * 1024}
 
 var (
 	ErrLocked    = errors.New("la bóveda está cerrada")
 	ErrNoVault   = errors.New("todavía no hay bóveda")
 	ErrExists    = errors.New("ya hay una bóveda")
 	ErrWrong     = errors.New("contraseña maestra incorrecta")
-	ErrShort     = errors.New("la contraseña maestra debe tener al menos 8 caracteres")
+	ErrShort     = fmt.Errorf("la contraseña maestra debe tener al menos %d caracteres", MinMaster)
 	ErrCorrupted = errors.New("el archivo de la bóveda está dañado")
 )
 
@@ -84,6 +91,8 @@ type Vault struct {
 	key  []byte
 	data *payload
 	err  error // error al leer el archivo (dañado)
+
+	upgrading sync.WaitGroup
 }
 
 // Open prepara la bóveda del archivo dado. No pide la contraseña: solo mira si
@@ -146,8 +155,11 @@ func newParams() kdfParams {
 	if _, err := rand.Read(salt); err != nil {
 		panic(err)
 	}
-	return kdfParams{Alg: "argon2id", Salt: salt, Time: 3, Memory: 64 * 1024, Threads: uint8(th)}
+	return kdfParams{Alg: "argon2id", Salt: salt, Time: defaultKDF.Time, Memory: defaultKDF.Memory, Threads: uint8(th)}
 }
+
+// weak: la bóveda se creó con parámetros más flojos que los de ahora.
+func weak(p kdfParams) bool { return p.Time < defaultKDF.Time || p.Memory < defaultKDF.Memory }
 
 func derive(master string, p kdfParams) []byte {
 	return argon2.IDKey([]byte(master), p.Salt, p.Time, p.Memory, p.Threads, 32)
@@ -204,13 +216,48 @@ func (v *Vault) Unlock(master string) error {
 		return err
 	}
 	v.mu.Lock()
-	defer v.mu.Unlock()
 	if v.key != nil {
 		wipe(v.key)
 	}
 	v.key, v.data = key, data
+	v.mu.Unlock()
+	if weak(f.KDF) {
+		// Bóveda de antes: se vuelve a cifrar con los parámetros de ahora. Va aparte
+		// para que abrir no tarde el doble; si falla, sigue como estaba.
+		v.upgrading.Add(1)
+		go func() {
+			defer v.upgrading.Done()
+			v.strengthen(master, f)
+		}()
+	}
 	return nil
 }
+
+// strengthen vuelve a cifrar la bóveda (mismos datos, misma maestra) con sal y
+// parámetros nuevos. No hace nada si mientras tanto se ha cerrado o cambiado.
+func (v *Vault) strengthen(master string, was *fileData) {
+	p := newParams()
+	key := derive(master, p)
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.key == nil || v.file != was && !weak(v.file.KDF) {
+		wipe(key)
+		return
+	}
+	if err := v.save(key, p, v.data); err != nil {
+		wipe(key)
+		return
+	}
+	wipe(v.key)
+	v.key = key
+	// La copia .bak era la versión floja: pasa a ser la reforzada.
+	if b, err := os.ReadFile(v.path); err == nil {
+		writeSynced(v.path+".bak", b)
+	}
+}
+
+// WaitUpgrade espera a que termine el refuerzo de una bóveda vieja (pruebas).
+func (v *Vault) WaitUpgrade() { v.upgrading.Wait() }
 
 func decrypt(key []byte, f *fileData) (*payload, error) {
 	gcm, err := newGCM(key)

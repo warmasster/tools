@@ -18,7 +18,7 @@ import (
 	"turbogames/internal/vault"
 )
 
-const version = "1.0.3"
+const version = "1.0.4"
 
 type App struct {
 	ctx context.Context
@@ -84,6 +84,7 @@ func (a *App) getSettings() Settings {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	go a.watch(ctx)
+	a.watchSession()
 }
 
 func (a *App) emit(name string, data any) {

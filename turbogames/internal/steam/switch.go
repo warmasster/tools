@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -22,12 +23,15 @@ var ErrRunning = errors.New("Steam sigue abierto")
 // todo y cierra la sesión limpia) y, si no ha cerrado en el tiempo dado, lo
 // cierra a la fuerza.
 func (in *Install) Shutdown(timeout time.Duration) error {
-	if len(steamPIDs(true)) == 0 {
+	if len(in.ownPIDs(true)) == 0 {
 		// pueden quedar restos (steamwebhelper) de un cierre anterior
-		for _, pid := range steamPIDs(false) {
+		for _, pid := range in.ownPIDs(false) {
 			killPID(pid)
 		}
 		return nil
+	}
+	if err := in.checkSigned(); err != nil {
+		return err
 	}
 	cmd := exec.Command(in.Exe, "-shutdown")
 	cmd.Dir = in.Dir
@@ -36,19 +40,19 @@ func (in *Install) Shutdown(timeout time.Duration) error {
 	if cmd.Process != nil {
 		go cmd.Wait()
 	}
-	if waitGone(true, timeout) {
+	if in.waitOwnGone(true, timeout) {
 		// el resto de procesos suele irse solo un momento después
-		if !waitGone(false, 4*time.Second) {
-			for _, pid := range steamPIDs(false) {
+		if !in.waitOwnGone(false, 4*time.Second) {
+			for _, pid := range in.ownPIDs(false) {
 				killPID(pid)
 			}
 		}
 		return nil
 	}
-	for _, pid := range steamPIDs(false) {
+	for _, pid := range in.ownPIDs(false) {
 		killPID(pid)
 	}
-	if !waitGone(false, 6*time.Second) {
+	if !in.waitOwnGone(false, 6*time.Second) {
 		return errors.New("no se ha podido cerrar Steam")
 	}
 	return nil
@@ -142,10 +146,44 @@ func (in *Install) Forget(account string) error {
 		}
 	}
 
+	// Las copias de local.vdf de antes guardan la sesión de esta cuenta: se quita de
+	// ellas también (lo demás de cada copia se queda igual).
+	in.scrubBackups(account)
+
 	if strings.EqualFold(autoLoginGet(), account) {
 		return autoLoginHook("")
 	}
 	return nil
+}
+
+// scrubBackups quita la sesión guardada de una cuenta de las copias de local.vdf.
+func (in *Install) scrubBackups(account string) {
+	if in.BackupDir == "" {
+		return
+	}
+	ents, _ := os.ReadDir(in.BackupDir)
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "local-") || !strings.HasSuffix(strings.ToLower(name), ".vdf") {
+			continue
+		}
+		p := filepath.Join(in.BackupDir, name)
+		root, err := vdf.ParseFile(p)
+		if err != nil {
+			continue
+		}
+		cc := root.Path(connectCachePath...)
+		if cc == nil {
+			continue
+		}
+		n := 0
+		for _, k := range tokenKeyVariants(account) {
+			n += cc.Remove(k)
+		}
+		if n > 0 {
+			vdf.WriteFile(p, root)
+		}
+	}
 }
 
 func (in *Install) editLoginUsers(fn func(u *vdf.Node, isTarget bool), account string) error {
@@ -214,6 +252,9 @@ var resetActiveHook = func() error {
 
 // Start abre Steam con los argumentos dados (por ejemplo "-silent").
 func (in *Install) Start(args ...string) error {
+	if err := in.checkSigned(); err != nil {
+		return err
+	}
 	cmd := exec.Command(in.Exe, args...)
 	cmd.Dir = in.Dir
 	if err := cmd.Start(); err != nil {

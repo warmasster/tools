@@ -844,7 +844,7 @@
     if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) s++;
     if (/\d/.test(pw)) s++;
     if (/[^\w\s]/.test(pw)) s++;
-    const lvl = pw.length < 8 ? 0 : Math.min(4, Math.max(1, Math.round(s * 4 / 6)));
+    const lvl = pw.length < 12 ? 0 : Math.min(4, Math.max(1, Math.round(s * 4 / 6)));
     return { lvl, label: ["Muy corta", "Débil", "Aceptable", "Buena", "Muy buena"][lvl], color: ["#f87171", "#f97316", "#fbbf24", "#34d399", "#22d3ee"][lvl] };
   }
 
@@ -858,7 +858,7 @@
     if (mode === "create") {
       $("#mv-title").textContent = "Crear la bóveda";
       f.innerHTML = `<div class="v-hero"><div class="tile">${ic("shield")}</div><p>Guarda las contraseñas de tus cuentas cifradas en este PC. Elige una contraseña maestra: no se guarda en ningún sitio y, si la olvidas, no hay forma de recuperar lo que haya dentro.</p></div>
-        ${pwField("mv-a", "Contraseña maestra", "new-password")}<div class="strength"><i id="mv-str"></i></div><div class="hint" id="mv-strt">Al menos 8 caracteres. Mejor una frase larga que no uses en otro sitio.</div><div style="height:12px"></div>
+        ${pwField("mv-a", "Contraseña maestra", "new-password")}<div class="strength"><i id="mv-str"></i></div><div class="hint" id="mv-strt">Al menos 12 caracteres. Mejor una frase larga que no uses en otro sitio.</div><div style="height:12px"></div>
         ${pwField("mv-b", "Repítela", "new-password")}<div class="hint" id="mv-err"></div>`;
       go.textContent = "Crear bóveda";
     } else if (mode === "unlock") {
@@ -867,7 +867,7 @@
       go.textContent = "Abrir";
     } else if (mode === "change") {
       $("#mv-title").textContent = "Cambiar la contraseña maestra";
-      f.innerHTML = `${pwField("mv-o", "Contraseña maestra actual", "current-password")}${pwField("mv-a", "Nueva contraseña maestra", "new-password")}<div class="strength"><i id="mv-str"></i></div><div class="hint" id="mv-strt">Al menos 8 caracteres.</div><div style="height:12px"></div>${pwField("mv-b", "Repite la nueva", "new-password")}<div class="hint" id="mv-err"></div>`;
+      f.innerHTML = `${pwField("mv-o", "Contraseña maestra actual", "current-password")}${pwField("mv-a", "Nueva contraseña maestra", "new-password")}<div class="strength"><i id="mv-str"></i></div><div class="hint" id="mv-strt">Al menos 12 caracteres.</div><div style="height:12px"></div>${pwField("mv-b", "Repite la nueva", "new-password")}<div class="hint" id="mv-err"></div>`;
       go.textContent = "Cambiar";
     } else if (mode === "destroy") {
       $("#mv-title").textContent = "Borrar la bóveda";
@@ -881,7 +881,7 @@
       const s = strength(a.value);
       $("#mv-str").style.width = (a.value ? (s.lvl + 1) * 20 : 0) + "%";
       $("#mv-str").style.background = s.color;
-      $("#mv-strt").textContent = a.value ? s.label + (a.value.length < 8 ? ` · faltan ${8 - a.value.length} caracteres` : "") : "Al menos 8 caracteres. Mejor una frase larga que no uses en otro sitio.";
+      $("#mv-strt").textContent = a.value ? s.label + (a.value.length < 12 ? ` · faltan ${12 - a.value.length} caracteres` : "") : "Al menos 12 caracteres. Mejor una frase larga que no uses en otro sitio.";
     });
     m.hidden = false;
     setTimeout(() => ($("#mv-o") || a).focus(), 50);
@@ -893,7 +893,7 @@
     const val = (id) => ($(id) ? $(id).value : "");
     const err = (t) => { $("#mv-err").textContent = t; $("#mv-err").classList.add("bad"); const c = $(".modal-card", m); c.classList.remove("shake"); void c.offsetWidth; c.classList.add("shake"); };
     const a = val("#mv-a"), b = val("#mv-b");
-    if ((mode === "create" || mode === "change") && a.length < 8) return err("La contraseña maestra debe tener al menos 8 caracteres.");
+    if ((mode === "create" || mode === "change") && a.length < 12) return err("La contraseña maestra debe tener al menos 12 caracteres.");
     if ((mode === "create" || mode === "change") && a !== b) return err("Las dos contraseñas no coinciden.");
     if (mode === "change" && !val("#mv-o")) return err("Escribe la contraseña maestra actual.");
     if (mode === "change" && val("#mv-o") === a) return err("La nueva es igual que la actual.");
