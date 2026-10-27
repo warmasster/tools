@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"runtime/debug"
@@ -29,10 +30,11 @@ type App struct {
 	prev  *Snapshot
 	cands []*Candidate
 
-	opMu     sync.Mutex // una operación que cambia el árbol cada vez
-	scanMu   sync.Mutex
-	cancel   context.CancelFunc
-	scanning bool
+	opMu          sync.Mutex // una operación que cambia el árbol cada vez
+	scanMu        sync.Mutex
+	refreshCancel context.CancelFunc // «Volver a leer» en marcha
+	cancel        context.CancelFunc
+	scanning      bool
 
 	startScan string
 
@@ -93,11 +95,23 @@ func (a *App) getSettings() Settings {
 	return a.settings
 }
 
+// measureFn: cuánto cuenta cada nodo. Otro nombre de un archivo que ya cuenta en otra
+// carpeta (enlace duro) no ocupa más: 0, igual que en los totales de las carpetas.
 func (a *App) measureFn() func(*Node) int64 {
 	if a.getSettings().Measure == "size" {
-		return func(n *Node) int64 { return n.Size }
+		return func(n *Node) int64 {
+			if n.Flags&fHardLink != 0 {
+				return 0
+			}
+			return n.Size
+		}
 	}
-	return func(n *Node) int64 { return n.Alloc }
+	return func(n *Node) int64 {
+		if n.Flags&fHardLink != 0 {
+			return 0
+		}
+		return n.Alloc
+	}
 }
 
 // ---------- información general ----------
@@ -267,7 +281,9 @@ func (a *App) Scan(path string) error {
 		var prev *Snapshot
 		if a.getSettings().History {
 			prev = loadSnapshot(root)
-			_ = saveSnapshot(makeSnapshot(t))
+			snap := makeSnapshot(t)
+			snap.Mode = mode
+			_ = saveSnapshot(snap)
 		}
 		if prev != nil {
 			info.PrevTime = prev.Time
@@ -645,6 +661,7 @@ func (a *App) Cleanup() ([]*Candidate, error) {
 type GrowthResult struct {
 	PrevTime int64    `json:"prevTime"`
 	Items    []Growth `json:"items"`
+	Note     string   `json:"note,omitempty"`
 }
 
 func (a *App) Growth() (*GrowthResult, error) {
@@ -658,6 +675,7 @@ func (a *App) Growth() (*GrowthResult, error) {
 		return r, nil
 	}
 	r.PrevTime = a.prev.Time
+	r.Note = growthNote(a.prev, a.info.Mode)
 	alloc := func(n *Node) int64 { return n.Alloc }
 	r.Items = growth(a.tree, a.prev, alloc, a.getSettings().DeltaMin<<20)
 	for i := range r.Items {
@@ -715,36 +733,107 @@ type RefreshResult struct {
 }
 
 // Refresh vuelve a leer una carpeta (recorriéndola) y actualiza los totales.
+// Refresh vuelve a leer una carpeta. La lectura se hace sin bloquear el análisis
+// (se puede seguir navegando) y se puede cancelar; al final se sustituye de golpe.
 func (a *App) Refresh(id int32) (*RefreshResult, error) {
 	a.opMu.Lock()
 	defer a.opMu.Unlock()
-	runtime.EventsEmit(a.ctx, "busy", "Actualizando carpeta…")
-	defer runtime.EventsEmit(a.ctx, "busy", "")
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.mu.RLock()
 	t, err := a.treeFor(id)
+	path, isDir := "", false
+	if err == nil {
+		path, isDir = t.pathOf(id), t.Nodes[id].dir()
+	}
+	a.mu.RUnlock()
 	if err != nil {
 		return nil, err
 	}
-	if !t.Nodes[id].dir() {
+	if !isDir {
 		return nil, errors.New("Solo se pueden actualizar carpetas")
 	}
-	nid := t.Nodes[id].Parent
-	if _, err := os.Stat(t.pathOf(id)); err != nil {
+	changed := errors.New("El análisis ha cambiado mientras se leía la carpeta: vuelve a intentarlo")
+	if _, err := os.Stat(path); err != nil {
 		// Solo se quita si ya no existe: sin permiso, una unidad de red que tarda o el
 		// antivirus no son motivo para que desaparezca del análisis.
 		if !errors.Is(err, fs.ErrNotExist) {
 			return nil, errors.New("No se puede leer esa carpeta ahora mismo: " + err.Error())
 		}
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if a.tree != t || !t.alive(id) {
+			return nil, changed
+		}
 		if id == t.Root {
 			return nil, errors.New("La carpeta analizada ya no existe")
 		}
+		nid := t.Nodes[id].Parent
 		t.remove(id)
-	} else {
-		nid = refreshSubtree(t, id)
+		a.afterChange()
+		return &RefreshResult{Info: a.info, ID: nid}, nil
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.scanMu.Lock()
+	a.refreshCancel = cancel
+	a.scanMu.Unlock()
+	defer func() {
+		a.scanMu.Lock()
+		a.refreshCancel = nil
+		a.scanMu.Unlock()
+		cancel()
+	}()
+	prog := &Progress{}
+	stop := make(chan struct{})
+	runtime.EventsEmit(a.ctx, "busy", "Actualizando carpeta…")
+	runtime.EventsEmit(a.ctx, "busycancel", true)
+	go func() {
+		tick := time.NewTicker(400 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+				runtime.EventsEmit(a.ctx, "busy", fmt.Sprintf("Actualizando carpeta… %s archivos", groupDigits(prog.Files.Load())))
+			}
+		}
+	}()
+	nt, err := walkSubtree(ctx, path, prog, t.trackLinks)
+	close(stop)
+	runtime.EventsEmit(a.ctx, "busycancel", false)
+	runtime.EventsEmit(a.ctx, "busy", "")
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, errors.New("cancelado")
+		}
+		return nil, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.tree != t || !t.alive(id) {
+		return nil, changed
+	}
+	nid := graftSubtree(t, id, nt)
 	a.afterChange()
 	return &RefreshResult{Info: a.info, ID: nid}, nil
+}
+
+// CancelRefresh corta un «Volver a leer» en marcha (el análisis queda como estaba).
+func (a *App) CancelRefresh() {
+	a.scanMu.Lock()
+	if a.refreshCancel != nil {
+		a.refreshCancel()
+	}
+	a.scanMu.Unlock()
+}
+
+// groupDigits: 1234567 -> "1.234.567".
+func groupDigits(n int64) string {
+	s := fmt.Sprint(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "." + s[i:]
+	}
+	return s
 }
 
 // Locate busca una ruta en el escaneo; si ya no está, devuelve la carpeta más cercana por encima.
@@ -771,25 +860,56 @@ func (a *App) Locate(path string) (int32, error) {
 
 // refreshSubtree sustituye el subárbol de id por uno recién leído del disco.
 func refreshSubtree(t *Tree, id int32) int32 {
-	path := t.pathOf(id)
+	nt, _ := walkSubtree(context.Background(), t.pathOf(id), &Progress{}, t.trackLinks)
+	return graftSubtree(t, id, nt)
+}
+
+// graftSubtree sustituye el subárbol de id por nt (una carpeta leída aparte).
+func graftSubtree(t *Tree, id int32, nt *Tree) int32 {
 	old := t.Nodes[id]
-	nid := int32(len(t.Nodes))
-	t.Nodes = append(t.Nodes, Node{Parent: old.Parent, First: none, Next: none, NameOff: old.NameOff, NameLen: old.NameLen,
-		Flags: old.Flags &^ fDenied, MTime: old.MTime})
-	_ = walkInto(context.Background(), t, nid, path, &Progress{})
-	t.aggregate(nid)
-	n := &t.Nodes[nid]
+	base := int32(len(t.Nodes))
+	re := func(x int32) int32 {
+		if x == none {
+			return none
+		}
+		return base + x
+	}
+	for i := range nt.Nodes {
+		n := nt.Nodes[i]
+		if i == 0 {
+			n.NameOff, n.NameLen = old.NameOff, old.NameLen
+			n.Flags = old.Flags&^fDenied | n.Flags&fDenied
+			n.MTime = old.MTime
+		} else {
+			name := nt.name(int32(i))
+			n.NameOff, n.NameLen = t.addName(name)
+			if !n.dir() {
+				n.Ext = t.extID(name)
+			}
+		}
+		n.Parent, n.First, n.Next = re(n.Parent), re(n.First), re(n.Next)
+		t.Nodes = append(t.Nodes, n)
+	}
+	nid := base
 	if id == t.Root {
 		t.Nodes[id].Flags |= fDeleted
 		t.Root = nid
-		n.Parent = none
-		return nid
+		t.Nodes[nid].Parent = none
+	} else {
+		p := old.Parent
+		t.unlink(id)
+		t.Nodes[id].Flags |= fDeleted
+		t.link(nid, p)
 	}
-	p := old.Parent
-	t.unlink(id)
-	t.Nodes[id].Flags |= fDeleted
-	t.link(nid, p)
-	t.addToAncestors(nid, n.Size-old.Size, n.Alloc-old.Alloc, n.Files-old.Files)
+	t.mergeLinks(nt, base)
+	t.aggregate(nid)
+	if nid != t.Root {
+		n := &t.Nodes[nid]
+		t.addToAncestors(nid, n.Size-old.Size, n.Alloc-old.Alloc, n.Files-old.Files)
+	}
+	if len(t.fids) > 0 {
+		t.fixLinks()
+	}
 	return nid
 }
 

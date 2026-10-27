@@ -4,7 +4,7 @@ Analiza un disco o una carpeta a toda velocidad, te enseña qué ocupa más y te
 
 - **`TurboCUT.exe`**: un único ejecutable (~12 MB). Se instala con [TurboSETUP](../installer/) o se descarga suelto de la [Release](https://github.com/warmasster/tools/releases/tag/apps); no necesita instalar nada.
 - **Dos formas de escanear**:
-  - **Modo normal** (sin permisos): recorre las carpetas en paralelo. Un disco de 600 GB con 1,3 millones de archivos tarda unos 25 s la primera vez y unos 5 s las siguientes, porque Windows ya tiene las carpetas en caché.
+  - **Modo normal** (sin permisos): recorre las carpetas en paralelo. Un disco de 600 GB con 1,3 millones de archivos tarda unos 25 s la primera vez y unos 5 s las siguientes, porque Windows ya tiene las carpetas en caché. Un archivo con varios nombres (enlaces duros, como los de `C:\Windows\WinSxS`) cuenta una sola vez, igual que en modo turbo; sus otros nombres salen con la etiqueta «enlace duro» y no suman (no ocupan más). Solo en discos locales NTFS o ReFS: en unidades de red cada nombre cuenta, como antes.
   - **⚡ Modo turbo** (como administrador): lee la MFT, el índice interno de NTFS, de un tirón, igual que WizTree. El mismo disco de 600 GB tarda unos 3-4 s, incluso la primera vez, y además ve las carpetas protegidas (`System Volume Information`, la papelera de otros usuarios…). Se activa con el botón «Reiniciar en modo turbo» o en Ajustes → «Abrir siempre en modo turbo».
 - **Qué enseña**:
   - **Carpetas**: lista ordenada por tamaño, con barras, número de archivos y fecha. Arriba se ve siempre la ruta entera, con un botón para copiarla.
@@ -13,7 +13,7 @@ Analiza un disco o una carpeta a toda velocidad, te enseña qué ocupa más y te
   - **Buscar**: busca por nombre en todo lo analizado mientras escribes (unos 20 ms con 1,3 millones de archivos). Filtros por tipo, tamaño y fecha, solo archivos o solo carpetas, y en todo el análisis o solo en la carpeta actual. Varias palabras se buscan a la vez; `"entre comillas"` busca la frase; `.mp4` o `ext:mp4,mkv` filtran por extensión.
   - **Duplicados**: encuentra archivos idénticos. Primero agrupa por tamaño sin leer nada; luego descarta los enlaces duros (son el mismo archivo), compara el principio y el final, y a los que siguen empatados les lee el contenido entero (SHA-256). «Marcar copias» marca todas menos una por grupo (la más antigua, la más reciente o la de ruta más corta) y nunca deja marcar todas. Por defecto no mira Windows, Archivos de programa, AppData, `node_modules` ni `.git`.
   - **Limpieza**: busca sola temporales, cachés de navegadores, de shaders, de apps y de programación, volcados de errores, la papelera, instaladores y ZIP viejos en Descargas, `node_modules` sin tocar, carpetas `target` de Rust y modelos de IA. Lo separa en «Seguro de borrar», «Revisa antes» y «Para que lo sepas» (`hiberfil.sys`, `pagefile.sys`).
-  - **Qué ha crecido**: compara con el análisis anterior de la misma unidad o carpeta y te dice qué carpetas han crecido o bajado. En Ajustes se puede activar una flecha en la lista para cada carpeta que haya cambiado, y elegir a partir de cuánto se avisa (100 MB por defecto).
+  - **Qué ha crecido**: compara con el análisis anterior de la misma unidad o carpeta y te dice qué carpetas han crecido o bajado. En Ajustes se puede activar una flecha en la lista para cada carpeta que haya cambiado, y elegir a partir de cuánto se avisa (100 MB por defecto). Si el análisis anterior se hizo en el otro modo (o con una versión que contaba distinto los enlaces duros), lo avisa.
 - **Borrar con seguridad**:
   - Por defecto todo va a la papelera. Si algo no cabe en ella, Windows avisa antes de borrarlo para siempre.
   - «Borrar para siempre» pide confirmación aparte.
@@ -27,7 +27,7 @@ Analiza un disco o una carpeta a toda velocidad, te enseña qué ocupa más y te
 - **Moverse**: un clic en una carpeta para entrar (o Intro), Retroceso para subir, Alt+← para volver atrás, Ctrl+F para buscar (Esc vuelve a donde estabas). En los archivos, doble clic los abre (en modo turbo los abre el Explorador, sin permisos de administrador).
 - **Borrar uno**: el icono de la papelera de cada fila, o Supr (Mayús+Supr lo borra para siempre).
 - **Seleccionar varios**: el botón «Seleccionar» enseña las casillas. También vale Ctrl+clic o Espacio.
-- **Botón derecho**: abrir, mostrar en el Explorador, copiar ruta, volver a leer la carpeta o borrar.
+- **Botón derecho**: abrir, mostrar en el Explorador, copiar ruta, volver a leer la carpeta o borrar. «Volver a leer» no bloquea la ventana (puedes seguir mirando) y se puede cancelar.
 - **«En disco» o «Tamaño real»** (Ajustes): «En disco» es lo que de verdad ocupa. No cuenta los archivos de OneDrive que solo están en la nube y sí tiene en cuenta la compresión.
 
 Los ajustes y el historial de análisis se guardan en `%APPDATA%\TurboCUT`. El historial solo guarda el tamaño de las carpetas de más de 32 MB (unos 100 KB por disco) y como mucho los últimos 30 análisis.

@@ -427,6 +427,7 @@ input { font: inherit; }
 .gcol.up .gd b { color: #fbbf24; } .gcol.down .gd b { color: var(--ok); }
 .grow-row.gone { cursor: default; opacity: .7; }
 .grow-note { color: var(--muted); font-size: 13px; margin: 0 2px 12px; }
+.grow-note.warn { color: #fcd34d; }
 
 /* ---------- menú contextual ---------- */
 .ctx { position: absolute; z-index: 80; min-width: 230px; padding: 6px; border-radius: 13px; background: rgba(20,22,34,.98); border: 1px solid var(--brd2); box-shadow: 0 24px 50px -10px rgba(0,0,0,.85); animation: pop .14s ease both; }
@@ -465,6 +466,8 @@ input { font: inherit; }
   opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
 }
 .busy.on { opacity: 1; transform: translate(-50%, 0); }
+.busy-x { pointer-events: auto; margin-left: 4px; padding: 3px 10px; border-radius: 8px; border: 1px solid var(--brd2); background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.busy-x:hover { background: rgba(255,255,255,.07); }
 .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.15); border-top-color: var(--c); animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

@@ -358,6 +358,7 @@
       if (it.flags & 8) tags += `<span class="tag">enlace</span>`;
       if (it.flags & 2) tags += `<span class="tag lock">sin acceso</span>`;
       if (it.flags & 64) tags += `<span class="tag cloud">en la nube</span>`;
+      if (it.flags & 128) tags += `<span class="tag" title="Otro nombre de un archivo que ya cuenta en otra carpeta: no ocupa más espacio">enlace duro</span>`;
       let delta = "";
       if (it.new) delta = ` <span class="dl new">nueva</span>`;
       else if (it.delta) delta = ` <span class="dl ${it.delta > 0 ? "up" : "down"}">${it.delta > 0 ? "▲" : "▼"} ${fmtBytes(Math.abs(it.delta))}</span>`;
@@ -1199,6 +1200,7 @@
         <span class="gp">${esc(x.path)}</span></div>`;
     };
     el.innerHTML = `<p class="grow-note">Comparado con el análisis del <b>${dtfLong.format(new Date(g.prevTime * 1000))}</b> (${ago(g.prevTime)}).</p>
+      ${g.note ? `<p class="grow-note warn">${esc(g.note)}</p>` : ""}
       <div class="gcols">
         <div class="gcol up"><h3>${ic("tup")}Ha crecido</h3>${up.map(row).join("") || `<div class="note">Nada ha crecido de forma notable.</div>`}</div>
         <div class="gcol down"><h3>${ic("tdown")}Ha bajado</h3>${down.map(row).join("") || `<div class="note">Nada ha bajado de forma notable.</div>`}</div>
@@ -1347,7 +1349,13 @@
   window.addEventListener("blur", hideCtx);
 
   async function refreshFolder(id) {
-    const res = await api.Refresh(id);
+    let res;
+    try {
+      res = await api.Refresh(id);
+    } catch (e) {
+      if (String(e) === "cancelado") { toast("Cancelado: la carpeta se queda como estaba"); return; }
+      throw e;
+    }
     S.scan = res.info;
     renderDisk();
     S.cands = null;
@@ -1476,6 +1484,8 @@
   rt.EventsOn("scanfail", onScanFail);
   rt.EventsOn("dropped", (p) => { $("#veil").classList.remove("on"); dragDepth = 0; startScan(p); });
   rt.EventsOn("busy", (t) => { $("#busy").classList.toggle("on", !!t); if (t) $("#busy-t").textContent = t; });
+  rt.EventsOn("busycancel", (on) => { $("#busy-x").hidden = !on; });
+  $("#busy-x").addEventListener("click", () => api.CancelRefresh());
 
   // ---------- arranque ----------
   (async () => {

@@ -17,6 +17,25 @@ type Snapshot struct {
 	Time  int64            `json:"time"`
 	Total int64            `json:"total"`
 	Dirs  map[string]int64 `json:"dirs"` // ruta relativa en minúsculas -> bytes en disco
+	// Mode: "mft" o "walk" (vacío en los de antes de la 1.1.2, cuando el modo normal
+	// contaba varias veces los archivos con varios nombres).
+	Mode string `json:"mode,omitempty"`
+}
+
+// growthNote avisa si el análisis anterior se hizo de otra forma: los enlaces
+// duros pueden caer en otra carpeta y salir como cambios que no son.
+func growthNote(prev *Snapshot, mode string) string {
+	name := map[string]string{"mft": "turbo", "walk": "normal"}
+	switch {
+	case prev == nil:
+		return ""
+	case prev.Mode != "" && prev.Mode != mode:
+		return "El análisis anterior se hizo en modo " + name[prev.Mode] + " y este en modo " + name[mode] +
+			": los archivos con varios nombres (enlaces duros, como los de C:\\Windows) pueden contar en otra carpeta, así que algunas diferencias en carpetas del sistema no son reales."
+	case prev.Mode == "" && mode == "walk":
+		return "El análisis anterior es de una versión de TurboCUT que contaba varias veces los archivos con varios nombres (enlaces duros): lo que haya bajado en carpetas del sistema como C:\\Windows puede no ser real."
+	}
+	return ""
 }
 
 const (

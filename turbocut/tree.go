@@ -1,8 +1,10 @@
 package main
 
 import (
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Banderas de cada nodo.
@@ -13,7 +15,8 @@ const (
 	fLink          // enlace o punto de montaje: no se entra
 	fHidden
 	fSystem
-	fCloud // archivo de OneDrive sin descargar
+	fCloud    // archivo de OneDrive sin descargar
+	fHardLink // otro nombre de un archivo que ya cuenta en otra carpeta (enlace duro)
 )
 
 const none int32 = -1
@@ -45,6 +48,139 @@ type Tree struct {
 	extIdx   map[string]uint16
 	Root     int32
 	RootPath string
+
+	// Modo normal: un archivo con varios nombres (enlaces duros, como los de
+	// C:\Windows\WinSxS) cuenta una sola vez, igual que en el modo turbo. fids
+	// guarda, ordenados, los archivos que tienen más de un nombre en el análisis.
+	trackLinks bool
+	noFileIDs  atomic.Bool // el sistema de archivos no da identificadores (FAT…)
+	fids       []fidRef
+	linked     map[int32]bool // los nodos que están en fids
+}
+
+func (t *Tree) indexLinks() {
+	t.linked = make(map[int32]bool, len(t.fids))
+	for _, r := range t.fids {
+		t.linked[r.id] = true
+	}
+}
+
+type fidRef struct {
+	fid uint64
+	id  int32
+}
+
+func sortFids(f []fidRef) {
+	sort.Slice(f, func(i, j int) bool {
+		if f[i].fid != f[j].fid {
+			return f[i].fid < f[j].fid
+		}
+		return f[i].id < f[j].id
+	})
+}
+
+// settleLinks decide qué nombre de cada archivo con varios cuenta su tamaño: el de
+// la ruta que va antes por orden alfabético (así sale siempre el mismo y «Qué ha
+// crecido» no ve cambios que no son). Con keepAll se guardan también los archivos
+// de un solo nombre (para juntar una carpeta releída con el resto del análisis).
+func (t *Tree) settleLinks(keepAll bool) {
+	sortFids(t.fids)
+	keep := t.fids[:0]
+	for i := 0; i < len(t.fids); {
+		j := i + 1
+		for j < len(t.fids) && t.fids[j].fid == t.fids[i].fid {
+			j++
+		}
+		if j-i > 1 {
+			best, bp := i, strings.ToLower(t.pathOf(t.fids[i].id))
+			for k := i + 1; k < j; k++ {
+				if p := strings.ToLower(t.pathOf(t.fids[k].id)); p < bp {
+					best, bp = k, p
+				}
+			}
+			for k := i; k < j; k++ {
+				if k != best {
+					t.Nodes[t.fids[k].id].Flags |= fHardLink
+				}
+			}
+		}
+		if j-i > 1 || keepAll {
+			keep = append(keep, t.fids[i:j]...)
+		}
+		i = j
+	}
+	t.fids = keep
+	t.indexLinks()
+}
+
+// mergeLinks junta los archivos de una carpeta releída (nt, copiada a partir de
+// base) con los del resto del análisis.
+func (t *Tree) mergeLinks(nt *Tree, base int32) {
+	if len(nt.fids) == 0 && len(t.fids) == 0 {
+		return
+	}
+	inNt := map[uint64]int{}
+	for _, r := range nt.fids {
+		inNt[r.fid]++
+	}
+	// Fuera lo que ya no está (la carpeta vieja, archivos borrados).
+	live := t.fids[:0]
+	for _, r := range t.fids {
+		if t.alive(r.id) {
+			live = append(live, r)
+		}
+	}
+	t.fids = live
+	var add []fidRef
+	for _, r := range nt.fids {
+		id := base + r.id
+		i := sort.Search(len(t.fids), func(k int) bool { return t.fids[k].fid >= r.fid })
+		inMain, counted := false, false
+		for k := i; k < len(t.fids) && t.fids[k].fid == r.fid; k++ {
+			inMain = true
+			if t.Nodes[t.fids[k].id].Flags&fHardLink == 0 {
+				counted = true
+			}
+		}
+		if counted {
+			t.Nodes[id].Flags |= fHardLink // ya cuenta con otro nombre fuera de esta carpeta
+		}
+		if inMain || inNt[r.fid] > 1 {
+			add = append(add, fidRef{r.fid, id})
+		}
+	}
+	t.fids = append(t.fids, add...)
+	sortFids(t.fids)
+	t.indexLinks()
+}
+
+// fixLinks: si se ha quitado el nombre que contaba un archivo con varios, pasa a
+// contar otro de los que quedan (el espacio sigue ocupado).
+func (t *Tree) fixLinks() {
+	for i := 0; i < len(t.fids); {
+		j := i + 1
+		for j < len(t.fids) && t.fids[j].fid == t.fids[i].fid {
+			j++
+		}
+		counted, spare := false, int32(none)
+		for k := i; k < j; k++ {
+			id := t.fids[k].id
+			if !t.alive(id) {
+				continue
+			}
+			if t.Nodes[id].Flags&fHardLink == 0 {
+				counted = true
+			} else if spare == none {
+				spare = id
+			}
+		}
+		if !counted && spare != none {
+			n := &t.Nodes[spare]
+			n.Flags &^= fHardLink
+			t.addToAncestors(spare, n.Size, n.Alloc, 0)
+		}
+		i = j
+	}
 }
 
 func newTree(rootPath string, sizeHint int) *Tree {
@@ -178,8 +314,10 @@ func (t *Tree) aggregate(id int32) {
 	for i := len(order) - 1; i > 0; i-- {
 		n := &t.Nodes[order[i]]
 		p := &t.Nodes[n.Parent]
-		p.Size += n.Size
-		p.Alloc += n.Alloc
+		if n.Flags&fHardLink == 0 {
+			p.Size += n.Size
+			p.Alloc += n.Alloc
+		}
 		if n.dir() {
 			p.Files += n.Files
 		} else {
@@ -211,9 +349,17 @@ func (t *Tree) remove(id int32) {
 	if !n.dir() {
 		files = 1
 	}
-	t.addToAncestors(id, -n.Size, -n.Alloc, -files)
+	size, alloc := n.Size, n.Alloc
+	if n.Flags&fHardLink != 0 {
+		size, alloc = 0, 0 // no contaba: su tamaño va en otro nombre
+	}
+	t.addToAncestors(id, -size, -alloc, -files)
 	t.unlink(id)
 	n.Flags |= fDeleted
+	// Solo si lo quitado puede ser el nombre que contaba un archivo con varios.
+	if len(t.fids) > 0 && (n.dir() || t.linked[id]) {
+		t.fixLinks()
+	}
 }
 
 func (t *Tree) alive(id int32) bool {
