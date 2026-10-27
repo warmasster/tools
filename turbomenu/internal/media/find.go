@@ -11,6 +11,9 @@ import (
 // lo que no encuentre; si puede, devuelve los dos de la misma carpeta.
 func Find(binDir string) (ffmpeg, ffprobe string) {
 	for _, dir := range candidateDirs(binDir) {
+		if publicRoot(dir) && !publicSafe(dir) {
+			continue // C:\ffmpeg que otro usuario del PC puede cambiar: no se usa
+		}
 		f, p := filepath.Join(dir, "ffmpeg.exe"), filepath.Join(dir, "ffprobe.exe")
 		hasF, hasP := isFile(f), isFile(p)
 		if hasF && hasP {
@@ -68,6 +71,13 @@ func candidateDirs(binDir string) []string {
 		add(filepath.Join(pf86, `ffmpeg\bin`))
 	}
 	return dirs
+}
+
+// publicRoot: carpetas que cualquier usuario del PC puede crear (en la raíz de C:).
+func publicRoot(dir string) bool {
+	d := strings.ToLower(filepath.Clean(dir))
+	return d == `c:\ffmpeg` ||
+		d == `c:\ffmpeg\bin`
 }
 
 func isFile(p string) bool {

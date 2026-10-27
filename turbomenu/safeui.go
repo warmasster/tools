@@ -14,8 +14,9 @@ import (
 func (a *App) StartSafe(path string) {
 	ctx := a.newTask("safe")
 	gen := a.gen
-	opt := safe.Options{}
-	if k := getSettings().VTKey; k != "" {
+	// La huella solo sale a CIRCL si lo has aceptado.
+	opt := safe.Options{NoKnown: getSettings().KnownLookup != "yes"}
+	if k := vtKey(); k != "" {
 		opt.VT = safe.NewVTClient(k)
 	}
 	var last time.Time
@@ -41,12 +42,20 @@ func (a *App) SetVTKey(key string) error {
 	if key != "" && !safe.ValidVTKey(key) {
 		return errors.New("Esa clave no parece válida: son 64 letras y números")
 	}
-	return updateSettings(func(s *Settings) { s.VTKey = key })
+	return setVTKey(key)
+}
+
+// SetKnownLookup guarda si se puede consultar la huella en CIRCL ("yes" o "no").
+func (a *App) SetKnownLookup(v string) error {
+	if v != "yes" && v != "no" {
+		v = ""
+	}
+	return updateSettings(func(s *Settings) { s.KnownLookup = v })
 }
 
 // VTUpload sube el archivo a VirusTotal (el usuario ya ha dado permiso) y espera el análisis.
 func (a *App) VTUpload(path string) (*safe.VTReport, error) {
-	k := getSettings().VTKey
+	k := vtKey()
 	if k == "" {
 		return nil, errors.New("Falta la clave de VirusTotal")
 	}

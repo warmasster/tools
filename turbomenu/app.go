@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -62,14 +63,16 @@ func (a *App) startup(ctx context.Context) {
 	job := a.job
 	a.mu.Unlock()
 	if job != nil && job.Action != "home" {
-		a.startCollector(job.Action)
+		a.startCollector(job.Action) // suelta el turno de líder cuando deja de recoger
+	} else {
+		releaseLead()
 	}
-	releaseLead()
 	go shellx.Warmup()
 	if job != nil && job.Action == "lock" {
 		go lock.Warmup()
 	}
 	go syncMenu()
+	go migrateSettings()
 	cleanupLater()
 }
 
@@ -110,10 +113,13 @@ func (a *App) isIdle() bool {
 // startCollector recoge durante unos segundos las rutas que lleguen de otros procesos
 // lanzados para la misma selección.
 func (a *App) startCollector(action string) {
+	var last atomic.Int64
+	last.Store(time.Now().UnixNano())
 	srv := servePipe(pipeName("collect."+action), func(j *Job) bool {
 		if j.Action != action {
 			return false
 		}
+		last.Store(time.Now().UnixNano())
 		a.addPaths(j.Paths)
 		return true
 	})
@@ -121,14 +127,28 @@ func (a *App) startCollector(action string) {
 	a.collector = srv
 	gen := a.gen
 	a.mu.Unlock()
-	time.AfterFunc(collectWindow, func() {
+	go func() {
+		// Mientras sigan llegando rutas se sigue recogiendo (con 500 archivos el
+		// Explorador tarda en lanzar todos los procesos y antes se abrían varias
+		// ventanas); se para tras collectWindow sin ninguna, o a los collectMax.
+		start := time.Now()
+		for {
+			time.Sleep(150 * time.Millisecond)
+			a.mu.Lock()
+			stale := a.collector != srv || a.gen != gen
+			a.mu.Unlock()
+			if stale || time.Since(time.Unix(0, last.Load())) >= collectWindow || time.Since(start) >= collectMax {
+				break
+			}
+		}
 		srv.stop()
+		releaseLead() // hasta aquí, los procesos que lleguen esperan a esta ventana
 		a.mu.Lock()
 		if a.collector == srv && a.gen == gen {
 			a.collector = nil
 		}
 		a.mu.Unlock()
-	})
+	}()
 }
 
 func (a *App) addPaths(paths []string) {

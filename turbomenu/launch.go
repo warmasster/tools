@@ -37,14 +37,85 @@ var actions = map[string]bool{
 
 func validAction(a string) bool { return actions[a] }
 
-// Cuánto tiempo sigue una ventana aceptando rutas de otros procesos de la misma selección.
-const collectWindow = 2 * time.Second
+// Una ventana sigue aceptando rutas de otros procesos de la misma selección hasta que
+// pasa collectWindow sin que llegue ninguna (con cientos de archivos el Explorador
+// tarda en lanzar todos los procesos), y como mucho collectMax.
+const (
+	collectWindow = 2 * time.Second
+	collectMax    = 30 * time.Second
+)
 
 var (
-	kernel32          = windows.NewLazySystemDLL("kernel32.dll")
-	procWaitNamedPipe = kernel32.NewProc("WaitNamedPipeW")
-	procCreateMutex   = kernel32.NewProc("CreateMutexW")
+	kernel32                = windows.NewLazySystemDLL("kernel32.dll")
+	procWaitNamedPipe       = kernel32.NewProc("WaitNamedPipeW")
+	procCreateMutex         = kernel32.NewProc("CreateMutexW")
+	procPipeServerProcessID = kernel32.NewProc("GetNamedPipeServerProcessId")
+	procPipeClientProcessID = kernel32.NewProc("GetNamedPipeClientProcessId")
+	errPipeNotOurs          = errors.New("la tubería no es de este usuario")
 )
+
+// ---------- quién está al otro lado ----------
+//
+// Las tuberías se crean con permisos solo para este usuario (y SYSTEM), y cada lado
+// comprueba que el otro proceso es del mismo usuario de Windows: otro usuario del PC
+// no puede hacerse pasar por TurboMENU creando antes una tubería con el mismo nombre.
+
+var mySID = func() *windows.SID {
+	u, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return nil
+	}
+	sid, err := u.User.Sid.Copy()
+	if err != nil {
+		return nil
+	}
+	return sid
+}()
+
+// sameUser: el proceso pid es de este mismo usuario.
+func sameUser(pid uint32) bool {
+	if mySID == nil || pid == 0 {
+		return false
+	}
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(h)
+	var tok windows.Token
+	if windows.OpenProcessToken(h, windows.TOKEN_QUERY, &tok) != nil {
+		return false
+	}
+	defer tok.Close()
+	u, err := tok.GetTokenUser()
+	if err != nil {
+		return false
+	}
+	return windows.EqualSid(u.User.Sid, mySID)
+}
+
+func pipePeer(proc *windows.LazyProc, h windows.Handle) uint32 {
+	var pid uint32
+	if proc.Find() != nil {
+		return 0
+	}
+	if r, _, _ := proc.Call(uintptr(h), uintptr(unsafe.Pointer(&pid))); r == 0 {
+		return 0
+	}
+	return pid
+}
+
+// pipeSA: permisos de las tuberías (solo este usuario y SYSTEM).
+func pipeSA() *windows.SecurityAttributes {
+	if mySID == nil {
+		return nil
+	}
+	sd, err := windows.SecurityDescriptorFromString("D:P(A;;GA;;;SY)(A;;GA;;;" + mySID.String() + ")")
+	if err != nil {
+		return nil
+	}
+	return &windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: sd}
+}
 
 func userTag() string {
 	var sid uint32
@@ -71,19 +142,33 @@ func pipeName(kind string) string { return `\\.\pipe\TurboMENU.` + userTag() + "
 func dialPipe(name string, timeout time.Duration) (windows.Handle, error) {
 	p, _ := windows.UTF16PtrFromString(name)
 	deadline := time.Now().Add(timeout)
+	var busySince time.Time
 	for {
 		h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, 0, 0)
 		if err == nil {
+			if !sameUser(pipePeer(procPipeServerProcessID, h)) {
+				windows.CloseHandle(h)
+				return 0, errPipeNotOurs
+			}
 			return h, nil
+		}
+		if err == windows.ERROR_PIPE_BUSY {
+			// La tubería existe pero está atendiendo a otros (con cientos de archivos
+			// seleccionados llegan muchos procesos a la vez): se espera un poco aunque el
+			// plazo sea 0, para no abrir otra ventana para la misma selección.
+			if busySince.IsZero() {
+				busySince = time.Now()
+			}
+			if time.Now().After(deadline) && time.Since(busySince) > 2*time.Second {
+				return 0, err
+			}
+			procWaitNamedPipe.Call(uintptr(unsafe.Pointer(p)), 100)
+			continue
 		}
 		if time.Now().After(deadline) {
 			return 0, err
 		}
-		if err == windows.ERROR_PIPE_BUSY {
-			procWaitNamedPipe.Call(uintptr(unsafe.Pointer(p)), 50)
-		} else {
-			time.Sleep(15 * time.Millisecond)
-		}
+		time.Sleep(15 * time.Millisecond)
 	}
 }
 
@@ -210,7 +295,9 @@ func handoff(job *Job) bool {
 		}
 		return false
 	}
+	leadMu.Lock()
 	leadMutex = windows.Handle(h)
+	leadMu.Unlock()
 	// 3) Somos el líder: ¿hay un TurboMENU preparado esperando trabajo?
 	allowForeground(-1) // que pueda ponerse delante (nosotros venimos del Explorador)
 	if sendJob(pipeName("idle"), 0, job) {
@@ -219,12 +306,17 @@ func handoff(job *Job) bool {
 	return false
 }
 
-var leadMutex windows.Handle
+var (
+	leadMu    sync.Mutex
+	leadMutex windows.Handle
+)
 
 func closeHandle(h windows.Handle) { windows.CloseHandle(h) }
 
 // releaseLead suelta el mutex de líder (cuando ya no se recogen más rutas).
 func releaseLead() {
+	leadMu.Lock()
+	defer leadMu.Unlock()
 	if leadMutex != 0 {
 		windows.CloseHandle(leadMutex)
 		leadMutex = 0
@@ -263,11 +355,12 @@ func servePipe(name string, handle func(job *Job) bool) *pipeServer {
 func (s *pipeServer) loop(ready chan struct{}) {
 	defer close(s.done)
 	p, _ := windows.UTF16PtrFromString(s.name)
+	sa := pipeSA()
 	first := true
 	for {
 		h, err := windows.CreateNamedPipe(p, pipeAccessDuplex|fileFlagOverlap,
 			windows.PIPE_TYPE_BYTE|windows.PIPE_READMODE_BYTE|windows.PIPE_WAIT|pipeRejectRemote,
-			pipeUnlimited, 64<<10, 64<<10, 0, nil)
+			pipeUnlimited, 64<<10, 64<<10, 0, sa)
 		if first {
 			first = false
 			close(ready)
@@ -312,6 +405,10 @@ func (s *pipeServer) isStopped() bool {
 
 func (s *pipeServer) serveConn(h windows.Handle) {
 	defer windows.CloseHandle(h)
+	if !sameUser(pipePeer(procPipeClientProcessID, h)) {
+		windows.DisconnectNamedPipe(h)
+		return
+	}
 	c := pipeConn{h: h, ov: true}
 	var job Job
 	if readMsg(c, &job) != nil {

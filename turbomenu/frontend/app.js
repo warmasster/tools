@@ -805,6 +805,9 @@
       const e = ev[k === "virustotal" ? "virusTotal" : k];
       const err = ev.errors && ev.errors[k];
       if (k === "virustotal" && !S.deps.virustotal) return ["na", "Sin activar", "Añade una clave gratuita para comprobarlo con 70 antivirus"];
+      if (k === "known" && S.deps.knownLookup !== "yes") return S.deps.knownLookup === "no"
+        ? ["na", "Desactivado", 'No se consulta fuera de tu PC. <button class="linkbtn" data-known="yes">Activar</button>', true]
+        : ["na", "Sin consultar", 'Se puede preguntar a CIRCL (un servicio público de Luxemburgo) si el archivo es conocido: se manda su huella, no el archivo. <button class="linkbtn" data-known="yes">Consultar siempre</button> · <button class="linkbtn" data-known="no">No, gracias</button>', true];
       if (err) return ["na", "No disponible", err];
       if (!e) return null;
       switch (k) {
@@ -843,9 +846,15 @@
         return `<div class="check"><span class="ci ${lvl}">${ic(lvl === "ok" ? "check" : lvl === "bad" ? "x" : lvl === "warn" ? "alert" : "info")}</span><div class="ct"><b>${esc(r.title)}</b><span>${esc(t)}</span>${sub ? `<span>${raw ? sub : sub}</span>` : ""}</div>${k === "virustotal" && ev.virusTotal && ev.virusTotal.link ? `<button class="ibtn" data-url="${esc(ev.virusTotal.link)}" title="Ver la ficha">${ic("ext")}</button>` : "<span></span>"}</div>`;
       }).join("");
       $$("[data-url]").forEach((b) => (b.onclick = () => api.OpenURL(b.dataset.url)));
+      $$("[data-known]").forEach((b) => (b.onclick = async () => {
+        const v = b.dataset.known;
+        await api.SetKnownLookup(v);
+        S.deps.knownLookup = v;
+        if (v === "yes") R.safe(job); else draw(u);
+      }));
       const cta = $("#vt-cta");
       if (!S.deps.virustotal) cta.innerHTML = `<div class="note">${ic("key")}<div class="nt"><b>Compruébalo con 70 antivirus.</b> Con una clave gratuita de VirusTotal se consulta la huella del archivo (el archivo no se sube).<br><button class="btn ghost sm" id="vt-add">${ic("key")}Añadir clave</button></div></div>`;
-      else if (ev.virusTotal && !ev.virusTotal.found && !S.vtAsked) cta.innerHTML = `<div class="note warn">${ic("upload")}<div class="nt"><b>Nadie lo ha analizado antes.</b> ¿Quieres enviarlo a VirusTotal para que lo analicen? El archivo se subirá a su servicio.<br><button class="btn ghost sm" id="vt-up">${ic("upload")}Enviar a analizar</button></div></div>`;
+      else if (ev.virusTotal && !ev.virusTotal.found && !S.vtAsked) cta.innerHTML = `<div class="note warn">${ic("upload")}<div class="nt"><b>Nadie lo ha analizado antes.</b> ¿Quieres enviarlo a VirusTotal para que lo analicen? El archivo se subirá a su servicio, que lo comparte con empresas de seguridad (y quien tenga una cuenta de pago puede descargarlo): no envíes documentos personales ni de trabajo.<br><button class="btn ghost sm" id="vt-up">${ic("upload")}Enviar a analizar</button></div></div>`;
       else if (!S.vtUploading) cta.innerHTML = "";
       const a = $("#vt-add"); if (a) a.onclick = () => vtKeyDialog(() => { S.deps.virustotal = true; R.safe(job); });
       const up = $("#vt-up"); if (up) up.onclick = () => vtUpload(job, f);
@@ -923,7 +932,7 @@
     const oo = $("#o-open"); if (oo) oo.onclick = () => api.OpenURL(page || link);
     const fc = $("#f-close"); if (fc) fc.onclick = close;
     $("#o-unmark").onclick = async () => { try { await api.RemoveMark(f.path); toast("Marca quitada"); $("#o-unmark").remove(); } catch (e) { toast(errText(e), "error"); } };
-    if (site) { const img = new Image(); img.onload = () => { const fv = $("#fav"); if (fv) { fv.innerHTML = ""; fv.appendChild(img); } }; img.src = `https://icons.duckduckgo.com/ip3/${encodeURIComponent(site)}.ico`; }
+    // Sin icono de la web: pedirlo a un servicio de fuera le diría qué archivo miras.
     fit();
   };
 

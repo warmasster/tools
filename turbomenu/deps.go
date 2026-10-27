@@ -20,13 +20,15 @@ type Deps struct {
 	Office       string `json:"office"`       // "Microsoft Office", "LibreOffice" o ""
 	Cloudflared  string `json:"cloudflared"`  // túnel (si no está, se descarga al usarlo)
 	VirusTotal   bool   `json:"virustotal"`   // hay clave guardada
+	KnownLookup  string `json:"knownLookup"`  // "", "yes" o "no": consultar huellas en CIRCL
 }
 
 func detectDeps() Deps {
 	d := Deps{
-		TurboSEND:  turboTool("turbosend", "TurboSEND"),
-		TurboSETUP: turboSetupPath(),
-		VirusTotal: getSettings().VTKey != "",
+		TurboSEND:   turboTool("turbosend", "TurboSEND"),
+		TurboSETUP:  turboSetupPath(),
+		VirusTotal:  vtKey() != "",
+		KnownLookup: getSettings().KnownLookup,
 	}
 	if d.TurboSEND != "" && versionLess(turboVersion("turbosend"), "2.1.0") {
 		d.TurboSEND, d.TurboSENDOld = "", true

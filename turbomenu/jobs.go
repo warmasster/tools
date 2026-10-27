@@ -447,7 +447,9 @@ func (a *App) Run(req RunReq) RunResult {
 			out, err = a.joinToPDF(ctx, files, report(0, FileInfo{Size: total}))
 		} else {
 			var n int64
-			out, n, err = makeZip(ctx, files, func(f, s, e float64, st string) { a.emit("job-progress", map[string]any{"overall": f, "frac": f, "index": 0, "eta": e, "phase": st}) })
+			out, n, err = makeZip(ctx, files, func(f, s, e float64, st string) {
+				a.emit("job-progress", map[string]any{"overall": f, "frac": f, "index": 0, "eta": e, "phase": st})
+			})
 			if n > 0 {
 				before = n
 			}

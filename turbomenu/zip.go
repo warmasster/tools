@@ -16,7 +16,6 @@ import (
 	"github.com/klauspost/compress/flate"
 )
 
-
 // Lo que ya viene comprimido se guarda tal cual: recomprimirlo solo gasta tiempo.
 var storedExt = map[string]bool{
 	"zip": true, "rar": true, "7z": true, "gz": true, "xz": true, "bz2": true, "zst": true,

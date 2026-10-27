@@ -27,9 +27,11 @@ Con varios archivos seleccionados, todos llegan a la misma ventana.
 - **Pasar al móvil**: un QR grande; lo escaneas con la cámara y se descarga, sin instalar nada. Va por internet: por un enlace seguro de Cloudflare (funciona siempre) o directo por tu IP, con el puerto abierto en el router por UPnP. Al cerrar la ventana se apaga todo y se libera el puerto.
   - Al tocar «Descargar», la página del móvil enseña el progreso real («Descargando 45 % · 8 MB/s · quedan 20 s»), no deja empezar la misma descarga dos veces y al acabar dice dónde ha quedado el archivo. En el PC sale una fila por descarga.
 - **Recibir del móvil**: lo mismo al revés; desde el móvil eliges fotos o archivos y se guardan en esa carpeta. Van por trozos: si se corta la conexión, reintenta solo, y si recargas la página y vuelves a elegir el mismo archivo, sigue por donde iba. Mientras llega, el archivo a medias está oculto, y al terminar queda marcado como descargado de Internet.
-- **¿Es seguro?**: veredicto claro (🟢 limpio, 🟡 sospechoso, 🔴 peligroso) con lo que lo justifica: Microsoft Defender, la firma digital (quién lo firma y si es válida), de dónde se descargó y, con una clave gratuita de VirusTotal, cuántos de unos 70 antivirus lo detectan (se consulta la huella, el archivo no se sube). Si nadie lo ha visto antes, pregunta si quieres enviarlo a analizar.
+- **¿Es seguro?**: veredicto claro (🟢 limpio, 🟡 sospechoso, 🔴 peligroso) con lo que lo justifica: Microsoft Defender, la firma digital (quién lo firma y si es válida), de dónde se descargó y, con una clave gratuita de VirusTotal, cuántos de unos 70 antivirus lo detectan (se consulta la huella, el archivo no se sube). Si nadie lo ha visto antes, pregunta si quieres enviarlo a analizar (y avisa de que VirusTotal comparte los archivos subidos).
+  - Preguntar a CIRCL si el archivo es conocido (se manda su huella) solo se hace si lo aceptas la primera vez («Consultar siempre» o «No, gracias»).
+  - La clave de VirusTotal se guarda cifrada (solo tu usuario de Windows en este PC puede leerla).
 - **¿Qué lo bloquea?**: qué programas están usando el archivo, la carpeta o el USB. «Liberar» cierra el programa como al pulsar la X (si tiene cambios sin guardar, avisa y ofrece forzar). Al Explorador y a Windows nunca los cierra: solo les quita ese archivo. También «Liberar y borrar», «Liberar y mover» y, en unidades, «Liberar y expulsar».
-- **¿De dónde salió?**: la web desde la que se descargó, el enlace exacto y la fecha, con botones para abrirla o copiar el enlace. Si no viene de internet, lo dice.
+- **¿De dónde salió?**: la web desde la que se descargó, el enlace exacto y la fecha, con botones para abrirla o copiar el enlace. Si no viene de internet, lo dice. No pide nada a ningún servicio de fuera (tampoco el icono de la web).
 - **Nueva carpeta con esto**: mete la selección en una carpeta nueva con un nombre sugerido por lo que tienen en común («Vacaciones playa», «Fotos agosto 2026»…). Se puede deshacer.
 - **Pegar como archivo**: lo copiado se guarda como archivo en esa carpeta (captura → PNG, texto → TXT, enlace → acceso directo) con un nombre con la fecha, y queda listo para cambiarle el nombre. No abre ventanas.
 
@@ -37,7 +39,7 @@ Con varios archivos seleccionados, todos llegan a la misma ventana.
 
 Si falta algo que hace falta para una opción, la ventana lo dice y no deja usarla hasta que esté:
 
-- **FFmpeg** (vídeo y audio): se descarga una vez, con un clic, de su build oficial (unos 87 MB; se comprueba su SHA-256). Si ya lo tienes instalado, se usa ese.
+- **FFmpeg** (vídeo y audio): se descarga una vez, con un clic, de su build oficial (unos 87 MB; se comprueba su SHA-256). Si ya lo tienes instalado, se usa ese (el de `C:\ffmpeg`, solo si nadie más del PC puede cambiarlo: en la raíz de C: cualquier usuario puede crear carpetas y, por defecto, cambiar lo que hay dentro).
 - **TurboSEND**: para «Enviar con TurboSEND». Si no está, la opción no sale en el menú y la ventana ofrece instalarlo con TurboSETUP.
 - **Microsoft Office o LibreOffice**: para pasar documentos a PDF.
 - **Cloudflare Tunnel** (`cloudflared`): para el QR; reutiliza el de TurboSEND o se descarga solo (comprueba que esté firmado por Cloudflare).
@@ -46,6 +48,7 @@ Si falta algo que hace falta para una opción, la ventana lo dice y no deja usar
 ## Rapidez
 
 - La primera ventana tarda menos de un segundo. Al cerrarla, TurboMENU se queda preparado (oculto) 15 minutos y las siguientes se abren en unos 40 ms.
+- Con cientos de archivos seleccionados, el Explorador lanza un proceso por archivo: la primera ventana sigue recogiendo rutas mientras sigan llegando, así que todo entra en una sola ventana. Los procesos se hablan por tuberías que solo tu usuario de Windows puede abrir, y cada lado comprueba que el otro es tuyo.
 - En la ventana de inicio (abrir `TurboMENU.exe` sin nada) se puede activar «Abrir al instante», que lo deja preparado desde que inicias sesión.
 
 ## Instalar
