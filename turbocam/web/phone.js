@@ -45,6 +45,7 @@
     seq: 0, inflight: 0, lastSent: 0, q: 0.65, sent: new Map(), rtt: 0, rttN: 0,
     frames: 0, fpsNow: 0, bytes: 0, kbps: 0, sentCount: 0, netBusy: 0, cpuBusy: 0,
     encMs: 0, avgSize: 0, scaleStep: 0, up: 0, down: 0, sentW: 0, sentH: 0,
+    camFrames: 0, camFps: 0, capKey: "",
     black: false, wake: null, stopped: false, bye: "", filterOK: false,
     hidden: document.visibilityState === "hidden",
   };
@@ -188,7 +189,7 @@
     S.cfg = { ...prev, ...c, adjust: { ...DEFAULT_ADJUST, ...(c.adjust || {}) } };
     const a = S.cfg.adjust, pa = prev.adjust;
     if (S.started && (a.facing !== pa.facing || a.lens !== pa.lens)) startCamera();
-    else if (S.track) applyTrackControls();
+    else if (S.track) { applyTrackControls(); checkCapture(); }
     syncSheet();
     render();
   }
@@ -199,7 +200,11 @@
     S.starting = true;
     const a = S.cfg.adjust;
     stopCamera(true);
-    const video0 = { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } };
+    clearTimeout(reopenTimer);
+    reopenTimer = 0;
+    const [cw, ch] = captureSize();
+    S.capKey = cw + "x" + ch;
+    const video0 = { width: { ideal: cw }, height: { ideal: ch }, frameRate: { ideal: 30, max: 30 } };
     const tries = [];
     if (a.lens) tries.push({ ...video0, deviceId: { exact: a.lens } });
     tries.push({ ...video0, facingMode: a.facing });
@@ -232,11 +237,36 @@
     await listCameras();
     applyTrackControls();
     keepAwake();
-    pump();
+    startFrames();
     sendState(true);
     render();
   }
 
+  // La cámara se abre a la resolución justa para lo que se manda (más si hay zoom
+  // digital): abrirla a 1080p para mandar 360p obliga al móvil a mover el triple de
+  // píxeles en cada fotograma, y muchos móviles no pasan de 15 fps a 1080p.
+  const CAPTURES = [[640, 480], [1280, 720], [1920, 1080]];
+  function captureSize() {
+    const z = nativeZoom() ? 1 : Math.max(1, S.cfg.adjust.zoom || 1);
+    const [w, h] = sendSize(true);
+    const long = Math.max(w, h) * z, short = Math.min(w, h) * z;
+    for (const c of CAPTURES) if (c[0] >= long * 0.95 && c[1] >= short * 0.95) return c;
+    return CAPTURES[CAPTURES.length - 1];
+  }
+
+  // Si el PC pide otro tamaño, la cámara se vuelve a abrir, con un respiro por si el
+  // cambio dura poco (reabrirla corta la imagen medio segundo).
+  let reopenTimer = 0;
+  function checkCapture() {
+    if (!S.started || S.starting) return;
+    const [w, h] = captureSize();
+    if (w + "x" + h === S.capKey) { clearTimeout(reopenTimer); reopenTimer = 0; return; }
+    if (!reopenTimer) reopenTimer = setTimeout(() => {
+      reopenTimer = 0;
+      const [w2, h2] = captureSize();
+      if (S.started && w2 + "x" + h2 !== S.capKey) startCamera();
+    }, 1500);
+  }
   function stopCamera(keepScreen) {
     if (S.stream) S.stream.getTracks().forEach((t) => t.stop());
     S.stream = null;
@@ -296,8 +326,7 @@
   S.filterOK = (() => { try { probe.filter = "blur(1px)"; return probe.filter === "blur(1px)"; } catch { return false; } })();
 
   // geometry calcula cómo poner el vídeo en un lienzo de w x h con los retoques.
-  function geometry(w, h) {
-    const vw = video.videoWidth, vh = video.videoHeight;
+  function geometry(w, h, vw = video.videoWidth, vh = video.videoHeight) {
     if (!vw || !vh) return null;
     const a = S.cfg.adjust;
     const rot = ((a.rotate || 0) % 360 + 360) % 360;
@@ -355,11 +384,12 @@
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d", { alpha: false });
     let mainBusy = false;
-    function encodeHere(g, q) {
+    function encodeHere(g, q, frame) {
       mainBusy = true;
       const t0 = performance.now();
       if (canvas.width !== g.w || canvas.height !== g.h) { canvas.width = g.w; canvas.height = g.h; }
-      paintFrame(ctx, video, g, false);
+      paintFrame(ctx, frame || video, g, false);
+      if (frame) frame.close();
       return new Promise((res) => canvas.toBlob((blob) => {
         mainBusy = false;
         res(blob ? { blob, ms: performance.now() - t0 } : null);
@@ -368,18 +398,21 @@
     return {
       get count() { return failed ? 1 : workers.length; },
       idle() { return failed ? !mainBusy : workers.some((w) => !w.busy); },
-      async encode(g, q) {
-        if (failed) return encodeHere(g, q);
+      // frame: un VideoFrame de la cámara (se cierra aquí) o null para usar el vídeo.
+      async encode(g, q, frame) {
+        if (failed) return encodeHere(g, q, frame);
         const wk = workers.find((w) => !w.busy);
-        if (!wk) return null;
+        if (!wk) { if (frame) frame.close(); return null; }
         wk.busy = true;
         let bitmap;
         try {
-          bitmap = await createImageBitmap(video, g.cx, g.cy, g.cw, g.ch, { resizeWidth: g.bw, resizeHeight: g.bh, resizeQuality: "medium" });
+          bitmap = await createImageBitmap(frame || video, g.cx, g.cy, g.cw, g.ch, { resizeWidth: g.bw, resizeHeight: g.bh, resizeQuality: "medium" });
         } catch {
           wk.busy = false;
           failed = true; // este navegador no recorta así: plan B
           return null;
+        } finally {
+          if (frame) frame.close();
         }
         const id = nextID++;
         return new Promise((res) => {
@@ -400,21 +433,58 @@
   // Tamaño que se manda: el que pide el PC o, en automático, algo menos si el móvil
   // no da para más.
   const SCALES = [1, 0.75, 0.5];
-  function sendSize() {
+  // full: sin la reducción automática (para elegir a qué resolución abrir la cámara).
+  function sendSize(full) {
     let { w, h } = S.cfg;
-    const k = S.cfg.adjust.res ? 1 : SCALES[S.scaleStep];
+    const k = S.cfg.adjust.res || full ? 1 : SCALES[S.scaleStep];
     if (k < 1) { w = Math.round(w * k / 2) * 2; h = Math.round(h * k / 2) * 2; }
     return [Math.max(w, 64), Math.max(h, 36)];
   }
 
-  // pump decide si toca mandar un fotograma. Se llama con cada fotograma nuevo del
-  // vídeo (requestVideoFrameCallback) o, si no existe, con un temporizador.
-  let pumpQueued = false;
+  // Fotogramas de la cámara. Con MediaStreamTrackProcessor llegan todos tal cual
+  // salen de la cámara, aunque la pantalla esté en negro o el vídeo no se pinte; si
+  // no existe, se sigue al vídeo de la página (requestVideoFrameCallback) o, en
+  // último caso, un temporizador.
+  const hasProcessor = typeof MediaStreamTrackProcessor === "function";
+  function startFrames() {
+    if (hasProcessor && S.track) readFrames(S.track);
+    else pump();
+  }
+
+  async function readFrames(track) {
+    let reader;
+    try {
+      reader = new MediaStreamTrackProcessor({ track, maxBufferSize: 1 }).readable.getReader();
+    } catch { pump(); return; }
+    for (;;) {
+      let r;
+      try { r = await reader.read(); } catch { break; }
+      if (r.done) break;
+      const f = r.value;
+      if (S.track !== track) { f.close(); break; }
+      S.camFrames++;
+      if (!tick(f)) f.close();
+    }
+    try { reader.cancel(); } catch { /* ya cerrado */ }
+  }
+
+  let pumpQueued = false, lastPresented = 0;
   function pump() {
     if (pumpQueued || !S.started) return;
     pumpQueued = true;
-    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(tick);
-    else setTimeout(tick, 1000 / 30);
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(onVideoFrame);
+    else setTimeout(onVideoFrame, 1000 / 30);
+  }
+
+  function onVideoFrame(_, meta) {
+    pumpQueued = false;
+    if (!S.started) return;
+    if (meta && meta.presentedFrames) {
+      S.camFrames += Math.max(1, Math.min(4, meta.presentedFrames - lastPresented));
+      lastPresented = meta.presentedFrames;
+    } else S.camFrames++;
+    tick(null);
+    pump();
   }
 
   // En camino a la vez: los que caben en el tiempo de ida y vuelta (más uno), para
@@ -424,28 +494,31 @@
     return Math.max(2, Math.min(6, Math.ceil(S.rtt / interval) + 1));
   }
 
-  function tick() {
-    pumpQueued = false;
-    if (!S.started) return;
+  // tick decide si toca mandar este fotograma. Devuelve true si se queda con frame
+  // (y entonces lo cierra él).
+  function tick(frame) {
+    if (!S.started) return false;
     const now = performance.now();
     const interval = 1000 / Math.max(1, S.cfg.fps || 1);
-    if (now - S.lastSent >= interval - 4 && S.connected && !S.hidden) {
-      const backlog = S.transport ? S.transport.backlog() : 0;
-      if (!enc.idle()) S.cpuBusy++;
-      else if (S.inflight >= maxInflight(interval) || backlog > Math.max(400e3, S.avgSize * 4)) S.netBusy++;
-      else sendFrame(now);
-    }
-    pump();
+    if (now - S.lastSent < interval - 4 || !S.connected || S.hidden) return false;
+    const backlog = S.transport ? S.transport.backlog() : 0;
+    if (!enc.idle()) { S.cpuBusy++; return false; }
+    if (S.inflight >= maxInflight(interval) || backlog > Math.max(400e3, S.avgSize * 4)) { S.netBusy++; return false; }
+    return sendFrame(now, frame);
   }
 
-  function sendFrame(now) {
+  function sendFrame(now, frame) {
     const [w, h] = sendSize();
-    const g = geometry(w, h);
-    if (!g) return;
+    // El fotograma de la cámara se usa si viene igual que lo enseña el vídeo; si
+    // viene sin girar (móvil en vertical), se coge del vídeo, que ya lo gira.
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (frame && (frame.displayWidth !== vw || frame.displayHeight !== vh || frame.rotation)) frame = null;
+    const g = geometry(w, h, vw, vh);
+    if (!g) return false;
     S.lastSent = now;
     S.sentW = w; S.sentH = h;
     const n = (S.seq = (S.seq + 1) >>> 0);
-    enc.encode(g, S.q).then((r) => {
+    enc.encode(g, S.q, frame).then((r) => {
       if (!r || !S.connected || !S.transport) return;
       S.encMs = S.encMs ? S.encMs * 0.85 + r.ms * 0.15 : r.ms;
       S.avgSize = S.avgSize ? S.avgSize * 0.9 + r.blob.size * 0.1 : r.blob.size;
@@ -455,6 +528,7 @@
       S.bytes += r.blob.size;
       S.transport.sendBlob(new Blob([header(1, n), r.blob]));
     });
+    return !!frame;
   }
 
   function onAck(m) {
@@ -477,6 +551,8 @@
   //  - sobra de todo → poco a poco, más calidad y más resolución.
   setInterval(() => {
     S.fpsNow = S.frames; S.frames = 0;
+    S.camFps = S.started ? S.camFrames : 0; S.camFrames = 0;
+    checkCapture(); // por si el cambio de tamaño llegó mientras se abría la cámara
     S.kbps = Math.round(S.bytes * 8 / 1000); S.bytes = 0;
     const target = Math.max(1, S.cfg.fps), interval = 1000 / target;
     const sent = S.sentCount, net = S.netBusy, cpu = S.cpuBusy;
@@ -521,11 +597,13 @@
       q: Math.round(S.q * 100) / 100,
       rtt: Math.round(S.rtt),
       caps: { ...S.caps, cameras: S.cameras, filters: S.filterOK, model },
+      camW: video.videoWidth, camH: video.videoHeight,
     };
     if (battery) { st.battery = Math.round(battery.level * 100) / 100; st.charging = battery.charging; }
     const key = JSON.stringify(st);
-    if (!force && key === lastState) { send({ t: "state", q: st.q, rtt: st.rtt }); return; }
+    if (!force && key === lastState) { send({ t: "state", q: st.q, rtt: st.rtt, cam: S.camFps }); return; }
     lastState = key;
+    st.cam = S.camFps;
     send(st);
   }
 
@@ -576,7 +654,7 @@
     }
     // Al volver: la cámara puede haberse parado (Android la corta en segundo plano).
     if (S.started && (!S.track || S.track.readyState !== "live")) startCamera();
-    else if (S.started) { video.play().catch(() => {}); pump(); }
+    else if (S.started) { video.play().catch(() => {}); if (!hasProcessor) pump(); }
     keepAwake();
     if (!S.connected && !S.bye) connect();
     sendState(true);
@@ -627,7 +705,7 @@
     S.cfg.adjust = { ...S.cfg.adjust, ...patch };
     send({ t: "adjust", adjust: S.cfg.adjust });
     if ("facing" in patch || "lens" in patch) startCamera();
-    else applyTrackControls();
+    else { applyTrackControls(); checkCapture(); }
     syncSheet();
     render();
   }
@@ -732,11 +810,17 @@
     $("#info").innerHTML = [
       ["Conectado a", S.cfg.pc || "—"],
       ["Conexión", S.connected ? (S.transport.kind === "ws" ? "WebSocket" : "HTTP") + (location.hostname.endsWith("trycloudflare.com") ? " · Cloudflare" : " · directa") : "sin conexión"],
-      ["Cámara", vw ? `${vw}×${vh}` : "—"],
+      ["Cámara", vw ? `${vw}×${vh} · ${S.camFps} fps` + (camSlow() ? " (¿poca luz?)" : "") : "—"],
       ["Se envía", `${S.sentW || S.cfg.w}×${S.sentH || S.cfg.h} · ${S.fpsNow} fps · ${S.kbps} kb/s`],
       ["Calidad", pct(S.q) + (S.rttN ? ` · ${Math.round(S.rtt)} ms` : "")],
       ["Compresión", `${enc.count} ${enc.count === 1 ? "hilo" : "hilos"}` + (S.encMs ? ` · ${Math.round(S.encMs)} ms por imagen` : "")],
     ].map(([k, v]) => `<span>${k}</span><b>${esc(v)}</b>`).join("");
+  }
+
+  // La cámara da menos fotogramas de los que se piden: casi siempre es poca luz (el
+  // móvil alarga la exposición), y eso no se arregla desde aquí.
+  function camSlow() {
+    return S.started && S.camFps > 0 && S.camFps < Math.min(S.cfg.fps, 30) * 0.75;
   }
 
   function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -771,9 +855,9 @@
     res.hidden = !S.connected || !S.started || c.role === "spare";
     res.textContent = `${S.sentH || c.h}p · ${S.fpsNow} fps`;
     const mode = $("#chip-mode");
-    const slowNet = S.q < 0.45, slowPhone = !c.adjust.res && S.scaleStep > 0;
-    mode.hidden = !(S.connected && S.started && c.fps > 4 && (slowNet || slowPhone));
-    mode.textContent = slowNet ? "Red lenta" : "Resolución reducida";
+    const slowCam = camSlow(), slowNet = S.q < 0.45, slowPhone = !c.adjust.res && S.scaleStep > 0;
+    mode.hidden = !(S.connected && S.started && c.fps > 4 && (slowCam || slowNet || slowPhone));
+    mode.textContent = slowCam ? `Cámara a ${S.camFps} fps: ¿poca luz?` : slowNet ? "Red lenta" : "Resolución reducida";
 
     // Botones
     $("#b-torch").hidden = !S.caps.torch;

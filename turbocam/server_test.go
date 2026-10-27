@@ -446,3 +446,19 @@ func TestAliveEndpoint(t *testing.T) {
 		}
 	}
 }
+
+// El móvil dice cuántos fotogramas da su cámara, para saber si el cuello está ahí.
+func TestCameraFPSFromPhone(t *testing.T) {
+	r := newRig(t)
+	c := dialWS(t, r, "wss")
+	c.WriteJSON(map[string]string{"t": "hello", "id": "movilcamfps1", "name": "Lento", "model": "x"})
+	readMsg(t, c, "config")
+	c.WriteJSON(map[string]any{"t": "state", "visible": true, "live": true, "camW": 640, "camH": 480, "cam": 14})
+	c.WriteMessage(websocket.BinaryMessage, frameMsg(frameKindVideo, 1, testJPEG(t, 640, 360, 128)))
+	readMsg(t, c, "ack")
+	c.WriteJSON(map[string]any{"t": "state", "q": 0.7, "rtt": 30, "cam": 12})
+	waitFor(t, "los fps de la cámara", func() bool {
+		ps := r.e.State().Phones
+		return len(ps) == 1 && ps[0].CamFPS == 12 && ps[0].CamW == 640 && ps[0].CamH == 480
+	})
+}

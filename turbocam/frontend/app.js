@@ -361,9 +361,18 @@
     if (p.error) return "";
     if (!p.visible) return "En segundo plano";
     if (!p.live) return "Sin emitir";
+    // En espera no sale en la cámara: solo manda una vista previa lenta, para que no
+    // parezca que va a pocos fotogramas.
+    if (p.role === "spare") return `En espera · vista previa a ${Math.round(p.fps)} fps`;
     const parts = [];
     if (p.width) parts.push(`${p.width}×${p.height}`);
     parts.push(`${Math.round(p.fps)} fps`);
+    // Si la cámara del móvil da menos de lo que se pide, el cuello está ahí (casi
+    // siempre poca luz), no en la red ni en TurboCAM.
+    if (p.camFps > 0) {
+      const want = Math.min((p.adjust && p.adjust.fps) || 30, 30);
+      parts.push(`cámara ${Math.round(p.camFps)} fps` + (p.camFps < want * 0.75 ? " (¿poca luz?)" : ""));
+    }
     if (p.kbps) parts.push(p.kbps > 1000 ? (p.kbps / 1000).toFixed(1).replace(".", ",") + " Mb/s" : Math.round(p.kbps) + " kb/s");
     if (p.quality) parts.push("calidad " + pct(p.quality));
     if (p.rtt) parts.push(p.rtt + " ms");
@@ -896,7 +905,7 @@
     const st = {
       engine: {
         phones: [
-          { id: "abc123def456", name: "Pixel 8", model: "Pixel 8", via: "internet", visible: true, live: true, error: "", battery: 0.82, charging: true, fps: 29.6, kbps: 4820, quality: 0.78, rtt: 64, width: 1280, height: 720, role: "main", caps: { zoom: { min: 1, max: 8, step: 0.1 }, torch: true, cameras: [{ id: "a", label: "Trasera" }, { id: "b", label: "Delantera" }, { id: "c", label: "Gran angular" }], filters: true }, adjust: { ...A }, connected: Date.now() },
+          { id: "abc123def456", name: "Pixel 8", model: "Pixel 8", via: "internet", visible: true, live: true, error: "", battery: 0.82, charging: true, fps: 29.6, kbps: 4820, quality: 0.78, rtt: 64, camFps: 30, camW: 1280, camH: 720, width: 1280, height: 720, role: "main", caps: { zoom: { min: 1, max: 8, step: 0.1 }, torch: true, cameras: [{ id: "a", label: "Trasera" }, { id: "b", label: "Delantera" }, { id: "c", label: "Gran angular" }], filters: true }, adjust: { ...A }, connected: Date.now() },
           { id: "zzz999yyy888", name: "iPhone", model: "iPhone", via: "lan", visible: true, live: true, error: "", battery: 0.41, charging: false, fps: 4, kbps: 210, quality: 0.7, rtt: 12, width: 320, height: 180, role: "spare", caps: { zoom: null, torch: false, cameras: [], filters: false }, adjust: { ...A, facing: "environment" }, connected: Date.now() },
         ],
         consumers: [{ pid: 1, exe: "Discord.exe", width: 1280, height: 720, fps: 30 }],

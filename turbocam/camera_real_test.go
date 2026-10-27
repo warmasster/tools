@@ -308,3 +308,51 @@ func TestRealPhoneE2E(t *testing.T) {
 		t.Logf("foto: %dx%d (%v)", cfg.Width, cfg.Height, err)
 	}
 }
+
+// TestPhonePage mide la página del móvil (Chrome con su cámara falsa) contra el
+// servidor y el motor, sin cámara virtual: usa ajustes y memoria compartida de
+// prueba, así que se puede pasar con TurboCAM abierto. TURBOCAM_THROTTLE=6 hace
+// la CPU del «móvil» 6 veces más lenta.
+//
+//	$env:TURBOCAM_PHONE="1"; go test -run PhonePage -v .
+func TestPhonePage(t *testing.T) {
+	if os.Getenv("TURBOCAM_PHONE") == "" {
+		t.Skip("solo con TURBOCAM_PHONE=1")
+	}
+	if os.Getenv("TURBOCAM_REAL") != "" {
+		t.Skip("con TURBOCAM_REAL tocaría los ajustes de verdad")
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("hace falta node")
+	}
+	r := newRig(t)
+	phone := exec.Command(node, "dev/phone.mjs", r.url("https", "/c/"+r.tok+"/"), "16")
+	var logs bytes.Buffer
+	phone.Stdout = &logs
+	phone.Env = os.Environ()
+	if err := phone.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		phone.Process.Kill()
+		phone.Wait()
+		t.Logf("móvil:\n%s", logs.String())
+	}()
+	var last PhoneInfo
+	for end := time.Now().Add(15 * time.Second); time.Now().Before(end); time.Sleep(time.Second) {
+		st := r.e.State()
+		if len(st.Phones) != 1 {
+			continue
+		}
+		p := st.Phones[0]
+		t.Logf("PC: %s %dx%d a %.0f fps (cámara %dx%d a %.0f fps), calidad %.2f, %d ms", p.Role, p.Width, p.Height, p.FPS, p.CamW, p.CamH, p.CamFPS, p.Quality, p.RTT)
+		last = p
+	}
+	if last.FPS < 20 || last.CamFPS < 20 {
+		t.Errorf("va lento: %.0f fps (cámara %.0f fps)", last.FPS, last.CamFPS)
+	}
+	if last.CamW != 1280 || last.CamH != 720 {
+		t.Errorf("cámara abierta a %dx%d, quería 1280x720 (lo justo para 720p)", last.CamW, last.CamH)
+	}
+}

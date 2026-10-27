@@ -56,6 +56,9 @@ type phone struct {
 	charging bool
 	quality  float64
 	rtt      int
+	camFPS   float64 // fotogramas por segundo que da la cámara del móvil
+	camW     int
+	camH     int
 	frame    *image.YCbCr
 	jpeg     []byte
 	seq      uint64
@@ -83,6 +86,9 @@ type PhoneInfo struct {
 	Kbps      float64         `json:"kbps"`
 	Quality   float64         `json:"quality"`
 	RTT       int             `json:"rtt"`
+	CamFPS    float64         `json:"camFps"`
+	CamW      int             `json:"camW"`
+	CamH      int             `json:"camH"`
 	Width     int             `json:"width"`
 	Height    int             `json:"height"`
 	Role      string          `json:"role"`
@@ -420,6 +426,9 @@ type phoneMsg struct {
 	Charging *bool           `json:"charging"`
 	Quality  *float64        `json:"q"`
 	RTT      *int            `json:"rtt"`
+	Cam      *float64        `json:"cam"`
+	CamW     *int            `json:"camW"`
+	CamH     *int            `json:"camH"`
 	Caps     json.RawMessage `json:"caps"`
 	Adjust   *Adjust         `json:"adjust"`
 }
@@ -449,6 +458,12 @@ func (e *Engine) onMessage(p *phone, m phoneMsg) {
 		}
 		if m.RTT != nil {
 			p.rtt = *m.RTT
+		}
+		if m.Cam != nil {
+			p.camFPS = *m.Cam
+		}
+		if m.CamW != nil && m.CamH != nil {
+			p.camW, p.camH = *m.CamW, *m.CamH
 		}
 		if len(m.Caps) > 0 && len(m.Caps) < 16<<10 {
 			p.caps = m.Caps
@@ -1138,10 +1153,11 @@ func (e *Engine) State() EngineState {
 		info := PhoneInfo{
 			ID: p.id, Name: p.name, Model: p.model, Via: p.via, Visible: p.visible, Live: p.live, Error: p.errMsg,
 			Battery: p.battery, Charging: p.charging, FPS: p.fps, Kbps: p.kbps, Quality: p.quality, RTT: p.rtt,
+			CamFPS: p.camFPS, CamW: p.camW, CamH: p.camH,
 			Role: role, Caps: p.caps, Connected: p.connected.UnixMilli(),
 		}
 		if time.Since(p.frameAt) > 2*time.Second {
-			info.FPS, info.Kbps = 0, 0
+			info.FPS, info.Kbps, info.CamFPS = 0, 0, 0
 		}
 		if p.frame != nil {
 			info.Width, info.Height = p.frame.Rect.Dx(), p.frame.Rect.Dy()

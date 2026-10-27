@@ -10,6 +10,8 @@ Usa el móvil (o varios) como **webcam del PC**, sin instalar nada en el móvil:
 
 La imagen sale en directo en la ventana del PC, que también dice qué apps están usando la cámara («En uso por Discord, Chrome»).
 
+Las apps buscan cámaras al arrancar: si una ya estaba abierta cuando se instaló TurboCAM (Discord, por ejemplo), hay que cerrarla del todo y volver a abrirla para que la vea.
+
 > Es una cámara de DirectShow, como la de OBS: la ven Discord, Chrome, Edge, Meet, Zoom, Teams, OBS, Skype… Las pocas apps que solo usan Media Foundation (la app Cámara de Windows) no ven este tipo de cámaras; para esas está el **modo ventana**.
 
 ## En el móvil
@@ -25,12 +27,16 @@ La imagen sale en directo en la ventana del PC, que también dice qué apps est�
 - **Olvidar este PC**: el móvil se desconecta, deja de entrar solo y el PC borra sus ajustes.
 - Todo lo que cambias en el móvil se ve también en el PC (y al revés), y se recuerda para la próxima vez, aunque entre por otro enlace (se reconoce por el modelo).
 
+La cámara del móvil se abre a la resolución justa para lo que se manda (a 640×480 si se mandan 360p, por ejemplo): moverla a 1080p sin necesidad gasta y en muchos móviles no pasa de 15 fps. Cada fotograma se coge tal cual sale de la cámara (`MediaStreamTrackProcessor`, si el navegador lo tiene), aunque la pantalla esté en modo negro.
+
+**Si va a pocos fotogramas**, mira «Cámara» en la hoja del móvil (o la línea del móvil en el PC): son los que da la cámara. Con poca luz, los móviles alargan la exposición y bajan solos a 10-15 fps, y ni bajar la resolución ni la red lo arreglan; el móvil lo avisa con «Cámara a N fps: ¿poca luz?». Más luz (o la cámara trasera, que suele captar más) lo arregla.
+
 El móvil hace el trabajo caro y lo reparte: la GPU recorta y escala solo la parte que se ve, y 2 o 3 hilos a la vez (uno por núcleo libre) le ponen los retoques y lo pasan a JPEG, así que comprimir no limita los fotogramas por segundo. El PC confirma cada fotograma nada más recibirlo (lo decodifica aparte, siempre el más nuevo), y en camino solo hay los que caben en el tiempo de ida y vuelta: no se frena por la latencia de internet ni se acumula retraso. Se adapta solo: si la red no da abasto, baja la calidad; si es el móvil el que no da abasto, baja la resolución (en automático); si sobra, vuelve a subir. Por Cloudflare, 720p a 30 fotogramas por segundo.
 
 ## En el PC
 
 - **Escenas**: el móvil, una **región de la pantalla** (con o sin el ratón) o **imagen sobre imagen**: un móvil en una esquina sobre la pantalla, sobre otro móvil, etc. La esquina y el tamaño se eligen con un clic.
-- **Varios móviles a la vez**: se elige cuál sale con «Poner en cámara». Los que no salen mandan solo una miniatura.
+- **Varios móviles a la vez**: se elige cuál sale con «Poner en cámara». Los que no salen (en espera) mandan solo una vista previa pequeña a pocos fotogramas por segundo; la imagen de la cámara va a ritmo completo.
 - **Foto** (`Ctrl+Alt+P`): se la pide al móvil a la resolución de su cámara, con el mismo encuadre, y la guarda en `Imágenes\TurboCAM`.
 - **Congelar** (`Ctrl+Alt+F`): la cámara se queda con la última imagen.
 - **Tapar** (`Ctrl+Alt+T`): en vez de la imagen sale una tarjeta «Cámara tapada».
@@ -82,11 +88,18 @@ móvil (página web)  ──JPEG por WebSocket──▶  TurboCAM.exe  ──NV1
 
 Compila la cámara (`camera\build.ps1`, con las herramientas de C++ de Visual Studio; en GitHub Actions ya están), pasa `go vet` y las pruebas, y deja `TurboCAM.exe` en esta carpeta.
 
-Pruebas de verdad (registran la cámara en tu usuario):
+Pruebas de verdad (registran la cámara en tu usuario y usan sus ajustes, que dejan como estaban). No corren con TurboCAM abierto: escribirían en la misma cámara que esté usando Discord.
 
 ```powershell
 $env:TURBOCAM_REAL = "1"
 go test -run Real -v .   # la cámara con ffmpeg, y la cadena entera con un Chrome haciendo de móvil (node dev/phone.mjs)
+```
+
+Solo la página del móvil (Chrome con cámara falsa → servidor → motor), con ajustes y memoria de prueba; se puede pasar con TurboCAM abierto. `$env:TURBOCAM_THROTTLE = "6"` hace la CPU del «móvil» 6 veces más lenta:
+
+```powershell
+$env:TURBOCAM_PHONE = "1"
+go test -run PhonePage -v .
 ```
 
 `$env:TURBOCAM_SHOTS = "carpeta"` guarda capturas de lo que ve `ffmpeg` y de la página del móvil. Usan el `ffmpeg` de TurboMENU si no hay otro.
