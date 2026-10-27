@@ -461,6 +461,13 @@ func (d *Download) loadState() (bool, error) {
 		return false, nil
 	}
 	d.url, d.size, d.etag, d.lastMod, d.rangeOK = st.FinalURL, st.Size, st.ETag, st.LastModified, true
+	if d.Req.URL != "" && d.Req.URL != st.URL {
+		// La extensión manda otro enlace para el mismo archivo (el de antes caducó): se
+		// sigue con él. Si el archivo ya no es el mismo, If-Range lo detecta y se empieza
+		// de nuevo.
+		d.url = d.Req.URL
+		d.logf("enlace nuevo para seguir la descarga")
+	}
 	d.finalPath, d.partPath = st.FinalPath, d.Req.PartPath
 	if u, err := url.Parse(d.url); err == nil {
 		d.host = u.Hostname()

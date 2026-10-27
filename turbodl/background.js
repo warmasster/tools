@@ -12,7 +12,7 @@ import { probe } from './lib/probe.js';
 import { installHeaderRule, removeHeaderRule, cookieHeaderFor } from './lib/net-rules.js';
 import {
   MiB, hostOf, domainMatches, sanitizeFilename, basename, filenameFromUrl, formatBytes,
-  formatDuration, formatSpeed, activeMsOf,
+  formatDuration, formatSpeed, activeMsOf, sameSite,
 } from './lib/util.js';
 
 const ui = new BroadcastChannel('turbodl');
@@ -152,7 +152,13 @@ async function intercept(item, release) {
   if (item.totalBytes > 0 && item.totalBytes < s.minSizeMB * MiB) return;
   if (/^text\/html/i.test(item.mime || '')) return; // casi seguro una página de login o un POST
 
-  const referer = item.referrer || (await activeTabUrl());
+  // Sin referrer, la pestaña activa solo vale si es del mismo sitio que la descarga:
+  // si no, se mandaría a un servidor cualquiera la página que estabas viendo.
+  let referer = item.referrer || '';
+  if (!referer) {
+    const tab = await activeTabUrl();
+    if (tab && (sameSite(hostOf(tab), hostOf(url)) || sameSite(hostOf(tab), startHost))) referer = tab;
+  }
   const backend = await preferredBackend(s);
   const plan = await evaluate(url, {
     referer,
@@ -166,11 +172,52 @@ async function intercept(item, release) {
     return;
   }
 
-  // Tomamos el control: cancelar la de Chrome y crear la nuestra.
+  // ¿Es una descarga que se quedó con el enlace caducado? Se sigue con el nuevo.
+  const stuck = await findRenewable(plan, basename(item.filename));
+  try {
+    if (stuck) {
+      await renew(stuck, plan, item.url);
+    } else {
+      // Primero la nuestra; la de Chrome se cancela solo si la nuestra ha arrancado (si
+      // falla, Chrome sigue con la suya como si nada: aún la tiene retenida).
+      await createDownload(plan, { filename: basename(item.filename), originalUrl: item.url, mime: item.mime, backend });
+    }
+  } catch (e) {
+    console.warn('TurboDL no ha podido empezar; sigue Chrome:', e);
+    await removeHeaderRule(plan.id);
+    return;
+  }
   await chrome.downloads.cancel(item.id).catch(() => {});
   release();
   await chrome.downloads.erase({ id: item.id }).catch(() => {});
-  await createDownload(plan, { filename: basename(item.filename), originalUrl: item.url, mime: item.mime, backend });
+}
+
+/**
+ * Una descarga parada o con error (casi siempre, un enlace firmado que caducó) que es
+ * el mismo archivo que se acaba de pedir: mismo tamaño, mismo nombre y, si los dos lo
+ * tienen, mismo ETag.
+ */
+async function findRenewable(plan, name) {
+  if (plan.mode !== 'multi' || !(plan.size > 0)) return null;
+  const want = sanitizeFilename(name || plan.filename || filenameFromUrl(plan.url) || '');
+  // El mismo archivo seguro: del mismo sitio y con el mismo ETag o la misma fecha del
+  // servidor (sin eso, seguir con otro contenido estropearía lo ya descargado).
+  const sameFile = (r) => (r.etag && plan.etag && r.etag === plan.etag)
+    || (r.lastModified && plan.lastModified && r.lastModified === plan.lastModified);
+  const all = await db.getAll('downloads');
+  return all.find((r) => (r.status === 'error' || r.status === 'paused') && r.resumable && r.size === plan.size
+    && sameFile(r) && (sameSite(hostOf(r.url), hostOf(plan.url)) || sameSite(hostOf(r.originalUrl || ''), hostOf(plan.url)))
+    && (r.filename === want || basename(r.nativeFinalPath || '') === want)) || null;
+}
+
+async function renew(rec, plan, originalUrl) {
+  await removeHeaderRule(plan.id);
+  await db.patch('downloads', rec.id, {
+    url: plan.url, originalUrl, referer: plan.referer || rec.referer, useCookies: plan.useCookies,
+    notice: 'Sigue donde iba con el enlace nuevo.', error: null, errorKind: null,
+  });
+  await resume(rec.id);
+  notify(`turbodl-start-${rec.id}`, 'TurboDL sigue la descarga', rec.filename);
 }
 
 /**
@@ -266,19 +313,28 @@ async function createDownload(plan, { filename, originalUrl, mime, backend }) {
     error: null,
     errorKind: null,
     notice: plan.mode === 'single' && !native ? 'El servidor no permite descargar por partes: una sola conexión y sin reanudación.' : null,
+    held: native, // el nativo arranca desde la cola (ver pumpNative)
+    heldAt: Date.now(),
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
   await db.put('downloads', rec);
   ui.postMessage({ type: 'changed', id: rec.id });
-  if (native) {
-    // El motor nativo no pasa por la red de Chrome: Cookie y Referer van en la orden.
+  try {
+    if (native) {
+      // El motor nativo no pasa por la red de Chrome: Cookie y Referer van en la orden.
+      await removeHeaderRule(rec.id);
+      await pumpNative();
+    } else {
+      // Tras redirecciones el dominio final puede ser otro: rehacer la regla con la URL final.
+      await installHeaderRule(rec.id, rec);
+      await backend.start(rec.id, s);
+    }
+  } catch (e) {
     await removeHeaderRule(rec.id);
-    await backend.start(rec.id, s, rec, await nativeHeaders(rec));
-  } else {
-    // Tras redirecciones el dominio final puede ser otro: rehacer la regla con la URL final.
-    await installHeaderRule(rec.id, rec);
-    await backend.start(rec.id, s);
+    await db.del('downloads', rec.id);
+    ui.postMessage({ type: 'changed', id: rec.id });
+    throw e;
   }
   notify(`turbodl-start-${rec.id}`, 'Descargando con TurboDL', `${name}${rec.size ? ` · ${formatBytes(rec.size)}` : ''}`);
   updateBadge();
@@ -322,27 +378,90 @@ async function resume(id) {
   if (!rec) return;
   if (rec.backend !== 'native' && (rec.errorKind === 'delivery' || rec.status === 'ready')) return deliver(id);
   const backend = await backendFor(rec);
+  if (rec.backend === 'native') {
+    // A la cola: arranca en cuanto haya sitio.
+    await db.patch('downloads', id, { status: 'queued', held: true, heldAt: Date.now(), error: null, errorKind: null });
+    ui.postMessage({ type: 'changed', id });
+    await pumpNative();
+    updateBadge();
+    return;
+  }
   await db.patch('downloads', id, { status: 'queued', error: null, errorKind: null });
   ui.postMessage({ type: 'changed', id });
   const s = await getSettings();
-  if (rec.backend === 'native') {
-    await backend.resume(id, s, rec, await nativeHeaders(rec));
-  } else {
-    await installHeaderRule(id, rec);
-    await backend.resume(id, s);
-  }
+  await installHeaderRule(id, rec);
+  await backend.resume(id, s);
   updateBadge();
 }
 
 async function cancel(id) {
   const rec = await db.get('downloads', id);
-  if (rec) await (await backendFor(rec)).cancel(id, rec).catch((e) => console.warn(e));
+  // Una en cola que ya había empezado (pausada y reanudada) tiene su archivo a medias:
+  // el motor lo borra aunque no la tenga en marcha.
+  if (rec && (!rec.held || rec.nativePartPath)) {
+    try { await (await backendFor(rec)).cancel(id, rec); } catch (e) { console.warn(e); } // sin motor nativo: se borra igual
+  }
   await removeHeaderRule(id);
   await db.del('segments', id);
   await db.del('downloads', id);
   ui.postMessage({ type: 'changed', id });
   updateBadge();
+  if (rec?.backend === 'native') pumpNative();
 }
+
+// ================================================================= cola del motor nativo
+//
+// El motor nativo no tiene límite propio: 30 descargas a 16 conexiones serían 480
+// conexiones a la vez. Cada descarga nativa entra «retenida» (held) y arranca desde
+// aquí cuando hay sitio; al terminar, pausar o fallar una, entra la siguiente.
+
+let pumpChain = Promise.resolve();
+function pumpNative() {
+  pumpChain = pumpChain.then(pumpOnce).catch((e) => console.warn('Cola del motor nativo:', e));
+  return pumpChain;
+}
+
+async function pumpOnce() {
+  const s = await getSettings();
+  const native = (await db.getAll('downloads')).filter((r) => r.backend === 'native');
+  let running = native.filter((r) => r.status === 'downloading' || (r.status === 'queued' && !r.held)).length;
+  const waiting = native.filter((r) => r.status === 'queued' && r.held)
+    .sort((a, b) => (a.heldAt || a.createdAt) - (b.heldAt || b.createdAt));
+  for (const rec of waiting) {
+    if (running >= s.nativeMaxActive) {
+      if (!rec.notice) {
+        await db.patch('downloads', rec.id, { notice: NOTICE_QUEUE });
+        ui.postMessage({ type: 'changed', id: rec.id });
+      }
+      continue;
+    }
+    running++;
+    await db.patch('downloads', rec.id, (cur) => ({ held: false, notice: cur.notice === NOTICE_QUEUE ? null : cur.notice }));
+    ui.postMessage({ type: 'changed', id: rec.id });
+    try {
+      const n = await backendFor(rec);
+      const cur = await db.get('downloads', rec.id);
+      if (!cur) { running--; continue; }
+      await n.start(rec.id, s, cur, await nativeHeaders(cur));
+    } catch (e) {
+      running--;
+      const seg = await db.get('segments', rec.id);
+      if (!(seg?.bytesDone > 0)) {
+        // El motor no arranca y aún no se había bajado nada: que siga Chrome.
+        try {
+          await fallback(rec.id);
+          notify(`turbodl-err-${rec.id}`, 'TurboDL pasa la descarga a Chrome', `${rec.filename}\n${e?.message || e}`);
+          continue;
+        } catch (e2) {
+          console.warn('No se pudo pasar a Chrome:', e2);
+        }
+      }
+      await db.patch('downloads', rec.id, { status: 'error', held: false, error: String(e?.message || e), errorKind: null });
+      ui.postMessage({ type: 'changed', id: rec.id });
+    }
+  }
+}
+const NOTICE_QUEUE = 'En cola: empieza en cuanto termine otra descarga (Ajustes → Descargas a la vez).';
 
 /** Plan B: que Chrome lo descargue de la forma normal. */
 async function fallback(id) {
@@ -557,9 +676,19 @@ function wireNative(n) {
   n.on('status', onNativeStatus);
 }
 
-async function onNativeStatus({ id, status, path, size, error, lost }) {
+async function onNativeStatus({ id, status, path, size, error, lost, httpStatus }) {
   const rec = await db.get('downloads', id);
   if (!rec) return;
+  if (status === 'error' && [401, 403, 407].includes(httpStatus)) {
+    // Sin permiso nada más empezar (autenticación HTTP, un enlace que solo vale desde el
+    // navegador…): que lo descargue Chrome, que sí la tiene.
+    const seg = await db.get('segments', id);
+    if (!(seg?.bytesDone > 0)) {
+      notify(`turbodl-err-${id}`, 'TurboDL pasa la descarga a Chrome', `${rec.filename}\nEl servidor no le deja descargarla (${httpStatus}).`);
+      await fallback(id);
+      return;
+    }
+  }
   if (status === 'done') {
     await completeNative(rec, path, size);
   } else if (status === 'downloading') {
@@ -570,11 +699,15 @@ async function onNativeStatus({ id, status, path, size, error, lost }) {
       ...(lost ? { notice: 'El motor nativo se cerró: pulsa Reanudar para seguir donde iba.' } : {}),
     }));
   } else if (status === 'error') {
-    await db.patch('downloads', id, { status: 'error', error, errorKind: null });
-    notify(`turbodl-err-${id}`, 'Error en la descarga', `${rec.filename}\n${error || ''}`);
+    const expired = [401, 403, 410].includes(httpStatus) && rec.resumable;
+    const msg = expired ? `${error} Vuelve a pulsar Descargar en la web: TurboDL seguirá donde iba con el enlace nuevo.` : error;
+    await db.patch('downloads', id, { status: 'error', error: msg, errorKind: expired ? 'expired' : null });
+    notify(`turbodl-err-${id}`, 'Error en la descarga', `${rec.filename}\n${msg || ''}`);
   }
   ui.postMessage({ type: 'changed', id });
   updateBadge();
+  // Después de guardar el estado nuevo: si no, la cola aún la contaría como en marcha.
+  if (status !== 'downloading') pumpNative();
 }
 
 async function completeNative(rec, path, size) {
@@ -656,6 +789,24 @@ function nextId() {
   return idChain;
 }
 
+// Reglas de red de sesión huérfanas: si el service worker murió a mitad de una
+// descarga (o de un sondeo), su regla se quedaba puesta hasta cerrar Chrome. Al
+// arrancar no hay ningún sondeo en marcha, así que solo valen las de descargas del
+// motor del navegador que siguen activas.
+async function sweepRules() {
+  try {
+    const rules = await chrome.declarativeNetRequest.getSessionRules();
+    if (!rules.length) return;
+    const all = await db.getAll('downloads');
+    const keep = new Set(all.filter((r) => r.backend !== 'native' && (r.status === 'queued' || r.status === 'downloading')).map((r) => r.id));
+    const stale = rules.map((r) => r.id).filter((id) => !keep.has(id));
+    if (stale.length) await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: stale });
+  } catch (e) {
+    console.warn('Limpieza de reglas:', e);
+  }
+}
+sweepRules();
+
 // Acceso para depurar desde la consola del service worker y para dev/run-tests.js.
 self.turbodl = {
   addUrl, pause, resume, cancel, fallback, boot, getSettings, setSettings,
@@ -665,4 +816,5 @@ self.turbodl = {
   jobs: async () => (await getBrowser()).send('jobs'),
   native: async () => { const n = await getNative(); return n ? n.info : null; },
   rules: () => chrome.declarativeNetRequest.getSessionRules(),
+  sweepRules, pumpNative, findRenewable,
 };

@@ -89,7 +89,7 @@ func uninstall() (string, error) {
 	os.Remove(filepath.Join(dir, "native.log"))
 	os.Remove(filepath.Join(dir, "native.log.old"))
 	os.Remove(dir) // solo si ha quedado vacía
-	return "Motor nativo desinstalado. Quita también TurboDL en chrome://extensions.", nil
+	return "Motor nativo desinstalado. Quita también TurboDL en la página de extensiones del navegador (chrome://extensions, edge://extensions…).", nil
 }
 
 // removeOld borra los .old que dejaron actualizaciones con el host abierto.

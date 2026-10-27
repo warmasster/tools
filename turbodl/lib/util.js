@@ -43,6 +43,23 @@ export function hostOf(url) {
 }
 
 /** true si `host` es `domain` o un subdominio suyo. */
+// Sitio de un host: los dos últimos trozos (tres en dominios como algo.co.uk o
+// algo.com.es). Es la misma regla que usa el motor nativo para las cookies.
+const SECOND_LEVEL = new Set(['co', 'com', 'net', 'org', 'gov', 'gob', 'edu', 'ac', 'or', 'ne', 'go']);
+export function siteOf(host) {
+  host = String(host || '').toLowerCase().replace(/\.$/, '');
+  // Direcciones IP y nombres sin punto: el host entero (192.168.1.10 no es «1.10»).
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(':') || !host.includes('.')) return host;
+  const parts = host.split('.');
+  if (parts.length <= 2) return parts.join('.');
+  const n = SECOND_LEVEL.has(parts[parts.length - 2]) && parts[parts.length - 1].length === 2 ? 3 : 2;
+  return parts.slice(-n).join('.');
+}
+
+export function sameSite(a, b) {
+  return !!a && !!b && siteOf(a) === siteOf(b);
+}
+
 export function domainMatches(host, domain) {
   domain = domain.trim().toLowerCase().replace(/^\*?\.?/, '');
   if (!domain) return false;

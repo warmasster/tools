@@ -28,6 +28,10 @@ const FIELDS = `
     <label for="f-nconns">Conexiones</label>
     <div class="range-row"><input id="f-nconns" name="nativeConnections" type="number" min="1" max="64" step="1"><span class="unit">máx. 64</span></div>
   </div>
+  <div class="field" data-engine="native">
+    <label for="f-nmax">Descargas a la vez</label>
+    <div class="range-row"><input id="f-nmax" name="nativeMaxActive" type="number" min="1" max="20" step="1"><span class="unit">las demás, en cola</span></div>
+  </div>
   <p class="hint engine-status span-2"></p>
   <div class="field span-2">
     <label for="f-excl">Dominios excluidos</label>
@@ -49,6 +53,7 @@ export async function mountSettingsForm(root, { saved = root.querySelector('.sav
     $('maxTotalConnections').value = s.maxTotalConnections;
     $('engine').value = s.engine;
     $('nativeConnections').value = s.nativeConnections;
+    $('nativeMaxActive').value = s.nativeMaxActive;
     $('excludedDomains').value = s.excludedDomains.join('\n');
   }
 
@@ -82,6 +87,7 @@ export async function mountSettingsForm(root, { saved = root.querySelector('.sav
       maxTotalConnections: $('maxTotalConnections').value,
       engine: $('engine').value,
       nativeConnections: $('nativeConnections').value,
+      nativeMaxActive: $('nativeMaxActive').value,
       excludedDomains: $('excludedDomains').value,
     });
     if (saved) {

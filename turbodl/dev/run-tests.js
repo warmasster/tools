@@ -418,6 +418,31 @@ async function main() {
       return 'Cookie y Referer pasados al motor nativo, hash OK';
     });
 
+    await test('native-queue', async () => {
+      // «Descargas a la vez» = 1: la segunda espera en cola y empieza al acabar la primera.
+      await b.evalSW(`turbodl.setSettings({ engine: 'auto', nativeConnections: 2, nativeMaxActive: 1, nativeDir: ${JSON.stringify(nativeDir)} })`);
+      try {
+        const before = await knownIds(b);
+        await b.openAndClick(`${A.base}/file.bin`);
+        const id1 = await waitNewDownload(b, before);
+        const before2 = await knownIds(b);
+        await b.openAndClick(`${A.base}/file.bin?copia=2`);
+        const id2 = await waitNewDownload(b, before2);
+        await sleep(1000);
+        const recs = (await state(b)).downloads;
+        const r1 = recs.find((x) => x.id === id1), r2 = recs.find((x) => x.id === id2);
+        if (r1?.status !== 'downloading') throw new Error(`La primera no descarga: ${r1?.status}`);
+        if (r2?.status !== 'queued' || !r2?.held) throw new Error(`La segunda no espera en cola: ${r2?.status} held=${r2?.held}`);
+        const h1 = await waitHistory(b, id1);
+        const h2 = await waitHistory(b, id2);
+        await checkHash(A.base, h1.path);
+        await checkHash(A.base, h2.path);
+        return 'la segunda esperó en cola y empezó sola al acabar la primera, hash OK';
+      } finally {
+        await b.evalSW('turbodl.setSettings({ nativeMaxActive: 4 })');
+      }
+    });
+
     await b.evalSW("turbodl.setSettings({ engine: 'browser' })");
   }
 

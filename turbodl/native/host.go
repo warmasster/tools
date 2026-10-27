@@ -222,7 +222,12 @@ func (h *host) start(m hostMsg) error {
 			h.send(map[string]any{"type": "status", "id": id, "status": "cancelled"})
 		default:
 			log.Printf("[%d] error: %v", id, err)
-			h.send(map[string]any{"type": "status", "id": id, "status": "error", "error": errorText(err)})
+			msg := map[string]any{"type": "status", "id": id, "status": "error", "error": errorText(err)}
+			var he *HTTPError
+			if errors.As(err, &he) {
+				msg["httpStatus"] = he.Status // la extensión decide si pasarla a Chrome
+			}
+			h.send(msg)
 		}
 	}()
 	return nil

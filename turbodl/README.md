@@ -69,7 +69,8 @@ Necesita Chrome 116 o posterior.
 
 ## Uso
 
-- **Automático**: haz clic en cualquier enlace de descarga. Si el archivo pasa del tamaño mínimo (10 MB por defecto) y el servidor permite descargar por partes, se encarga TurboDL. Si no, la descarga sigue con Chrome como siempre.
+- **Automático**: haz clic en cualquier enlace de descarga. Si el archivo pasa del tamaño mínimo (10 MB por defecto) y el servidor permite descargar por partes, se encarga TurboDL. Si no, la descarga sigue con Chrome como siempre. La de Chrome solo se cancela cuando TurboDL ya tiene la suya en marcha; y si el motor nativo no tiene permiso nada más empezar (inicio de sesión HTTP, enlaces que solo valen desde el navegador), se la vuelve a pasar a Chrome.
+- **Enlace caducado**: si una descarga parada falla porque su enlace ya no vale, vuelve a pulsar Descargar en la web: TurboDL reconoce el mismo archivo y sigue donde iba con el enlace nuevo.
 - **A la fuerza**: clic derecho en un enlace → **Descargar con TurboDL**. Así se ignora el tamaño mínimo y, si el servidor no admite Range, se descarga con una sola conexión. También puedes pegar un enlace en el gestor.
 - **Popup** (icono de la barra):
   - vista previa de las 3 últimas descargas: porcentaje, velocidad, tiempo restante, lo que llevan o lo que tardaron;
@@ -81,7 +82,7 @@ Necesita Chrome 116 o posterior.
   - botón para abrir el gestor.
 - **Atajo**: `Alt+Mayús+T` activa o desactiva la interceptación. Se cambia en `chrome://extensions/shortcuts`. Con la interceptación desactivada, el icono muestra `OFF`.
 - **Gestor**: pausar, reanudar, cancelar, reintentar, copiar el enlace, abrir el archivo y mostrarlo en la carpeta. Si una descarga falla, el botón **Descargar con Chrome normal** sirve de plan B.
-- **Motor**: en los ajustes se elige entre **Nativo si está instalado** y **Solo el del navegador**. El popup muestra cuál se está usando.
+- **Motor**: en los ajustes se elige entre **Nativo si está instalado** y **Solo el del navegador**. El popup muestra cuál se está usando. Con el nativo, **Descargas a la vez** (4 por defecto) pone en cola las demás, para no abrir cientos de conexiones de golpe.
 
 ## Cómo funciona
 
@@ -105,7 +106,7 @@ BroadcastChannel('turbodl') ← progreso en vivo → manager.html / popup.html
   - se ignoran las descargas creadas por extensiones, incluida la entrega final de TurboDL, para que no haya bucles;
   - se hace un `GET` con `Range: bytes=0-0` (3 s como máximo) y solo se toma el control si responde 206, el tamaño coincide y no es HTML;
   - siempre se llama a `suggest()`.
-- **Cookies y Referer**: `fetch` no deja fijarlos, así que se ponen con reglas de sesión de `declarativeNetRequest`. Se limitan a `tabIds: [-1]` y al dominio de la descarga, y se borran al pausar o terminar. Las cookies solo se fuerzan si con `credentials: 'include'` el servidor responde como si no hubieran llegado.
+- **Cookies y Referer**: `fetch` no deja fijarlos, así que se ponen con reglas de sesión de `declarativeNetRequest`. Se limitan a `tabIds: [-1]` y al dominio de la descarga, y se borran al pausar o terminar (y, si el service worker murió a mitad, al volver a arrancar). Las cookies solo se fuerzan si con `credentials: 'include'` el servidor responde como si no hubieran llegado. Si Chrome no dice de qué página viene la descarga, solo se usa como Referer la pestaña activa cuando es del mismo sitio.
 - **Entrega**: se crea un blob URL sobre el archivo de OPFS (sin copiarlo a memoria) y se pasa a `chrome.downloads.download`. Cuando se completa, se borra el temporal y el estado.
 - **Capa de backend** (`lib/backend.js`): `InBrowserBackend` (offscreen, workers y OPFS) y `NativeBackend` (Native Messaging con `com.turbodl.native`) tienen la misma interfaz. Las descargas nuevas van al nativo si está instalado; las que ya existían siguen con el motor con el que empezaron. Detalles del motor nativo en [native/README.md](native/README.md).
 
@@ -177,4 +178,4 @@ Opciones:
 - **Sin soporte de Range no hay reanudación**: con una sola conexión, pausar o reiniciar Chrome hace que vuelva a empezar.
 - **Descargas que dependen de un POST** (formularios) no se pueden repetir con GET. TurboDL las detecta (el servidor devuelve HTML o un tamaño distinto) y las deja a Chrome.
 - **Archivos comprimidos al vuelo** (`Content-Encoding: gzip`, etc.) no se pueden partir por rangos y se dejan a Chrome.
-- Los enlaces firmados que caducan pueden fallar al reanudar mucho después. En ese caso, el plan B es **Descargar con Chrome normal**.
+- Los enlaces firmados que caducan pueden fallar al reanudar mucho después. Vuelve a pulsar el enlace en la web para seguir con uno nuevo; si no, el plan B es **Descargar con Chrome normal**.

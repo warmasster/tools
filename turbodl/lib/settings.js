@@ -12,6 +12,7 @@ export const DEFAULTS = {
   excludedDomains: [],
   engine: 'auto', // 'auto' = motor nativo si está instalado; 'browser' = siempre el del navegador
   nativeConnections: 16,
+  nativeMaxActive: 4, // descargas a la vez con el motor nativo; las demás esperan en cola
   nativeDir: '', // vacío = carpeta Descargas del usuario
 };
 
@@ -39,6 +40,7 @@ function normalize(s) {
     maxTotalConnections: clampInt(s.maxTotalConnections, 1, 64, DEFAULTS.maxTotalConnections),
     engine: s.engine === 'browser' ? 'browser' : 'auto',
     nativeConnections: clampInt(s.nativeConnections, 1, NATIVE_MAX, DEFAULTS.nativeConnections),
+    nativeMaxActive: clampInt(s.nativeMaxActive, 1, 20, DEFAULTS.nativeMaxActive),
     nativeDir: String(s.nativeDir || ''),
     excludedDomains: (Array.isArray(s.excludedDomains) ? s.excludedDomains : String(s.excludedDomains || '').split(/[\s,]+/))
       .map((d) => d.trim().toLowerCase()).filter(Boolean),
