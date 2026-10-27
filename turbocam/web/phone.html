@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0a0b12">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="robots" content="noindex">
+<title>TurboCAM</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="phone.css">
+</head>
+<body>
+<div class="app" id="app" data-screen="start">
+
+  <!-- Imagen de la cámara (la vista previa es la del vídeo; lo que se manda se dibuja aparte) -->
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted autoplay disablepictureinpicture></video>
+    <div class="frame" id="frame" aria-hidden="true"></div>
+  </div>
+
+  <!-- Inicio -->
+  <section class="start" id="start">
+    <div class="start-card">
+      <img src="logo.svg" alt="" width="72" height="72" class="start-logo">
+      <h1>Turbo<b>CAM</b></h1>
+      <p class="start-sub" id="start-sub">Usa este móvil como cámara del PC</p>
+      <div class="conn" id="start-conn"><i></i><span>Conectando con el PC…</span></div>
+      <button class="btn primary big" id="go">
+        <svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+        Empezar
+      </button>
+      <p class="start-note">Se pedirá permiso para la cámara. No hace falta instalar nada.</p>
+      <div class="start-err" id="start-err" hidden></div>
+    </div>
+  </section>
+
+  <!-- En directo -->
+  <header class="top" id="top">
+    <div class="status" id="status"><i></i><span id="status-text">Conectando…</span></div>
+    <div class="chips">
+      <span class="chip" id="chip-res" hidden></span>
+      <span class="chip warn" id="chip-mode" hidden></span>
+    </div>
+  </header>
+
+  <nav class="bar" id="bar">
+    <button class="rb" id="b-flip" title="Cambiar de cámara"><svg viewBox="0 0 24 24"><path d="M20 7h-3l-2-3H9L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><path d="M9 13.5a3 3 0 0 1 5.2-2"/><path d="M15 12.5a3 3 0 0 1-5.2 2"/><path d="m14.5 9.2-.3 2.3 2.3-.3"/><path d="m9.5 16.8.3-2.3-2.3.3"/></svg><span>Girar</span></button>
+    <button class="rb" id="b-torch" title="Linterna" hidden><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="M8 2h8l-1 6H9z"/><path d="M9 8v4l-2 10h10l-2-10V8"/></svg><span>Luz</span></button>
+    <button class="rb main" id="b-black" title="Modo negro"><svg viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></svg><span>Negro</span></button>
+    <button class="rb" id="b-tune" title="Ajustes de imagen"><svg viewBox="0 0 24 24"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/></svg><span>Ajustes</span></button>
+    <button class="rb" id="b-full" title="Pantalla completa"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span>Completa</span></button>
+  </nav>
+
+  <!-- Zoom rápido -->
+  <div class="zoom" id="zoom" hidden>
+    <input type="range" id="zoom-range" min="1" max="5" step="0.05" value="1" aria-label="Zoom">
+    <b id="zoom-val">1,0×</b>
+  </div>
+
+  <!-- Hoja de ajustes -->
+  <div class="sheet-bg" id="sheet-bg" hidden></div>
+  <section class="sheet" id="sheet" hidden>
+    <div class="grip"></div>
+    <h2>Imagen</h2>
+    <label class="row"><span>Brillo</span><input type="range" id="a-brightness" min="0.5" max="1.5" step="0.01"><b id="v-brightness"></b></label>
+    <label class="row"><span>Contraste</span><input type="range" id="a-contrast" min="0.5" max="1.5" step="0.01"><b id="v-contrast"></b></label>
+    <label class="row"><span>Color</span><input type="range" id="a-saturation" min="0" max="2" step="0.01"><b id="v-saturation"></b></label>
+    <p class="hint" id="filter-note" hidden>Este navegador no deja retocar brillo y color: se envía la imagen tal cual.</p>
+    <div class="row"><span>Espejo</span><button class="toggle" id="a-mirror" role="switch"><i></i></button></div>
+    <div class="row"><span>Girar</span><div class="seg" id="a-rotate"><button data-v="0">0°</button><button data-v="90">90°</button><button data-v="180">180°</button><button data-v="270">270°</button></div></div>
+    <div class="row"><span>Encuadre</span><div class="seg" id="a-fit"><button data-v="cover">Rellenar</button><button data-v="contain">Completo</button></div></div>
+    <div class="row col" id="lens-row" hidden><span>Cámara</span><select id="a-lens"></select></div>
+    <button class="link" id="a-reset">Volver a los valores de fábrica</button>
+    <h2>Este móvil</h2>
+    <div class="info" id="info"></div>
+    <div class="sheet-actions">
+      <button class="btn ghost" id="b-install" hidden><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Instalar en el inicio</button>
+      <button class="btn ghost" id="b-stop"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Dejar de emitir</button>
+    </div>
+  </section>
+
+  <!-- Modo negro: el móvil parece apagado pero sigue emitiendo -->
+  <div class="black" id="black" hidden>
+    <i class="dot" id="black-dot"></i>
+    <p class="black-hint" id="black-hint">Sigue emitiendo. Toca dos veces para volver.</p>
+  </div>
+
+  <!-- Avisos -->
+  <div class="notice" id="notice" hidden>
+    <div class="notice-card">
+      <div class="notice-ic" id="notice-ic"></div>
+      <h2 id="notice-title"></h2>
+      <p id="notice-text"></p>
+      <button class="btn primary" id="notice-btn"></button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+</div>
+<script src="phone.js"></script>
+</body>
+</html>

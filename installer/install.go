@@ -526,6 +526,14 @@ func cleanupLeftovers(id string) {
 		for _, root := range []string{`*`, `Directory`, `Directory\Background`} {
 			deleteTree(registry.CURRENT_USER, `Software\Classes\`+root+`\shell\TurboMENU`)
 		}
+	case "turbocam":
+		// La cámara virtual, registrada en HKCU para las apps de 64 y de 32 bits.
+		const clsid = `{F5716436-EE88-4461-A891-B532EE167F6C}`
+		const videoCategory = `{860BB310-5D01-11D0-BD3B-00A0C911CE86}`
+		for _, classes := range []string{`Software\Classes\`, `Software\Classes\WOW6432Node\`} {
+			deleteTree(registry.CURRENT_USER, classes+`CLSID\`+videoCategory+`\Instance\`+clsid)
+			deleteTree(registry.CURRENT_USER, classes+`CLSID\`+clsid)
+		}
 	}
 }
 

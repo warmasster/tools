@@ -1,0 +1,17 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "TurboCAM",
+  "outputfilename": "TurboCAM",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "",
+  "author": { "name": "Fernando", "email": "" },
+  "info": {
+    "companyName": "TurboCAM",
+    "productName": "TurboCAM",
+    "productVersion": "1.0.0",
+    "copyright": "Fernando",
+    "comments": "El móvil como cámara del PC, sin instalar nada en el móvil"
+  }
+}

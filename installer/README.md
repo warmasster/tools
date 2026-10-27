@@ -9,8 +9,8 @@ Instalador de las herramientas Turbo. Enseña la lista, instalas las que quieras
 - **Actualiza aunque el programa esté abierto**: el nuevo se usa la próxima vez que lo abras.
 - **Se actualiza a sí mismo** cuando sale una versión nueva de TurboSETUP.
 - **TurboDL** es una extensión de Chrome: TurboSETUP baja `TurboDL.exe` y lo lanza, y TurboDL te guía para cargarla en tu navegador (Chrome, Edge o Brave: abre la página de extensiones del que uses).
-- Las que son extensión **y** tienen ventana (TurboVAULT, TurboMENU) se pueden **abrir** desde aquí; el botón pequeño de al lado las reinstala.
-- **Si falta el programa** de una herramienta (lo borraste a mano o se lo llevó un antivirus), sale como «Falta el programa» con **Reparar**. Al desinstalarla, se vuelve a bajar un momento para que quite todo lo que dejó puesto (clic derecho, arranque con Windows, puente de la extensión); sin conexión, quita lo que deja en el registro.
+- Las que se instalan solas **y** tienen ventana (TurboVAULT, TurboMENU, TurboCAM) se pueden **abrir** desde aquí; el botón pequeño de al lado las reinstala.
+- **Si falta el programa** de una herramienta (lo borraste a mano o se lo llevó un antivirus), sale como «Falta el programa» con **Reparar**. Al desinstalarla, se vuelve a bajar un momento para que quite todo lo que dejó puesto (clic derecho, arranque con Windows, puente de la extensión, cámara virtual); sin conexión, quita lo que deja en el registro.
 
 Al instalar la primera herramienta deja una copia de sí mismo en la carpeta de instalación, con su acceso directo en el menú Inicio. Al quitar la última, borra la carpeta entera.
 

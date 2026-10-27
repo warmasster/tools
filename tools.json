@@ -77,6 +77,17 @@
       "build": "turbovault/build.ps1",
       "output": "turbovault/TurboVAULT.exe",
       "version": "turbovault/wails.json"
+    },
+    {
+      "id": "turbocam",
+      "name": "TurboCAM",
+      "kind": "setup",
+      "open": true,
+      "dir": "turbocam",
+      "summary": "Usa el móvil como webcam del PC en Discord, Meet, Zoom u OBS: escaneas un QR y listo, sin instalar nada en el móvil.",
+      "build": "turbocam/build.ps1",
+      "output": "turbocam/TurboCAM.exe",
+      "version": "turbocam/wails.json"
     }
   ]
 }
