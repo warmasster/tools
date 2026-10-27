@@ -85,6 +85,8 @@ type Adjust struct {
 	Rotate     int     `json:"rotate"` // 0, 90, 180, 270
 	Fit        string  `json:"fit"`    // cover | contain
 	Torch      bool    `json:"torch"`
+	Res        int     `json:"res"` // alto máximo que manda el móvil (0 = el de la salida)
+	FPS        int     `json:"fps"` // fotogramas por segundo del móvil (0 = los de ajustes)
 }
 
 func defaultAdjust() Adjust {
@@ -122,6 +124,16 @@ func (a Adjust) normalized() Adjust {
 	}
 	if a.Fit != "contain" {
 		a.Fit = "cover"
+	}
+	switch a.Res {
+	case 0, 1080, 720, 540, 480, 360, 240:
+	default:
+		a.Res = 0
+	}
+	switch a.FPS {
+	case 0, 10, 15, 20, 24, 30:
+	default:
+		a.FPS = 0
 	}
 	if len(a.Lens) > 200 {
 		a.Lens = ""
@@ -196,6 +208,7 @@ type Profile struct {
 // Device es lo que se recuerda de cada móvil.
 type Device struct {
 	Name   string `json:"name"`
+	Model  string `json:"model"` // para reconocerlo si entra por otro enlace
 	Adjust Adjust `json:"adjust"`
 }
 
@@ -208,7 +221,7 @@ type Hotkeys struct {
 type Settings struct {
 	Token      string             `json:"token"` // secreto del enlace del móvil
 	Port       int                `json:"port"`
-	Resolution string             `json:"resolution"` // auto | 1080 | 720 | 540
+	Resolution string             `json:"resolution"` // auto | 1080 | 720 | 540 | 480 | 360
 	FPS        int                `json:"fps"`        // 15 | 24 | 30
 	UPnP       bool               `json:"upnp"`
 	CFToken    string             `json:"cfToken"` // túnel con dominio propio (opcional)
@@ -291,7 +304,7 @@ func (s Settings) normalized() Settings {
 		s.Token = randHex(16)
 	}
 	switch s.Resolution {
-	case "1080", "720", "540":
+	case "1080", "720", "540", "480", "360":
 	default:
 		s.Resolution = "auto"
 	}

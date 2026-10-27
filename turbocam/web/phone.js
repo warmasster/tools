@@ -37,13 +37,14 @@
   }
 
   // ---------- estado ----------
-  const DEFAULT_ADJUST = { facing: "user", lens: "", zoom: 1, panX: 0, panY: 0, brightness: 1, contrast: 1, saturation: 1, mirror: false, rotate: 0, fit: "cover", torch: false };
+  const DEFAULT_ADJUST = { facing: "user", lens: "", zoom: 1, panX: 0, panY: 0, brightness: 1, contrast: 1, saturation: 1, mirror: false, rotate: 0, fit: "cover", torch: false, res: 0, fps: 0 };
   const S = {
     cfg: { role: "spare", w: 320, h: 180, fps: 2, adjust: { ...DEFAULT_ADJUST }, pc: "", name: "", frozen: false, covered: false, watched: false },
     stream: null, track: null, caps: {}, cameras: [],
     connected: false, transport: null, started: false, starting: false,
-    seq: 0, inflight: 0, lastSent: 0, q: 0.72, sent: new Map(), rtt: 0, rttN: 0,
-    skipped: 0, acked: 0, frames: 0, fpsNow: 0, bytes: 0, kbps: 0,
+    seq: 0, inflight: 0, lastSent: 0, q: 0.65, sent: new Map(), rtt: 0, rttN: 0,
+    frames: 0, fpsNow: 0, bytes: 0, kbps: 0, sentCount: 0, netBusy: 0, cpuBusy: 0,
+    encMs: 0, avgSize: 0, scaleStep: 0, up: 0, down: 0, sentW: 0, sentH: 0,
     black: false, wake: null, stopped: false, bye: "", filterOK: false,
     hidden: document.visibilityState === "hidden",
   };
@@ -69,6 +70,9 @@
 
   function onOpen() {
     S.connected = true;
+    everConnected = true;
+    clearTimeout(lostTimer);
+    lostTimer = 0;
     if (!S.bye) $("#notice").hidden = true; // quita «TurboCAM se ha cerrado»
     retryDelay = 1000;
     S.inflight = 0;
@@ -83,6 +87,7 @@
     S.inflight = 0;
     if (was) render();
     scheduleReconnect();
+    if (was || !everConnected) watchLost();
   }
 
   function wsTransport() {
@@ -159,8 +164,10 @@
   }
 
   function onBye(reason) {
+    if (S.bye === "forgotten") return; // ya lo dice el aviso de «olvidado»
     if (reason === "closed") {
-      notice("💤", "TurboCAM se ha cerrado en el PC", "En cuanto vuelva a abrirse, la imagen seguirá sola.", null);
+      notice("💤", "TurboCAM se ha cerrado en el PC", "Si vuelve a abrirse con el mismo enlace, la imagen seguirá sola. Si el enlace cambia, escanea el código nuevo.",
+        null, null, "Escanear el código nuevo", openScan);
       return; // se reintenta solo
     }
     S.bye = reason || "bye";
@@ -280,41 +287,124 @@
   }
 
   // ---------- dibujo y envío ----------
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
-  S.filterOK = (() => { try { ctx.filter = "blur(1px)"; const ok = ctx.filter === "blur(1px)"; ctx.filter = "none"; return ok; } catch { return false; } })();
+  //
+  // Cada fotograma: createImageBitmap recorta y escala en la GPU solo la parte que se
+  // ve, un codificador en segundo plano lo gira, le pone los filtros y lo pasa a JPEG,
+  // y la página lo manda. Hay varios codificadores a la vez, así que el JPEG (lo más
+  // caro) no limita los fotogramas por segundo. Sin workers, se hace aquí mismo.
+  const probe = document.createElement("canvas").getContext("2d");
+  S.filterOK = (() => { try { probe.filter = "blur(1px)"; return probe.filter === "blur(1px)"; } catch { return false; } })();
 
-  // draw pinta el vídeo en el lienzo de w x h con los retoques.
-  function draw(cv, cx, w, h, full) {
+  // geometry calcula cómo poner el vídeo en un lienzo de w x h con los retoques.
+  function geometry(w, h) {
     const vw = video.videoWidth, vh = video.videoHeight;
-    if (!vw || !vh) return false;
-    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    if (!vw || !vh) return null;
     const a = S.cfg.adjust;
     const rot = ((a.rotate || 0) % 360 + 360) % 360;
     const rw = rot % 180 ? vh : vw, rh = rot % 180 ? vw : vh;
-    const digital = nativeZoom() ? 1 : a.zoom;
-    const fit = a.fit === "contain" ? Math.min(w / rw, h / rh) : Math.max(w / rw, h / rh);
-    const s = fit * digital;
+    const contain = a.fit === "contain";
+    const s = (contain ? Math.min(w / rw, h / rh) : Math.max(w / rw, h / rh)) * (nativeZoom() ? 1 : a.zoom);
     const maxX = Math.max(0, (rw * s - w) / 2), maxY = Math.max(0, (rh * s - h) / 2);
-    cx.setTransform(1, 0, 0, 1, 0, 0);
-    if (a.fit === "contain" || s * rw < w || s * rh < h) { cx.fillStyle = "#000"; cx.fillRect(0, 0, w, h); }
-    if (S.filterOK) cx.filter = (a.brightness !== 1 || a.contrast !== 1 || a.saturation !== 1)
-      ? `brightness(${a.brightness}) contrast(${a.contrast}) saturate(${a.saturation})` : "none";
-    cx.translate(w / 2 - (a.panX || 0) * maxX, h / 2 - (a.panY || 0) * maxY);
-    if (a.mirror) cx.scale(-1, 1);
-    cx.rotate(rot * Math.PI / 180);
-    cx.scale(s, s);
-    cx.imageSmoothingQuality = full ? "high" : "medium";
-    cx.drawImage(video, -vw / 2, -vh / 2);
-    cx.setTransform(1, 0, 0, 1, 0, 0);
-    return true;
+    const tx = w / 2 - (a.panX || 0) * maxX, ty = h / 2 - (a.panY || 0) * maxY;
+    // Las esquinas del lienzo llevadas al vídeo dan la parte que se ve.
+    const r = rot * Math.PI / 180, cos = Math.round(Math.cos(r)), sin = Math.round(Math.sin(r));
+    let x0 = vw, y0 = vh, x1 = 0, y1 = 0;
+    for (const [px, py] of [[0, 0], [w, 0], [0, h], [w, h]]) {
+      let ux = px - tx;
+      const uy = py - ty;
+      if (a.mirror) ux = -ux;
+      const vx = (ux * cos + uy * sin) / s + vw / 2, vy = (-ux * sin + uy * cos) / s + vh / 2;
+      x0 = Math.min(x0, vx); x1 = Math.max(x1, vx); y0 = Math.min(y0, vy); y1 = Math.max(y1, vy);
+    }
+    x0 = Math.max(0, Math.floor(x0)); y0 = Math.max(0, Math.floor(y0));
+    x1 = Math.min(vw, Math.ceil(x1)); y1 = Math.min(vh, Math.ceil(y1));
+    const cw = x1 - x0, ch = y1 - y0;
+    if (cw < 2 || ch < 2) return null;
+    const custom = a.brightness !== 1 || a.contrast !== 1 || a.saturation !== 1;
+    return {
+      w, h, tx, ty, rot, mirror: !!a.mirror, cx: x0, cy: y0, cw, ch,
+      bw: Math.max(1, Math.round(cw * s)), bh: Math.max(1, Math.round(ch * s)),
+      ox: ((x0 + x1) / 2 - vw / 2) * s, oy: ((y0 + y1) / 2 - vh / 2) * s,
+      filter: S.filterOK && custom ? `brightness(${a.brightness}) contrast(${a.contrast}) saturate(${a.saturation})` : "",
+      fill: contain || rw * s < w - 1 || rh * s < h - 1,
+    };
   }
+
+  // Codificadores. encode devuelve { blob, ms } o null.
+  const enc = (() => {
+    const canWork = typeof Worker === "function" && typeof OffscreenCanvas === "function" &&
+      "convertToBlob" in OffscreenCanvas.prototype && typeof createImageBitmap === "function";
+    const n = canWork ? Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 2)) : 0;
+    const workers = [];
+    let nextID = 1, failed = !canWork;
+    const waiting = new Map();
+    for (let i = 0; i < n; i++) {
+      const wk = new Worker("encoder.js");
+      wk.busy = false;
+      wk.onmessage = (e) => {
+        wk.busy = false;
+        const done = waiting.get(e.data.id);
+        waiting.delete(e.data.id);
+        if (e.data.error) { failed = true; if (done) done(null); return; }
+        if (done) done({ blob: e.data.blob, ms: e.data.ms });
+      };
+      wk.onerror = () => { wk.busy = false; failed = true; };
+      workers.push(wk);
+    }
+    // Plan B: en la página, de uno en uno.
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { alpha: false });
+    let mainBusy = false;
+    function encodeHere(g, q) {
+      mainBusy = true;
+      const t0 = performance.now();
+      if (canvas.width !== g.w || canvas.height !== g.h) { canvas.width = g.w; canvas.height = g.h; }
+      paintFrame(ctx, video, g, false);
+      return new Promise((res) => canvas.toBlob((blob) => {
+        mainBusy = false;
+        res(blob ? { blob, ms: performance.now() - t0 } : null);
+      }, "image/jpeg", q));
+    }
+    return {
+      get count() { return failed ? 1 : workers.length; },
+      idle() { return failed ? !mainBusy : workers.some((w) => !w.busy); },
+      async encode(g, q) {
+        if (failed) return encodeHere(g, q);
+        const wk = workers.find((w) => !w.busy);
+        if (!wk) return null;
+        wk.busy = true;
+        let bitmap;
+        try {
+          bitmap = await createImageBitmap(video, g.cx, g.cy, g.cw, g.ch, { resizeWidth: g.bw, resizeHeight: g.bh, resizeQuality: "medium" });
+        } catch {
+          wk.busy = false;
+          failed = true; // este navegador no recorta así: plan B
+          return null;
+        }
+        const id = nextID++;
+        return new Promise((res) => {
+          waiting.set(id, res);
+          wk.postMessage({ id, bitmap, g, q }, [bitmap]);
+        });
+      },
+    };
+  })();
 
   function header(kind, n) {
     const b = new Uint8Array(5);
     b[0] = kind;
     new DataView(b.buffer).setUint32(1, n, true);
     return b;
+  }
+
+  // Tamaño que se manda: el que pide el PC o, en automático, algo menos si el móvil
+  // no da para más.
+  const SCALES = [1, 0.75, 0.5];
+  function sendSize() {
+    let { w, h } = S.cfg;
+    const k = S.cfg.adjust.res ? 1 : SCALES[S.scaleStep];
+    if (k < 1) { w = Math.round(w * k / 2) * 2; h = Math.round(h * k / 2) * 2; }
+    return [Math.max(w, 64), Math.max(h, 36)];
   }
 
   // pump decide si toca mandar un fotograma. Se llama con cada fotograma nuevo del
@@ -327,42 +417,51 @@
     else setTimeout(tick, 1000 / 30);
   }
 
+  // En camino a la vez: los que caben en el tiempo de ida y vuelta (más uno), para
+  // no frenar por la latencia de internet sin dejar que se acumule retraso.
+  function maxInflight(interval) {
+    if (!S.rttN) return 3;
+    return Math.max(2, Math.min(6, Math.ceil(S.rtt / interval) + 1));
+  }
+
   function tick() {
     pumpQueued = false;
     if (!S.started) return;
     const now = performance.now();
-    const fps = Math.max(1, S.cfg.fps || 1);
-    const due = now - S.lastSent >= 1000 / fps - 4;
-    if (due && S.connected && !S.hidden && !S.encoding) {
-      // Como mucho dos fotogramas sin confirmar: así nunca se acumula retraso.
+    const interval = 1000 / Math.max(1, S.cfg.fps || 1);
+    if (now - S.lastSent >= interval - 4 && S.connected && !S.hidden) {
       const backlog = S.transport ? S.transport.backlog() : 0;
-      if (S.inflight >= 2 || backlog > 1.5e6) S.skipped++;
+      if (!enc.idle()) S.cpuBusy++;
+      else if (S.inflight >= maxInflight(interval) || backlog > Math.max(400e3, S.avgSize * 4)) S.netBusy++;
       else sendFrame(now);
     }
     pump();
   }
 
   function sendFrame(now) {
-    if (!draw(canvas, ctx, S.cfg.w, S.cfg.h, false)) return;
-    S.encoding = true;
+    const [w, h] = sendSize();
+    const g = geometry(w, h);
+    if (!g) return;
     S.lastSent = now;
+    S.sentW = w; S.sentH = h;
     const n = (S.seq = (S.seq + 1) >>> 0);
-    canvas.toBlob((blob) => {
-      S.encoding = false;
-      if (!blob || !S.connected) return;
+    enc.encode(g, S.q).then((r) => {
+      if (!r || !S.connected || !S.transport) return;
+      S.encMs = S.encMs ? S.encMs * 0.85 + r.ms * 0.15 : r.ms;
+      S.avgSize = S.avgSize ? S.avgSize * 0.9 + r.blob.size * 0.1 : r.blob.size;
       S.inflight++;
+      S.sentCount++;
       S.sent.set(n, performance.now());
-      S.bytes += blob.size;
-      S.transport.sendBlob(new Blob([header(1, n), blob]));
-    }, "image/jpeg", S.q);
+      S.bytes += r.blob.size;
+      S.transport.sendBlob(new Blob([header(1, n), r.blob]));
+    });
   }
 
   function onAck(m) {
     S.inflight = Math.max(0, S.inflight - 1);
     const t0 = S.sent.get(m.n);
     if (t0 !== undefined) { S.sent.delete(m.n); addRTT(performance.now() - t0); }
-    if (S.sent.size > 30) S.sent.clear();
-    S.acked++;
+    if (S.sent.size > 60) S.sent.clear();
     S.frames++;
   }
 
@@ -371,18 +470,30 @@
     S.rttN++;
   }
 
-  // Calidad adaptable: baja si los fotogramas no llegan a tiempo, sube si sobra.
+  // Cada segundo se ajusta solo:
+  //  - la red no da abasto (fotogramas esperando a la red) → menos calidad;
+  //  - el móvil no da abasto (todos los codificadores ocupados) → en automático,
+  //    menos resolución (bajar la calidad apenas ahorra trabajo al móvil);
+  //  - sobra de todo → poco a poco, más calidad y más resolución.
   setInterval(() => {
     S.fpsNow = S.frames; S.frames = 0;
     S.kbps = Math.round(S.bytes * 8 / 1000); S.bytes = 0;
-    if (!S.connected || !S.started) return;
-    const budget = 1000 / Math.max(1, S.cfg.fps);
-    const behind = S.skipped > S.cfg.fps * 0.15 || S.rtt > budget * 3;
-    if (S.cfg.fps > 4) {
-      if (behind) S.q = Math.max(0.35, S.q - 0.06);
-      else if (S.rtt < budget * 1.6) S.q = Math.min(0.88, S.q + 0.02);
+    const target = Math.max(1, S.cfg.fps), interval = 1000 / target;
+    const sent = S.sentCount, net = S.netBusy, cpu = S.cpuBusy;
+    S.sentCount = 0; S.netBusy = 0; S.cpuBusy = 0;
+    if (!S.connected || !S.started || target <= 4 || S.hidden) { render(); return; }
+    const short = sent < target * 0.85;
+    if (short && net > target * 0.2) S.q = Math.max(0.3, S.q - 0.05);
+    else if (!short && net === 0 && S.rtt < interval * 3) S.q = Math.min(0.82, S.q + 0.02);
+    if (!S.cfg.adjust.res) {
+      if (short && cpu > target * 0.2) {
+        S.up = 0;
+        if (++S.down >= 2 && S.scaleStep < SCALES.length - 1) { S.scaleStep++; S.down = 0; }
+      } else if (cpu === 0 && S.encMs < interval * enc.count * 0.35) {
+        S.down = 0;
+        if (++S.up >= 5 && S.scaleStep > 0) { S.scaleStep--; S.up = 0; }
+      } else { S.down = 0; S.up = 0; }
     }
-    S.skipped = 0;
     render();
   }, 1000);
 
@@ -428,7 +539,11 @@
     let h = Math.round(w * S.cfg.h / S.cfg.w);
     const vh = rot ? video.videoWidth : video.videoHeight;
     if (h > vh) { h = vh; w = Math.round(h * S.cfg.w / S.cfg.h); }
-    if (!draw(c, cx, w & ~1, h & ~1, true)) return;
+    const g = geometry(w & ~1, h & ~1);
+    if (!g) return;
+    c.width = g.w; c.height = g.h;
+    cx.imageSmoothingQuality = "high";
+    paintFrame(cx, video, g, false);
     c.toBlob((blob) => {
       if (blob && S.transport) S.transport.sendBlob(new Blob([header(2, 0), blob]));
       flash();
@@ -571,7 +686,9 @@
   $("#a-rotate").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) adjust({ rotate: Number(b.dataset.v) }); });
   $("#a-fit").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) adjust({ fit: b.dataset.v }); });
   $("#a-lens").addEventListener("change", (e) => adjust({ lens: e.target.value }));
-  $("#a-reset").addEventListener("click", () => adjust({ ...DEFAULT_ADJUST, facing: S.cfg.adjust.facing, lens: S.cfg.adjust.lens }));
+  $("#a-reset").addEventListener("click", () => adjust({ ...DEFAULT_ADJUST, facing: S.cfg.adjust.facing, lens: S.cfg.adjust.lens, res: S.cfg.adjust.res, fps: S.cfg.adjust.fps }));
+  $("#a-res").addEventListener("change", (e) => { S.scaleStep = 0; adjust({ res: Number(e.target.value) }); });
+  $("#a-fps").addEventListener("change", (e) => adjust({ fps: Number(e.target.value) }));
 
   // Instalar como app (solo con certificado de verdad: el enlace de Cloudflare).
   let installPrompt = null;
@@ -609,13 +726,16 @@
       .concat(S.cameras.map((c) => `<option value="${esc(c.id)}">${esc(c.label)}</option>`)).join("");
     if (sel.dataset.k !== opts) { sel.innerHTML = opts; sel.dataset.k = opts; }
     sel.value = a.lens || "";
+    $("#a-res").value = String(a.res || 0);
+    $("#a-fps").value = String(a.fps || 0);
     const vw = video.videoWidth, vh = video.videoHeight;
     $("#info").innerHTML = [
       ["Conectado a", S.cfg.pc || "—"],
       ["Conexión", S.connected ? (S.transport.kind === "ws" ? "WebSocket" : "HTTP") + (location.hostname.endsWith("trycloudflare.com") ? " · Cloudflare" : " · directa") : "sin conexión"],
       ["Cámara", vw ? `${vw}×${vh}` : "—"],
-      ["Se envía", `${S.cfg.w}×${S.cfg.h} · ${S.fpsNow} fps · ${S.kbps} kb/s`],
+      ["Se envía", `${S.sentW || S.cfg.w}×${S.sentH || S.cfg.h} · ${S.fpsNow} fps · ${S.kbps} kb/s`],
       ["Calidad", pct(S.q) + (S.rttN ? ` · ${Math.round(S.rtt)} ms` : "")],
+      ["Compresión", `${enc.count} ${enc.count === 1 ? "hilo" : "hilos"}` + (S.encMs ? ` · ${Math.round(S.encMs)} ms por imagen` : "")],
     ].map(([k, v]) => `<span>${k}</span><b>${esc(v)}</b>`).join("");
   }
 
@@ -649,10 +769,11 @@
 
     const res = $("#chip-res");
     res.hidden = !S.connected || !S.started || c.role === "spare";
-    res.textContent = `${c.h}p · ${S.fpsNow} fps`;
+    res.textContent = `${S.sentH || c.h}p · ${S.fpsNow} fps`;
     const mode = $("#chip-mode");
-    mode.hidden = !(S.connected && S.started && S.q < 0.5 && c.fps > 4);
-    mode.textContent = "Red lenta";
+    const slowNet = S.q < 0.45, slowPhone = !c.adjust.res && S.scaleStep > 0;
+    mode.hidden = !(S.connected && S.started && c.fps > 4 && (slowNet || slowPhone));
+    mode.textContent = slowNet ? "Red lenta" : "Resolución reducida";
 
     // Botones
     $("#b-torch").hidden = !S.caps.torch;
@@ -694,18 +815,137 @@
   window.addEventListener("resize", () => render());
 
   // ---------- avisos ----------
-  let noticeAction = null;
-  function notice(ic, title, text, btn, action) {
+  let noticeAction = null, noticeAction2 = null;
+  function notice(ic, title, text, btn, action, btn2, action2) {
     $("#notice-ic").textContent = ic;
     $("#notice-title").textContent = title;
     $("#notice-text").textContent = text;
-    const b = $("#notice-btn");
+    const b = $("#notice-btn"), b2 = $("#notice-btn2");
     b.hidden = !btn;
     b.textContent = btn || "";
+    b2.hidden = !btn2;
+    b2.textContent = btn2 || "";
     noticeAction = action || null;
+    noticeAction2 = action2 || null;
     $("#notice").hidden = false;
   }
   $("#notice-btn").addEventListener("click", () => { $("#notice").hidden = true; if (noticeAction) noticeAction(); });
+  $("#notice-btn2").addEventListener("click", () => { $("#notice").hidden = true; if (noticeAction2) noticeAction2(); });
+
+  // ---------- otro PC: escanear un código ----------
+  //
+  // Cada enlace de Cloudflare es un sitio distinto para el navegador, y cambia cada
+  // vez que se abre TurboCAM en el PC: desde aquí se puede pasar al nuevo sin salir.
+  const LINK_RE = /^https:\/\/[^/\s]+\/c\/[0-9a-f]{32}\/?$/i;
+  let scanStream = null, scanTimer = 0, resumeAfterScan = false;
+
+  async function openScan() {
+    openSheet(false);
+    $("#notice").hidden = true;
+    resumeAfterScan = S.started;
+    if (S.started) stopCamera(true);
+    $("#scan").hidden = false;
+    $(".scan-box").classList.remove("found");
+    $("#scan-input").value = "";
+    const msg = $("#scan-msg");
+    msg.textContent = "Apunta al código QR de la ventana de TurboCAM en el PC.";
+    let det = null;
+    try { if ("BarcodeDetector" in window) det = new BarcodeDetector({ formats: ["qr_code"] }); } catch { det = null; }
+    if (!det) { msg.textContent = "Este navegador no lee códigos desde aquí: escanéalo con la app de la cámara o pega el enlace."; return; }
+    try {
+      scanStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" } } });
+    } catch {
+      msg.textContent = "No se pudo abrir la cámara para escanear. Pega el enlace.";
+      return;
+    }
+    const v = $("#scan-video");
+    v.srcObject = scanStream;
+    v.play().catch(() => {});
+    const loop = async () => {
+      if (!scanStream) return;
+      try {
+        for (const c of await det.detect(v)) if (goTo(c.rawValue, true)) return;
+      } catch { /* aún sin imagen */ }
+      scanTimer = setTimeout(loop, 200);
+    };
+    loop();
+  }
+
+  function closeScan(resume) {
+    clearTimeout(scanTimer);
+    if (scanStream) scanStream.getTracks().forEach((t) => t.stop());
+    scanStream = null;
+    $("#scan-video").srcObject = null;
+    $("#scan").hidden = true;
+    if (resume && resumeAfterScan && !S.bye) startCamera();
+  }
+
+  function goTo(url, fromCamera) {
+    url = String(url || "").trim();
+    if (!LINK_RE.test(url)) {
+      $("#scan-msg").textContent = fromCamera ? "Ese código no es de TurboCAM: busca el de la ventana de TurboCAM." : "Ese enlace no es de TurboCAM.";
+      return false;
+    }
+    if (!url.endsWith("/")) url += "/";
+    $(".scan-box").classList.add("found");
+    closeScan(false);
+    location.href = url;
+    return true;
+  }
+
+  $("#scan-form").addEventListener("submit", (e) => { e.preventDefault(); goTo($("#scan-input").value, false); });
+  $("#scan-cancel").addEventListener("click", () => closeScan(true));
+  $("#b-scan").addEventListener("click", openScan);
+  $("#start-scan").addEventListener("click", openScan);
+
+  // ---------- olvidar este PC ----------
+  $("#b-forget").addEventListener("click", () => {
+    openSheet(false);
+    notice("🧹", "¿Olvidar este PC?", "El móvil se desconecta y deja de entrar solo. En el PC se borran sus ajustes. Para volver, se escanea el código otra vez.",
+      "Olvidar", forget, "Cancelar", () => {});
+  });
+
+  async function forget() {
+    send({ t: "forget" });
+    S.bye = "forgotten";
+    stopCamera();
+    const t = S.transport;
+    S.connected = false;
+    setTimeout(() => { if (t) t.close(); }, 400); // que salga el «olvídame» antes de cerrar
+    try { Object.keys(localStorage).filter((k) => k.startsWith("turbocam.")).forEach((k) => localStorage.removeItem(k)); } catch { /* modo privado */ }
+    try {
+      if (navigator.serviceWorker) for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+      if (window.caches) for (const k of await caches.keys()) await caches.delete(k);
+    } catch { /* nada que borrar */ }
+    notice("🧹", "PC olvidado", "Este móvil ya no se conecta a ese PC. Para volver, o para usar otro, escanea su código.", "Escanear un código", openScan);
+    render();
+  }
+
+  // ---------- ¿dónde está el PC? ----------
+  //
+  // Si no conecta en unos segundos, se mira si es que el PC está apagado o que el
+  // enlace ya no vale (TurboCAM se ha vuelto a abrir y Cloudflare ha dado otro, o se
+  // ha renovado el secreto), y se ofrece escanear el nuevo.
+  let everConnected = false, lostTimer = 0;
+  function watchLost() {
+    if (lostTimer) return; // ya está contando (los reintentos no lo reinician)
+    lostTimer = setTimeout(async () => {
+      lostTimer = 0;
+      if (S.connected || S.bye || !$("#scan").hidden) return;
+      let state = "off";
+      try {
+        const r = await fetch(base + "alive?t=" + Date.now(), { cache: "no-store" });
+        state = r.ok ? "ok" : r.status === 404 ? "gone" : "off";
+      } catch { state = "off"; }
+      if (S.connected || S.bye || state === "ok") return;
+      if (state === "gone") {
+        notice("🔗", "Este enlace ya no vale", "En el PC se ha cambiado el enlace de TurboCAM. Escanea el código nuevo de su ventana.", "Escanear el código nuevo", openScan);
+      } else {
+        notice("📡", "No encuentro el PC", "TurboCAM no responde en este enlace. Si lo has vuelto a abrir en el PC, el enlace de Cloudflare es otro: escanea el código nuevo. Si no, sigo intentándolo solo.",
+          "Escanear el código nuevo", openScan, "Seguir esperando", watchLost);
+      }
+    }, everConnected ? 15000 : 6000);
+  }
 
   let toastTimer = 0;
   function toast(msg) {
@@ -724,6 +964,7 @@
     $("#go").disabled = true;
   }
   connect();
+  watchLost();
   render();
   wake();
   // Si el permiso ya se dio otra vez, se empieza sin tocar nada.

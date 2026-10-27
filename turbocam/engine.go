@@ -32,6 +32,18 @@ type phone struct {
 	connected time.Time
 	hub       *jpegHub // miniatura en la ventana
 	photo     chan []byte
+	quit      chan struct{}
+	quitOnce  sync.Once
+
+	// Decodificación aparte: siempre el fotograma más nuevo. El móvil comprime con
+	// varios hilos y alguno puede llegar después de uno posterior: ese se descarta.
+	dmu     sync.Mutex
+	pending []byte
+	pendSeq uint32
+	hasPend bool
+	wake    chan struct{}
+	lastSeq uint32 // solo lo usa el decodificador
+	anySeq  bool
 
 	mu       sync.Mutex
 	name     string
@@ -50,7 +62,7 @@ type phone struct {
 	frameAt  time.Time
 	winStart time.Time
 	winCount int
-	winBytes int
+	rxBytes  int
 	fps      float64
 	kbps     float64
 	sentCfg  string
@@ -194,7 +206,7 @@ const maxPhones = 8
 // conexión vieja se cierra.
 func (e *Engine) addPhone(id, name, model, via string, t transport) (*phone, error) {
 	p := &phone{id: id, t: t, via: via, connected: time.Now(), hub: newJPEGHub(), photo: make(chan []byte, 1),
-		name: name, model: model, battery: -1, quality: 0}
+		name: name, model: model, battery: -1, quality: 0, quit: make(chan struct{}), wake: make(chan struct{}, 1)}
 	e.mu.Lock()
 	old := e.phones[id]
 	if old == nil && len(e.phones) >= maxPhones {
@@ -205,19 +217,31 @@ func (e *Engine) addPhone(id, name, model, via string, t transport) (*phone, err
 	if old == nil {
 		e.order = append(e.order, id)
 	}
+	online := map[string]bool{}
+	for k := range e.phones {
+		online[k] = true
+	}
 	e.mu.Unlock()
+	go e.decoder(p)
 	if old != nil {
 		old.t.send(map[string]any{"t": "bye", "reason": "replaced"})
 		old.t.close()
+		old.stop()
 	}
 	updateSettings(func(s *Settings) {
 		d := s.Devices[id]
 		if d == nil {
-			d = &Device{Adjust: defaultAdjust()}
-			s.Devices[id] = d
+			d = adoptDevice(s, id, model, online)
 		}
+		if d == nil {
+			d = &Device{Adjust: defaultAdjust()}
+		}
+		s.Devices[id] = d
 		if d.Name == "" {
 			d.Name = name
+		}
+		if model != "" {
+			d.Model = model
 		}
 		// La escena sigue al primer móvil si no tiene ninguno elegido.
 		if s.Scene.Main == "" || (s.Scene.Main != "screen" && s.Devices[s.Scene.Main] == nil) {
@@ -232,6 +256,7 @@ func (e *Engine) addPhone(id, name, model, via string, t transport) (*phone, err
 
 // removePhone se llama al cerrarse su conexión.
 func (e *Engine) removePhone(p *phone) {
+	p.stop()
 	e.mu.Lock()
 	if e.phones[p.id] != p {
 		e.mu.Unlock()
@@ -246,15 +271,99 @@ func (e *Engine) removePhone(p *phone) {
 	e.changed()
 }
 
+func (p *phone) stop() { p.quitOnce.Do(func() { close(p.quit) }) }
+
 // Kick echa a un móvil (puede volver a entrar con el mismo enlace).
-func (e *Engine) Kick(id string) {
+func (e *Engine) Kick(id string) { e.kickWith(id, "kicked") }
+
+func (e *Engine) kickWith(id, reason string) {
 	e.mu.Lock()
 	p := e.phones[id]
 	e.mu.Unlock()
 	if p != nil {
-		p.t.send(map[string]any{"t": "bye", "reason": "kicked"})
+		p.t.send(map[string]any{"t": "bye", "reason": reason})
 		p.t.close()
 		e.removePhone(p)
+	}
+}
+
+// Forget: el móvil ha pedido que se le olvide. Se va y se borran sus ajustes.
+func (e *Engine) Forget(p *phone) {
+	e.kickWith(p.id, "forgotten")
+	updateSettings(func(s *Settings) { delete(s.Devices, p.id) })
+	e.toast("info", "Se ha olvidado «"+p.name+"» desde el propio móvil")
+	e.changed()
+}
+
+// adoptDevice: un móvil nuevo puede ser uno de siempre que entra por otro enlace
+// (cada enlace de Cloudflare es otro sitio para el navegador, que le da otra
+// identidad). Si hay un único móvil guardado del mismo modelo y no está conectado,
+// es él: se queda con sus ajustes, su nombre y su sitio en escenas y perfiles.
+func adoptDevice(s *Settings, id, model string, online map[string]bool) *Device {
+	if model == "" || model == "Móvil" {
+		return nil
+	}
+	found := ""
+	for k, d := range s.Devices {
+		if k != id && d.Model == model && !online[k] {
+			if found != "" {
+				return nil // dos iguales: no se sabe cuál es
+			}
+			found = k
+		}
+	}
+	if found == "" {
+		return nil
+	}
+	d := s.Devices[found]
+	delete(s.Devices, found)
+	swap := func(sc *Scene) {
+		if sc.Main == found {
+			sc.Main = id
+		}
+		if sc.Pip == found {
+			sc.Pip = id
+		}
+	}
+	swap(&s.Scene)
+	for i := range s.Profiles {
+		swap(&s.Profiles[i].Scene)
+	}
+	return d
+}
+
+// queueFrame deja el fotograma para el decodificador (si había otro esperando, se
+// sustituye: no tiene sentido decodificar uno que ya es viejo).
+func (e *Engine) queueFrame(p *phone, seq uint32, data []byte) {
+	p.dmu.Lock()
+	p.pending, p.pendSeq, p.hasPend = data, seq, true
+	p.dmu.Unlock()
+	p.mu.Lock()
+	p.rxBytes += len(data)
+	p.mu.Unlock()
+	select {
+	case p.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (e *Engine) decoder(p *phone) {
+	for {
+		select {
+		case <-p.quit:
+			return
+		case <-p.wake:
+		}
+		p.dmu.Lock()
+		data, seq, ok := p.pending, p.pendSeq, p.hasPend
+		p.pending, p.hasPend = nil, false
+		p.dmu.Unlock()
+		if !ok || (p.anySeq && int32(seq-p.lastSeq) <= 0) {
+			continue // llegó tarde: ya hay uno más nuevo
+		}
+		if e.onFrame(p, data) == nil {
+			p.lastSeq, p.anySeq = seq, true
+		}
 	}
 }
 
@@ -283,11 +392,10 @@ func (e *Engine) onFrame(p *phone, data []byte) error {
 		p.winStart = now
 	}
 	p.winCount++
-	p.winBytes += len(data)
 	if d := now.Sub(p.winStart); d >= time.Second {
 		p.fps = float64(p.winCount) / d.Seconds()
-		p.kbps = float64(p.winBytes) * 8 / 1000 / d.Seconds()
-		p.winStart, p.winCount, p.winBytes = now, 0, 0
+		p.kbps = float64(p.rxBytes) * 8 / 1000 / d.Seconds()
+		p.winStart, p.winCount, p.rxBytes = now, 0, 0
 	}
 	p.mu.Unlock()
 	p.hub.publish(data)
@@ -442,13 +550,21 @@ func (e *Engine) sendConfigs(force bool) {
 		case role == "spare", !demand, paused:
 			fps = 1
 		}
-		if !demand && role != "spare" {
-			w, h = 480, 270 // basta para la miniatura
-		}
 		adj := defaultAdjust()
 		name := ""
 		if d := s.Devices[p.id]; d != nil {
 			adj, name = d.Adjust, d.Name
+		}
+		if !demand && role != "spare" {
+			w, h = 480, 270 // basta para la miniatura
+		} else if role != "spare" {
+			// Lo que se haya elegido para este móvil: menos resolución o fotogramas.
+			if adj.FPS > 0 && adj.FPS < fps {
+				fps = adj.FPS
+			}
+			if adj.Res > 0 && adj.Res < h {
+				w, h = (w*adj.Res/h+1)&^1, adj.Res
+			}
 		}
 		jobs = append(jobs, job{p, map[string]any{
 			"t": "config", "role": role, "w": w, "h": h, "fps": fps, "adjust": adj,
@@ -478,6 +594,10 @@ func (e *Engine) applyOutput(s Settings, consumers []Consumer) {
 		w, h = 1920, 1080
 	case "540":
 		w, h = 960, 540
+	case "480":
+		w, h = 854, 480
+	case "360":
+		w, h = 640, 360
 	case "auto":
 		best := 0
 		for _, c := range consumers {

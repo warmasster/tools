@@ -194,6 +194,20 @@ func TestRealPhoneE2E(t *testing.T) {
 	}
 	defer srv.Close()
 	url := fmt.Sprintf("https://127.0.0.1:%d/c/%s/", srv.port, getSettings().Token)
+	// TURBOCAM_CF=1: el móvil entra por un túnel de Cloudflare de verdad (por internet).
+	if os.Getenv("TURBOCAM_CF") != "" {
+		tun := newTunnel(cacheDir(), "nonce", nil)
+		tun.Start(srv.port, "", "")
+		defer tun.Stop()
+		for i := 0; i < 90 && tun.State().Status != "online"; i++ {
+			time.Sleep(time.Second)
+		}
+		if tun.State().URL == "" {
+			t.Fatalf("el túnel no arranca: %+v", tun.State())
+		}
+		url = tun.State().URL + "/c/" + getSettings().Token + "/"
+		t.Logf("por Cloudflare: %s", tun.State().URL)
+	}
 
 	phone := exec.Command(node, "dev/phone.mjs", url, "25")
 	var logs bytes.Buffer
@@ -209,6 +223,9 @@ func TestRealPhoneE2E(t *testing.T) {
 	}()
 
 	deadline := time.Now().Add(20 * time.Second)
+	if os.Getenv("TURBOCAM_CF") != "" {
+		time.Sleep(8 * time.Second) // que se estabilice la calidad por internet
+	}
 	for time.Now().Before(deadline) {
 		if st := e.State(); st.Status == "live" && len(st.Phones) == 1 && st.Phones[0].FPS > 5 {
 			break

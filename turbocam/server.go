@@ -21,10 +21,8 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"mime"
 	"net"
 	"net/http"
-	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -97,6 +95,11 @@ func startServer(e *Engine, nonce string) (*Server, error) {
 	mux.HandleFunc("GET /c/{tok}/{$}", s.guard(s.handlePage))
 	mux.HandleFunc("GET /c/{tok}/{file}", s.guard(s.handleAsset))
 	mux.HandleFunc("GET /c/{tok}/ws", s.guard(s.handleWS))
+	// alive: la página pregunta si el enlace sigue valiendo (404 si no).
+	mux.HandleFunc("GET /c/{tok}/alive", s.guard(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusNoContent)
+	}))
 	mux.HandleFunc("GET /c/{tok}/ev", s.guard(s.handleEvents))
 	mux.HandleFunc("POST /c/{tok}/x", s.guard(s.handlePost))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { notFound(w) })
@@ -192,8 +195,17 @@ func via(r *http.Request) string {
 
 // ---------- página y archivos ----------
 
+// phoneFiles: los archivos de la página y su tipo. Se fija a mano: en algunos Windows
+// el registro dice que .js es texto, y el navegador no ejecuta así un worker.
 var phoneFiles = map[string]string{
-	"phone.js": "", "phone.css": "", "logo.svg": "", "icon-192.png": "", "icon-512.png": "", "sw.js": "",
+	"phone.js":     "text/javascript; charset=utf-8",
+	"paint.js":     "text/javascript; charset=utf-8",
+	"encoder.js":   "text/javascript; charset=utf-8",
+	"sw.js":        "text/javascript; charset=utf-8",
+	"phone.css":    "text/css; charset=utf-8",
+	"logo.svg":     "image/svg+xml",
+	"icon-192.png": "image/png",
+	"icon-512.png": "image/png",
 }
 
 func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
@@ -213,7 +225,8 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 		s.handleManifest(w, r)
 		return
 	}
-	if _, ok := phoneFiles[name]; !ok {
+	ct, ok := phoneFiles[name]
+	if !ok {
 		notFound(w)
 		return
 	}
@@ -222,15 +235,8 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
-	if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
-		w.Header().Set("Content-Type", ct)
-	}
-	if name == "sw.js" {
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-	} else {
-		w.Header().Set("Cache-Control", "no-cache")
-	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Write(b)
 }
 
@@ -292,6 +298,11 @@ func cleanName(s string, n int) string {
 	return s
 }
 
+type ackMsg struct {
+	T string `json:"t"`
+	N uint32 `json:"n"`
+}
+
 // onBinary procesa un mensaje binario: [tipo][número u32][JPEG].
 func (s *Server) onBinary(p *phone, t transport, data []byte) {
 	if len(data) < 6 {
@@ -300,12 +311,10 @@ func (s *Server) onBinary(p *phone, t transport, data []byte) {
 	n := binary.LittleEndian.Uint32(data[1:5])
 	switch data[0] {
 	case frameKindVideo:
-		err := s.e.onFrame(p, data[5:])
-		ack := map[string]any{"t": "ack", "n": n}
-		if err != nil {
-			ack["bad"] = true
-		}
-		t.send(ack)
+		// Se confirma nada más llegar: la decodificación va aparte y no hace esperar al
+		// móvil (si no, la latencia de internet limita los fotogramas por segundo).
+		s.e.queueFrame(p, n, data[5:])
+		t.send(ackMsg{T: "ack", N: n})
 	case frameKindPhoto:
 		s.e.onPhoto(p, data[5:])
 	}
@@ -322,6 +331,10 @@ func (s *Server) onText(p *phone, t transport, data []byte) {
 		}
 		json.Unmarshal(data, &ts)
 		t.send(map[string]any{"t": "pong", "ts": ts.TS})
+		return
+	}
+	if m.T == "forget" {
+		s.e.Forget(p)
 		return
 	}
 	s.e.onMessage(p, m)

@@ -396,8 +396,8 @@
           <div class="thumb"><img data-id="${esc(p.id)}" data-src="${esc(src)}" src="${esc(src || "data:,")}" alt="">${off ? `<div class="off">${off}</div>` : ""}</div>
           <div style="min-width:0">
             <div class="ph-name"><b title="${esc(p.model)}">${esc(p.name)}</b><button class="ibtn" data-act="rename" title="Cambiar el nombre">${ic("edit")}</button></div>
-            <div class="ph-meta"><span class="chip ${role[0]}">${role[1]}</span><span class="chip" title="Conexión">${ic(via[0])}${via[1]}</span>${battery(p)}</div>
-            <div class="ph-stats" data-stats>${esc(phoneStats(p))}</div>
+            <div class="ph-meta"><span class="chip ${role[0]}">${role[1]}</span><span class="chip" title="Conexión">${ic(via[0])}${via[1]}</span><span data-bat></span></div>
+            <div class="ph-stats" data-stats></div>
           </div>
         </div>
         ${p.error ? `<div class="err-line">${esc(p.error)}</div>` : ""}
@@ -411,12 +411,19 @@
       </div>`;
     }).join("");
     setHTML($("#p-phones"), h);
+    updatePhoneStats(st);
   }
 
+  // Las cifras (fotogramas, velocidad, batería) cambian cada segundo: se cambia solo
+  // su texto, sin rehacer el panel (si no, parpadea y se pierde lo que se toca).
   function updatePhoneStats(st) {
     for (const p of st.engine.phones) {
-      const el = $(`.ph[data-id="${CSS.escape(p.id)}"] [data-stats]`);
-      if (el) el.textContent = phoneStats(p);
+      const card = $(`.ph[data-id="${CSS.escape(p.id)}"]`);
+      if (!card) continue;
+      const stats = $("[data-stats]", card), bat = $("[data-bat]", card);
+      const txt = phoneStats(p), b = battery(p);
+      if (stats && stats.textContent !== txt) stats.textContent = txt;
+      if (bat && bat._h !== b) { bat._h = b; bat.innerHTML = b; }
     }
   }
 
@@ -437,6 +444,8 @@
       ${cams.length > 2 ? `<span>Lente</span><div class="wide"><select class="fsel" data-adjsel="lens"><option value="">Automática</option>${cams.map((c) => `<option value="${esc(c.id)}" ${c.id === a.lens ? "selected" : ""}>${esc(c.label)}</option>`).join("")}</select></div>` : ""}
       <span>Espejo</span><div class="wide"><label class="toggle"><input type="checkbox" data-adjck="mirror" ${a.mirror ? "checked" : ""}><i></i></label></div>
       <span>Girar</span><div class="wide"><div class="seg mini" data-adjseg="rotate">${[0, 90, 180, 270].map((r) => `<button data-v="${r}" class="${a.rotate === r ? "on" : ""}">${r}°</button>`).join("")}</div></div>
+      <span>Envío</span><div class="wide"><select class="fsel" data-adjsel="res" title="Resolución que manda el móvil">${[[0, "Automática"], [1080, "1080p"], [720, "720p"], [540, "540p"], [480, "480p"], [360, "360p"], [240, "240p"]].map(([v, l]) => `<option value="${v}" ${a.res === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <select class="fsel" data-adjsel="fps" title="Fotogramas por segundo que manda el móvil">${[[0, "fps del PC"], [30, "30 fps"], [24, "24 fps"], [20, "20 fps"], [15, "15 fps"], [10, "10 fps"]].map(([v, l]) => `<option value="${v}" ${a.fps === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
       <span>Encuadre</span><div class="wide"><div class="seg mini" data-adjseg="fit"><button data-v="cover" class="${a.fit === "cover" ? "on" : ""}">Rellenar</button><button data-v="contain" class="${a.fit === "contain" ? "on" : ""}">Completo</button></div></div>
       <span></span><div class="wide"><button class="btn ghost sm" data-act="reset">${ic("redo")}Volver a lo normal</button></div>
       ${caps.filters === false ? `<span></span><div class="wide" style="font-size:11.5px;color:var(--dim)">El navegador de este móvil no deja cambiar brillo ni color.</div>` : ""}
@@ -466,7 +475,7 @@
     S.dragging = false;
     if (t.dataset.adj) sendAdjust(id, { [t.dataset.adj]: Number(t.value) });
     if (t.dataset.adjck) sendAdjust(id, { [t.dataset.adjck]: t.checked });
-    if (t.dataset.adjsel) sendAdjust(id, { [t.dataset.adjsel]: t.value });
+    if (t.dataset.adjsel) sendAdjust(id, { [t.dataset.adjsel]: ["res", "fps"].includes(t.dataset.adjsel) ? Number(t.value) : t.value });
     t.blur();
   });
   let adjTimer = 0, adjPending = null;
@@ -504,7 +513,7 @@
         if (name != null && name.trim()) api.RenamePhone(id, name.trim());
         break;
       }
-      case "reset": sendAdjust(id, { zoom: 1, panX: 0, panY: 0, brightness: 1, contrast: 1, saturation: 1, mirror: false, rotate: 0, fit: "cover", torch: false }); break;
+      case "reset": sendAdjust(id, { zoom: 1, panX: 0, panY: 0, brightness: 1, contrast: 1, saturation: 1, mirror: false, rotate: 0, fit: "cover", torch: false, res: 0, fps: 0 }); break;
     }
   });
 
@@ -590,7 +599,7 @@
   // ---------- ajustes ----------
   function openSettings() {
     const st = S.st, s = st.settings;
-    const res = [["auto", "Automática"], ["1080", "1080p"], ["720", "720p"], ["540", "540p"]];
+    const res = [["auto", "Automática"], ["1080", "1080p"], ["720", "720p"], ["540", "540p"], ["480", "480p"], ["360", "360p"]];
     const fps = [15, 24, 30];
     const keyRow = (act, label, desc) => `<div class="srow"><div><b>${label}</b><span class="s">${desc}</span>${st.hotkeyErrors && st.hotkeyErrors[act] ? `<span class="kerr">${esc(st.hotkeyErrors[act])}</span>` : ""}</div>
       <div class="ctl"><button class="keycap" data-key="${act}">${esc(s.hotkeys[act] || "Sin atajo")}</button><button class="ibtn" data-clear="${act}" title="Quitar el atajo">${ic("x")}</button></div></div>`;
@@ -883,7 +892,7 @@
       for (const [a, b] of [[0, 0], [22, 0], [0, 22]]) { x.fillRect(a, b, 7, 7); x.fillStyle = "#fff"; x.fillRect(a + 1, b + 1, 5, 5); x.fillStyle = "#000"; x.fillRect(a + 2, b + 2, 3, 3); }
       return c.toDataURL();
     })();
-    const A = { facing: "user", lens: "", zoom: 1, panX: 0, panY: 0, brightness: 1, contrast: 1, saturation: 1, mirror: false, rotate: 0, fit: "cover", torch: false };
+    const A = { facing: "user", lens: "", zoom: 1, panX: 0, panY: 0, brightness: 1, contrast: 1, saturation: 1, mirror: false, rotate: 0, fit: "cover", torch: false, res: 0, fps: 0 };
     const st = {
       engine: {
         phones: [
@@ -907,6 +916,11 @@
       Object.defineProperty(img, "src", { set() { }, get() { return outImg; } });
     }, 50);
     const push = () => setTimeout(() => window.__emit("state", JSON.parse(JSON.stringify(st))), 30);
+    // Como la app: las cifras de los móviles cambian cada segundo.
+    setInterval(() => {
+      for (const p of st.engine.phones) { p.fps = 28 + Math.round(Math.random() * 20) / 10; p.kbps = 2200 + Math.round(Math.random() * 400); p.rtt = 38 + Math.round(Math.random() * 8); }
+      push();
+    }, 1000);
     const sc = (f) => { f(st.settings.scene); push(); };
     return {
       GetState: async () => JSON.parse(JSON.stringify(st)),

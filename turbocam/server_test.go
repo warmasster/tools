@@ -28,6 +28,12 @@ type testRig struct {
 
 func newRig(t *testing.T) *testRig {
 	t.Helper()
+	// Cada prueba empieza con la escena y los móviles de fábrica.
+	updateSettings(func(s *Settings) {
+		s.Scene = Scene{Kind: "phone"}.normalized()
+		s.Devices = map[string]*Device{}
+		s.Profiles = nil
+	})
 	shm, err := openShm()
 	if err != nil {
 		t.Fatal(err)
@@ -346,5 +352,97 @@ func TestScreenScenes(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if atomicLoad(r.shm, tcOffLatest) == seq {
 		t.Error("con la pantalla en la escena, la imagen no se renueva")
+	}
+}
+
+func TestSendLimitsAndOrder(t *testing.T) {
+	r := newRig(t)
+	c := dialWS(t, r, "wss")
+	c.WriteJSON(map[string]string{"t": "hello", "id": "movillimite1", "name": "Límites", "model": "Pixel 9"})
+	readMsg(t, c, "config")
+	c.WriteJSON(map[string]any{"t": "state", "visible": true, "live": true})
+
+	// 360p y 15 fps para este móvil: es lo que se le pide.
+	adj := defaultAdjust()
+	adj.Res, adj.FPS = 360, 15
+	r.e.SetAdjust("movillimite1", adj)
+	cfg := readMsg(t, c, "config")
+	if cfg["w"].(float64) != 640 || cfg["h"].(float64) != 360 || cfg["fps"].(float64) != 15 {
+		t.Fatalf("con límites: %v", cfg)
+	}
+
+	// Llega primero el 5 y luego el 4 (otro hilo del móvil acabó más tarde): se
+	// confirman los dos, pero en la cámara se queda el 5.
+	c.WriteMessage(websocket.BinaryMessage, frameMsg(frameKindVideo, 5, testJPEG(t, 640, 360, 200)))
+	readMsg(t, c, "ack")
+	waitFor(t, "el 5 en la cámara", func() bool { return atomicLoad(r.shm, tcOffState) == tcStateLive })
+	time.Sleep(100 * time.Millisecond)
+	c.WriteMessage(websocket.BinaryMessage, frameMsg(frameKindVideo, 4, testJPEG(t, 640, 360, 40)))
+	readMsg(t, c, "ack")
+	time.Sleep(200 * time.Millisecond)
+	seq := atomicLoad(r.shm, tcOffLatest)
+	slot := tcSlotBase + int(seq%tcSlots)*tcSlotStride
+	if y := r.shm.mem[slot+tcSlotData+360*1280+640]; y < 180 {
+		t.Errorf("se ha colado un fotograma viejo (Y = %d)", y)
+	}
+}
+
+func TestForgetFromPhone(t *testing.T) {
+	r := newRig(t)
+	c := dialWS(t, r, "wss")
+	c.WriteJSON(map[string]string{"t": "hello", "id": "movilolvido1", "name": "Olvido", "model": "Galaxy"})
+	readMsg(t, c, "config")
+	c.WriteJSON(map[string]string{"t": "forget"})
+	if m := readMsg(t, c, "bye"); m["reason"] != "forgotten" {
+		t.Fatalf("despedida: %v", m)
+	}
+	waitFor(t, "olvidado", func() bool { return getSettings().Devices["movilolvido1"] == nil && len(r.e.State().Phones) == 0 })
+}
+
+func TestAdoptDeviceFromOtherLink(t *testing.T) {
+	r := newRig(t)
+	// Un móvil conocido, con sus ajustes y protagonista de la escena.
+	updateSettings(func(s *Settings) {
+		a := defaultAdjust()
+		a.Zoom, a.Mirror = 2, true
+		s.Devices["viejoenlace01"] = &Device{Name: "El mío", Model: "23129RAA4G", Adjust: a}
+		s.Scene.Main = "viejoenlace01"
+	})
+	// Entra por otro enlace: el navegador le da otra identidad, pero es el mismo modelo.
+	c := dialWS(t, r, "wss")
+	c.WriteJSON(map[string]string{"t": "hello", "id": "nuevoenlace01", "name": "23129RAA4G", "model": "23129RAA4G"})
+	cfg := readMsg(t, c, "config")
+	adj := cfg["adjust"].(map[string]any)
+	s := getSettings()
+	if adj["zoom"].(float64) != 2 || adj["mirror"] != true || cfg["name"] != "El mío" {
+		t.Errorf("no ha recuperado sus ajustes: %v", cfg)
+	}
+	if s.Devices["viejoenlace01"] != nil || s.Scene.Main != "nuevoenlace01" {
+		t.Errorf("no se ha cambiado la identidad: %+v", s.Scene)
+	}
+}
+
+func TestAliveEndpoint(t *testing.T) {
+	r := newRig(t)
+	for tok, want := range map[string]int{r.tok: 204, strings.Repeat("0", 32): 404} {
+		resp, err := insecure.Get(r.url("https", "/c/"+tok+"/alive"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Errorf("alive con %s…: %d, quería %d", tok[:6], resp.StatusCode, want)
+		}
+	}
+	// Los scripts del móvil (también los de los workers) llevan su tipo correcto.
+	for _, f := range []string{"phone.js", "encoder.js", "paint.js", "sw.js"} {
+		resp, err := insecure.Get(r.url("https", "/c/"+r.tok+"/"+f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if ct := resp.Header.Get("Content-Type"); resp.StatusCode != 200 || !strings.HasPrefix(ct, "text/javascript") {
+			t.Errorf("%s: %d %s", f, resp.StatusCode, ct)
+		}
 	}
 }

@@ -23,7 +23,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const profile = mkdtempSync(join(tmpdir(), 'turbocam-phone-'));
 const args = [
   `--user-data-dir=${profile}`, '--remote-debugging-pipe', '--no-first-run', '--no-default-browser-check',
-  '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--ignore-certificate-errors',
+  '--use-fake-device-for-media-stream=fps=30', '--use-fake-ui-for-media-stream', '--ignore-certificate-errors',
   '--autoplay-policy=no-user-gesture-required', '--window-size=420,860',
 ];
 if (!headed) args.push('--headless=new');
@@ -59,15 +59,20 @@ try {
     if (m.method === 'Runtime.exceptionThrown') out({ exception: m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text });
   });
   await send('Emulation.setDeviceMetricsOverride', { width: 412, height: 860, deviceScaleFactor: 2, mobile: true }, sessionId);
+  // TURBOCAM_THROTTLE=4: la CPU va 4 veces más lenta, como un móvil normal.
+  if (process.env.TURBOCAM_THROTTLE) await send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.TURBOCAM_THROTTLE) }, sessionId);
   await send('Page.navigate', { url }, sessionId);
   const ev = async (expr) => (await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }, sessionId)).result.value;
   for (let i = 0; i < 50 && !(await ev('!!document.querySelector("#go")')); i++) await sleep(100);
   await ev('document.querySelector("#go").click(), true');
   const end = Date.now() + Number(secs) * 1000;
   let shot = 0;
+  await sleep(1500);
+  await ev('document.querySelector("#b-tune").click(), true'); // la hoja enseña cómo va el envío
   while (Date.now() < end) {
     await sleep(1000);
-    out({ status: await ev('document.querySelector("#status-text").textContent'), screen: await ev('document.querySelector("#app").dataset.screen'), err: await ev('document.querySelector("#start-err").hidden ? "" : document.querySelector("#start-err").textContent') });
+    out({ info: await ev('document.querySelector("#info").innerText.split(String.fromCharCode(10)).join(" | ")') });
+    out({ status: await ev('document.querySelector("#status-text").textContent'), chip: await ev('document.querySelector("#chip-res").textContent'), screen: await ev('document.querySelector("#app").dataset.screen'), err: await ev('document.querySelector("#start-err").hidden ? "" : document.querySelector("#start-err").textContent') });
     if (process.env.TURBOCAM_SHOTS && shot++ === 3) {
       const { data } = await send('Page.captureScreenshot', { format: 'png' }, sessionId);
       const { writeFileSync } = await import('node:fs');

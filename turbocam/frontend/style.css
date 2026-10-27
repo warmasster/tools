@@ -135,6 +135,10 @@ kbd:empty { display: none; }
 .pane { flex: 1; min-height: 0; overflow-y: auto; display: none; flex-direction: column; gap: 12px; padding-right: 4px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .12) transparent; }
 .pane.on { display: flex; }
 .pane > * { flex: none; } /* que las tarjetas no se encojan: el panel se desplaza */
+/* La animación de entrada, al cambiar de pestaña; no al repintar una tarjeta. */
+.pane .card { animation: none; }
+.pane.on { animation: enter .3s cubic-bezier(.2, .8, .2, 1) both; }
+.adj .fsel { max-width: 132px; }
 
 .card { border-radius: 18px; background: var(--panel); border: 1px solid var(--brd); padding: 16px; animation: enter .35s cubic-bezier(.2, .8, .2, 1) both; }
 .card h3 { margin: 0 0 4px; font-size: 14.5px; font-weight: 680; letter-spacing: -.1px; display: flex; align-items: center; gap: 8px; }

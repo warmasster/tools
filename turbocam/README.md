@@ -19,10 +19,13 @@ La imagen sale en directo en la ventana del PC, que también dice qué apps est�
 - Un recuadro marca lo que se ve en el PC.
 - **Modo negro**: la pantalla se queda negra con un puntito de estado (verde emitiendo, azul en reposo, rojo sin conexión). Parece apagado y gasta poco, pero sigue emitiendo. Se vuelve con dos toques.
 - **La pantalla no se bloquea** mientras emite. Un navegador no puede grabar con el móvil bloqueado de verdad: si lo bloqueas o cambias de app, se pausa (la cámara enseña «El móvil está en pausa») y sigue sola al volver.
-- **Pantalla completa** y, por el enlace de Cloudflare, **instalar en la pantalla de inicio** como una app.
-- Todo lo que cambias en el móvil se ve también en el PC (y al revés), y se recuerda para la próxima vez.
+- **Envío**: resolución (automática, o de 1080p a 240p) y fotogramas por segundo de cada móvil. Menos es menos datos y menos batería.
+- **Pantalla completa** y, por el enlace de Cloudflare, **instalar en la pantalla de inicio** como una app. La app abre aunque el PC esté apagado.
+- **Escanear otro código**: para pasar a otro PC o al enlace nuevo del mismo (el de Cloudflare cambia cada vez que se abre TurboCAM). Si el móvil no encuentra el PC, dice si es que no responde o que el enlace ha cambiado, y ofrece escanear el nuevo. Sin lector de códigos en el navegador, se pega el enlace.
+- **Olvidar este PC**: el móvil se desconecta, deja de entrar solo y el PC borra sus ajustes.
+- Todo lo que cambias en el móvil se ve también en el PC (y al revés), y se recuerda para la próxima vez, aunque entre por otro enlace (se reconoce por el modelo).
 
-El móvil hace el trabajo caro: dibuja cada fotograma con los retoques al tamaño exacto que necesita el PC y lo manda en JPEG. La calidad se adapta sola a la red: si los fotogramas tardan, baja; si sobra, sube. Nunca hay más de dos fotogramas en camino, así que el retraso no se acumula.
+El móvil hace el trabajo caro y lo reparte: la GPU recorta y escala solo la parte que se ve, y 2 o 3 hilos a la vez (uno por núcleo libre) le ponen los retoques y lo pasan a JPEG, así que comprimir no limita los fotogramas por segundo. El PC confirma cada fotograma nada más recibirlo (lo decodifica aparte, siempre el más nuevo), y en camino solo hay los que caben en el tiempo de ida y vuelta: no se frena por la latencia de internet ni se acumula retraso. Se adapta solo: si la red no da abasto, baja la calidad; si es el móvil el que no da abasto, baja la resolución (en automático); si sobra, vuelve a subir. Por Cloudflare, 720p a 30 fotogramas por segundo.
 
 ## En el PC
 
@@ -34,7 +37,7 @@ El móvil hace el trabajo caro: dibuja cada fotograma con los retoques al tamañ
 - Los atajos funcionan desde cualquier programa y se pueden cambiar en Ajustes.
 - **Perfiles por app**: un perfil guarda la escena y los retoques. Si le asignas apps (`discord.exe`, `ms-teams.exe`…), se pone solo cuando esa app abre la cámara y, al cerrarla, todo vuelve a como estaba.
 - **Modo ventana** (sin cámara virtual): la ventana se convierte en un visor siempre encima, para compartirlo en una llamada.
-- **Resolución automática**: manda la que pide la app que usa la cámara (hasta 1080p). También se puede fijar a 1080p, 720p o 540p, y a 15, 24 o 30 fotogramas por segundo.
+- **Resolución automática**: manda la que pide la app que usa la cámara (hasta 1080p). También se puede fijar de 1080p a 360p, y a 15, 24 o 30 fotogramas por segundo. Además, cada móvil puede mandar menos (en «Imagen» → «Envío»): el PC lo escala.
 - **Ahorro**: si ninguna app usa la cámara y la ventana no se ve, el móvil baja a 1 imagen por segundo.
 - Al cerrar con la cámara en uso, pregunta antes (se puede minimizar).
 
@@ -66,7 +69,7 @@ Con [TurboSETUP](../installer/). `TurboCAM.exe setup` registra la cámara y crea
 móvil (página web)  ──JPEG por WebSocket──▶  TurboCAM.exe  ──NV12 en memoria compartida──▶  cámara virtual (DLL)  ──▶  Discord, Meet…
 ```
 
-- **Móvil** (`web/`): pide la cámara, pinta cada fotograma en un lienzo con los retoques, al tamaño que pide el PC, y lo manda como JPEG con un número. El PC confirma cada uno; con dos sin confirmar, se salta fotogramas en vez de acumular retraso. Si el WebSocket no abre, usa POST + EventSource.
+- **Móvil** (`web/`): `createImageBitmap` recorta y escala en la GPU la parte del vídeo que se ve; varios workers (`encoder.js`) la pintan en un `OffscreenCanvas` con los retoques (`paint.js`, que también usa la página para las fotos y los navegadores sin workers) y la pasan a JPEG. Se manda con un número; el PC la confirma al recibirla y, si llega una más vieja que la última, la descarta. En camino van las que caben en el tiempo de ida y vuelta (de 2 a 6). Si el WebSocket no abre, usa POST + EventSource. Un service worker guarda la página para que la app instalada abra sin conexión.
 - **PC** (Go): un solo puerto atiende HTTPS (certificado propio) y, solo desde el propio PC, HTTP (lo usa `cloudflared`). Decodifica el JPEG con la librería estándar y, como ya llega al tamaño justo, solo lo copia como NV12 (unos 0,2 ms por fotograma a 720p). Si hay que componer (pantalla, imagen sobre imagen), escala por planos en YUV sin pasar por RGB.
 - **Memoria compartida** `Local\TurboCAM.Video.1` (formato en [`camera/protocol.h`](camera/protocol.h)): tres búferes NV12 hasta 1080p y un número de fotograma; la app escribe en el que nadie está leyendo. La cámara apunta ahí qué apps la usan y con qué formato, y la app lo usa para la resolución automática, los perfiles y el ahorro.
 - **Cámara virtual** (`camera/turbocam.c`): un filtro de captura DirectShow en C, sin librerías (unos 45 KB, sin redistribuibles de Visual C++). Ofrece NV12, YUY2, I420 y RGB24 en 1080p, 720p, 540p, 480p y 360p; adapta cada fotograma al formato que haya pedido cada app (recortando para no deformar) y lo entrega a ritmo fijo con un temporizador de alta resolución. Las tarjetas sin imagen las dibuja con GDI. Va dentro del `.exe` y se saca a una carpeta por versión, así una actualización nunca choca con una app que tenga la anterior cargada.

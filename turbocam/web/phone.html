@@ -35,6 +35,7 @@
         Empezar
       </button>
       <p class="start-note">Se pedirá permiso para la cámara. No hace falta instalar nada.</p>
+      <button class="link" id="start-scan">¿Otro PC o un código nuevo? Escanéalo</button>
       <div class="start-err" id="start-err" hidden></div>
     </div>
   </section>
@@ -76,8 +77,21 @@
     <div class="row"><span>Encuadre</span><div class="seg" id="a-fit"><button data-v="cover">Rellenar</button><button data-v="contain">Completo</button></div></div>
     <div class="row col" id="lens-row" hidden><span>Cámara</span><select id="a-lens"></select></div>
     <button class="link" id="a-reset">Volver a los valores de fábrica</button>
+    <h2>Envío</h2>
+    <label class="row col"><span>Resolución</span><select id="a-res">
+      <option value="0">Automática</option><option value="1080">1080p</option><option value="720">720p</option>
+      <option value="540">540p</option><option value="480">480p</option><option value="360">360p</option><option value="240">240p</option></select></label>
+    <label class="row col"><span>Fotogramas</span><select id="a-fps">
+      <option value="0">Los del PC</option><option value="30">30 por segundo</option><option value="24">24 por segundo</option>
+      <option value="20">20 por segundo</option><option value="15">15 por segundo</option><option value="10">10 por segundo</option></select></label>
+    <p class="hint">Menos resolución o fotogramas: menos datos y menos batería. En automático, si el móvil no da para más, baja la resolución solo.</p>
     <h2>Este móvil</h2>
     <div class="info" id="info"></div>
+    <h2>Conexión</h2>
+    <div class="sheet-actions conn-actions">
+      <button class="btn ghost" id="b-scan"><svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg>Escanear otro código</button>
+      <button class="btn ghost danger" id="b-forget"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Olvidar este PC</button>
+    </div>
     <div class="sheet-actions">
       <button class="btn ghost" id="b-install" hidden><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Instalar en el inicio</button>
       <button class="btn ghost" id="b-stop"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Dejar de emitir</button>
@@ -97,11 +111,25 @@
       <h2 id="notice-title"></h2>
       <p id="notice-text"></p>
       <button class="btn primary" id="notice-btn"></button>
+      <button class="link" id="notice-btn2" hidden></button>
     </div>
   </div>
 
+  <!-- Escanear un código QR (otro PC o el enlace nuevo de este) -->
+  <section class="scan" id="scan" hidden>
+    <video id="scan-video" playsinline muted autoplay disablepictureinpicture></video>
+    <div class="scan-box" aria-hidden="true"></div>
+    <div class="scan-ui">
+      <h2>Escanea el código de TurboCAM</h2>
+      <p id="scan-msg">Apunta al código QR de la ventana de TurboCAM en el PC.</p>
+      <form class="scan-paste" id="scan-form"><input id="scan-input" type="url" inputmode="url" autocomplete="off" placeholder="…o pega el enlace aquí"><button class="btn primary" type="submit">Ir</button></form>
+      <button class="btn ghost" id="scan-cancel">Cancelar</button>
+    </div>
+  </section>
+
   <div class="toast" id="toast" hidden></div>
 </div>
+<script src="paint.js"></script>
 <script src="phone.js"></script>
 </body>
 </html>
