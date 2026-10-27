@@ -83,7 +83,7 @@ func uninstall() (string, error) {
 		return "Registro borrado. El programa sigue en uso; bórralo a mano de " + dir + " al cerrar Chrome.", nil
 	}
 	os.Remove(dir)
-	return "TurboBLOCK desinstalado. Quita también la extensión en chrome://extensions.", nil
+	return "TurboBLOCK desinstalado. Quita también la extensión en la página de extensiones del navegador (chrome://extensions, edge://extensions…).", nil
 }
 
 // removeOld borra los .old que dejaron actualizaciones con el host abierto.

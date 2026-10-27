@@ -16,10 +16,15 @@ import { addCounts } from './stats.js';
 
 // Destinos legítimos de ventanas abiertas por botones (inicios de sesión, pagos…).
 const SAFE = [
-  'accounts.google.com', 'login.microsoftonline.com', 'login.live.com', 'appleid.apple.com',
+  'accounts.google.com', 'login.microsoftonline.com', 'login.live.com', 'login.microsoft.com', 'account.microsoft.com',
+  'appleid.apple.com', 'idmsa.apple.com',
   'www.facebook.com', 'facebook.com', 'm.facebook.com', 'github.com', 'api.twitter.com', 'twitter.com', 'x.com',
-  'www.paypal.com', 'paypal.com', 'checkout.stripe.com', 'js.stripe.com', 'discord.com', 'id.twitch.tv',
+  'www.paypal.com', 'paypal.com', 'stripe.com', 'discord.com', 'id.twitch.tv',
   'www.linkedin.com', 'auth0.com', 'okta.com', 'login.yahoo.com', 'steamcommunity.com', 'store.steampowered.com',
+  // Pagos y comprobaciones del banco (3-D Secure), que a veces tardan en abrirse.
+  'pay.google.com', 'payments.google.com', 'adyen.com', 'klarna.com', 'mercadopago.com', 'redsys.es', 'ceca.es',
+  'checkout.shopify.com', 'shop.app', 'pay.amazon.com', 'payments.amazon.com',
+  'id.atlassian.com', 'auth.atlassian.com', 'slack.com', 'zoom.us', 'accounts.spotify.com', 'signin.aws.amazon.com',
 ];
 
 const clicks = new Map(); // tabId -> { href, control, t }
@@ -48,7 +53,16 @@ function inSet(host, set) {
 
 /** Mensaje de content/popups.js: el usuario ha hecho clic (de verdad) en algo. */
 export function recordClick(tabId, msg) {
-  clicks.set(tabId, { href: msg.href || '', control: !!msg.control, newTab: !!msg.newTab, t: Date.now(), used: false });
+  clicks.set(tabId, { href: msg.href || '', control: !!msg.control, newTab: !!msg.newTab, menu: !!msg.menu, t: Date.now(), used: false });
+}
+
+// Cuánto vale un clic para abrir una ventana: un botón puede esperar a que conteste
+// el servidor (pagos, inicios de sesión), como deja Chrome (unos 5 s); el menú del
+// clic derecho, lo que tardes en elegir «Abrir en una pestaña nueva».
+function clickWindow(c) {
+  if (c.menu) return 30_000;
+  if (c.control || c.newTab) return 5000;
+  return 2500;
 }
 
 export function init() {
@@ -97,7 +111,7 @@ async function onCreated(d) {
 // true = sí; false = no; null = no hay clic reciente (puede estar en camino).
 function clickAllows(d, site) {
   const c = clicks.get(d.sourceTabId);
-  if (!c || Date.now() - c.t > 2500) return null;
+  if (!c || Date.now() - c.t > clickWindow(c)) return null;
   // Clic en un enlace: solo vale la ventana que va a donde apunta el enlace (con
   // target=_blank, Ctrl o botón central). Lo demás que se abra a la vez es una
   // popunder pegada al clic, aunque el enlace sea legítimo.

@@ -39,7 +39,9 @@ const handler = (req, res) => {
       <a id="enlace" href="http://otro.test:${PORT}/enlace" target="_blank">enlace</a>
       <button id="btn-lista">lista</button>
       <button id="btn-mala">mala</button>
+      <div id="div-btn" style="display:inline-block;padding:6px 14px;cursor:pointer;background:#36f;color:#fff">Pagar</div>
       <script>
+        document.getElementById('div-btn').addEventListener('click', () => window.open('http://otro.test:${PORT}/pago'));
         document.getElementById('zona').addEventListener('click', () => window.open('http://otro.test:${PORT}/popunder'));
         document.getElementById('btn-lista').addEventListener('click', () => window.open('http://popups.test:${PORT}/'));
         document.getElementById('btn-mala').addEventListener('click', () => { window.__w = window.open('http://otro.test:${PORT}/ventana-mala'); });
@@ -238,6 +240,11 @@ const pages = async (b, part) => (await b.send('Target.getTargets')).targetInfos
       await waitFor(async () => (await pages(b, '/enlace')).length === 1, 'abrir el enlace en pestaña nueva');
       await sleep(800);
       assert((await pages(b, '/enlace')).length === 1, 'se cerró una ventana legítima');
+      // Botón hecho con un <div> (cursor de mano, tamaño de botón) que abre un pago: se permite.
+      await site.click('#div-btn');
+      await waitFor(async () => (await pages(b, '/pago')).length === 1, 'abrir desde un botón hecho con un div');
+      await sleep(800);
+      assert((await pages(b, '/pago')).length === 1, 'se cerró la ventana del botón hecho con un div');
       // Destino en las listas ($popup): se cierra aunque sea un botón.
       await site.click('#btn-lista');
       await sleep(1500);

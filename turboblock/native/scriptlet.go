@@ -75,6 +75,36 @@ var trustedScriptlets = map[string]string{
 	"tb-video-ads": "tb-video-ads",
 }
 
+// riskyScriptlet: escriben cookies o almacenamiento, cambian atributos o enlaces, o
+// recortan respuestas del servidor. Solo para listas de confianza.
+func riskyScriptlet(canonical string) bool {
+	switch canonical {
+	case "set-cookie", "set-cookie-reload", "remove-cookie", "set-local-storage-item", "set-session-storage-item",
+		"set-attr", "href-sanitizer", "json-prune", "json-prune-fetch-response", "json-prune-xhr-response",
+		"xml-prune", "m3u-prune", "window-close-if", "remove-node-text":
+		return true
+	}
+	return false
+}
+
+// sensitiveParam: parámetros de la URL que nunca se quitan con $removeparam, venga
+// de la lista que venga: sin ellos fallan inicios de sesión, pagos y enlaces firmados.
+func sensitiveParam(p string) bool {
+	p = strings.ToLower(strings.TrimSpace(p))
+	switch p {
+	case "code", "state", "sid", "key", "sig", "next", "url", "uri", "redirect", "return", "continue", "ticket", "otp",
+		"scope", "response_type", "client_id", "nonce", "authuser", "samlrequest", "samlresponse", "relaystate", "assertion",
+		"jwt", "signature", "expires", "policy", "hash", "hmac", "page", "lang", "q":
+		return true
+	}
+	for _, w := range []string{"token", "auth", "session", "csrf", "xsrf", "pass", "login", "redirect", "return", "callback", "oauth", "secret", "signature", "credential"} {
+		if strings.Contains(p, w) {
+			return true
+		}
+	}
+	return strings.HasSuffix(p, "_key") || strings.HasSuffix(p, "_url") || strings.HasSuffix(p, "_uri") || strings.HasPrefix(p, "x-amz-") || strings.HasPrefix(p, "x-goog-")
+}
+
 func canonicalScriptlet(name string, trusted bool) string {
 	name = strings.TrimSuffix(strings.TrimSpace(name), ".js")
 	if c, ok := scriptletAliases[name]; ok {

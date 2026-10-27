@@ -66,8 +66,9 @@ Chrome ya para las ventanas que una web abre sin que hagas clic. Las que se cuel
 - siempre, si su destino está en las listas (`$popup`);
 - en **modo estricto** (activado al instalar), si va a otra web y no la pediste tú. Cuenta como pedida:
   - la que va a donde apunta el enlace en el que hiciste clic (con `target=_blank`, Ctrl, Mayús o botón central);
-  - la primera que abre un botón, o un enlace que no lleva a ningún sitio (`#`, `javascript:`), aunque vaya a otra web («Compartir», «Iniciar sesión con…»);
-  - inicios de sesión y pagos conocidos (Google, Microsoft, Apple, PayPal…).
+  - la primera que abre un botón, o un enlace que no lleva a ningún sitio (`#`, `javascript:`), aunque vaya a otra web («Compartir», «Iniciar sesión con…»). Cuentan también los botones hechos con un bloque cualquiera (con cursor de mano, del tamaño de un botón), y vale aunque la ventana tarde hasta 5 s en abrirse (pagos e inicios de sesión que esperan al servidor);
+  - la que abres desde el clic derecho con «Abrir enlace en una pestaña nueva»;
+  - inicios de sesión y pagos conocidos (Google, Microsoft, Apple, PayPal, Stripe, Adyen, Klarna, Redsys…).
 
   Si haces clic en un enlace normal (que se abre en la misma pestaña) y además sale una ventana a otra web, esa ventana es una popunder y se cierra.
 
@@ -159,4 +160,7 @@ La prueba `video` usa además el puerto 80, porque los filtros `||dominio/ruta` 
 - **Estadísticas**: Chrome bloquea sin avisar a la extensión; los contadores se ponen al día cada pocos minutos (y al abrir el popup). Los «datos ahorrados» son una estimación.
 - **Scriptlets en webs con comodín** (`1337x.*`): en la primera visita se inyectan un instante más tarde; desde la segunda, desde el principio.
 - **Modo estricto de ventanas**: un botón que abre otra web con JavaScript (p. ej. «Compartir en X») puede cerrarse; el aviso tiene **Abrir** y **Permitir en esta web**.
+- **Límites de Chrome**: con todas las categorías activadas puede que alguna no quepa (Chrome admite 1000 expresiones regulares por extensión). Entran por importancia (malware antes que anuncios) y la que se queda fuera sale marcada «No cabe» en la ventanita.
+- **Lo que pueden hacer las listas**: las excepciones de otras categorías ya no quitan el aviso de malware (solo las de las propias listas de malware y las tuyas); las que no son de uBlock Origin no usan scriptlets que escriben cookies, almacenamiento o enlaces; y ninguna puede quitar de las direcciones parámetros de inicio de sesión, pagos o enlaces firmados (`code`, `state`, `token`…).
+- Si un filtro de **Mis filtros** no vale, se buscan los malos sin quitar los que ya funcionan.
 - Sin `TurboBLOCK.exe` instalado (extensión cargada a mano) funciona igual, pero las listas no se actualizan solas.

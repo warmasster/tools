@@ -118,6 +118,11 @@ func compileLists(lists map[string]*ListText, lib string) (*compiled, error) {
 				}
 				seen[line] = true
 				if cf, isCos := parseCosmetic(line, s.Trusted); isCos {
+					// Las listas que no son de uBlock Origin solo usan scriptlets que
+					// desactivan cosas, no los que escriben datos o cambian enlaces.
+					if cf != nil && cf.kind == cosScript && !cf.exception && !s.Trusted && riskyScriptlet(cf.scriptlet[0]) {
+						continue
+					}
 					// Scriptlets que no están en content/scriptlets.js: fuera.
 					if cf != nil && (cf.kind != cosScript || cf.scriptlet[0] == "*" || slib.has(cf.scriptlet[0])) {
 						in.cos = append(in.cos, cf)
@@ -125,6 +130,9 @@ func compileLists(lists map[string]*ListText, lib string) (*compiled, error) {
 					continue
 				}
 				if nf := parseNetFilter(line); nf != nil && (!s.HostsOnly || nf.host != "") {
+					if nf.removeParm != "" && sensitiveParam(nf.removeParm) {
+						continue // quitarlo rompería inicios de sesión o pagos
+					}
 					in.net = append(in.net, nf)
 				}
 			}
@@ -527,10 +535,17 @@ func dedupeInts(s []int) []int {
 // writeRules deja los archivos en dir/rules. Primero todos los temporales y
 // después los renombres: la carpeta nunca queda con medio trabajo.
 func writeRules(extDir string, c *compiled) error {
+	// Otro TurboBLOCK.exe (el actualizador que lanza el navegador y el que abres tú)
+	// puede estar escribiendo en la misma carpeta: de uno en uno.
+	unlock := lockRules()
+	defer unlock()
 	dir := filepath.Join(extDir, "rules")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	// Temporales con el número de proceso: aunque el candado fallara, dos procesos
+	// no se pisan los archivos a medias.
+	tmpExt := fmt.Sprintf(".%d.tmp", os.Getpid())
 	names := make([]string, 0, len(c.Files))
 	for n := range c.Files {
 		if n != "meta.json" {
@@ -540,13 +555,13 @@ func writeRules(extDir string, c *compiled) error {
 	sort.Strings(names)
 	names = append(names, "meta.json") // el último: dice que lo demás ya está
 	for _, n := range names {
-		if err := os.WriteFile(filepath.Join(dir, n+".tmp"), c.Files[n], 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, n+tmpExt), c.Files[n], 0o644); err != nil {
 			return err
 		}
 	}
 	for _, n := range names {
 		p := filepath.Join(dir, n)
-		if err := os.Rename(p+".tmp", p); err != nil {
+		if err := os.Rename(p+tmpExt, p); err != nil {
 			return err
 		}
 	}

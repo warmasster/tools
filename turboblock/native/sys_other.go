@@ -12,6 +12,8 @@ import (
 	"runtime"
 )
 
+func lockRules() func() { return func() {} }
+
 func AppDir() string {
 	base, err := os.UserConfigDir()
 	if err != nil {

@@ -1,21 +1,19 @@
 package main
 
-// Instalación "de doble clic". Chrome en Windows no deja que un programa instale
-// extensiones que no vienen de la Chrome Web Store (ni por línea de comandos desde
-// la versión 137), así que se deja todo preparado: la extensión en una carpeta
-// fija, su ruta en el portapapeles y chrome://extensions abierto.
+// Instalación "de doble clic". Chrome (y Edge, y Brave) en Windows no deja que un
+// programa instale extensiones que no vienen de su tienda (ni por línea de órdenes
+// desde la versión 137), así que se deja todo preparado: la extensión en una
+// carpeta fija, su ruta en el portapapeles y la página de extensiones abierta.
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/registry"
 )
 
 func setup() {
@@ -36,31 +34,23 @@ func setup() {
 	loaded := chromeExtensionPaths()
 	for _, p := range loaded {
 		if strings.EqualFold(filepath.Clean(p), filepath.Clean(extDir)) {
-			messageBox("TurboBLOCK", "TurboBLOCK actualizado.\n\nEn chrome://extensions pulsa el botón de recargar (↻) de TurboBLOCK para usar la versión nueva.", false)
+			messageBox("TurboBLOCK", "TurboBLOCK actualizado.\n\nEn la página de extensiones del navegador (chrome://extensions, edge://extensions…) pulsa el botón de recargar (↻) de TurboBLOCK para usar la versión nueva.", false)
 			return
 		}
 	}
 	if len(loaded) > 0 {
-		messageBox("TurboBLOCK", fmt.Sprintf("TurboBLOCK actualizado.\n\nYa tienes la extensión cargada desde:\n%s\n\nRecárgala en chrome://extensions (↻).", loaded[0]), false)
+		messageBox("TurboBLOCK", fmt.Sprintf("TurboBLOCK actualizado.\n\nYa tienes la extensión cargada desde:\n%s\n\nRecárgala en la página de extensiones del navegador (↻).", loaded[0]), false)
 		return
 	}
 
 	setClipboard(extDir)
-	opened := openInChrome("chrome://extensions/")
-	where := "En la pestaña de extensiones que se acaba de abrir:"
-	if !opened {
-		where = "Abre Chrome y escribe chrome://extensions en la barra de direcciones. Luego:"
-	}
-	messageBox("TurboBLOCK · último paso", where+`
-
-  1. Activa «Modo de desarrollador» (arriba a la derecha).
-  2. Pulsa «Cargar descomprimida».
-  3. Pega la ruta en la barra de la ventana (Ctrl+V; ya está copiada) y pulsa «Seleccionar carpeta».
+	br, opened := openExtensionsPage()
+	messageBox("TurboBLOCK · último paso", loadSteps(br, opened)+`
 
 La extensión está en:
 `+extDir+`
 
-Chrome no permite que un programa instale extensiones por su cuenta: este paso hay que darlo a mano una sola vez. Las listas de filtros se actualizan solas cada día.`, false)
+El navegador no permite que un programa instale extensiones por su cuenta: este paso hay que darlo a mano una sola vez. Las listas de filtros se actualizan solas cada día.`, false)
 }
 
 // Carpetas de perfiles de los navegadores basados en Chromium.
@@ -109,37 +99,6 @@ func chromeExtensionPaths() []string {
 		}
 	}
 	return out
-}
-
-func findChrome() string {
-	const key = `SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe`
-	for _, root := range []registry.Key{registry.CURRENT_USER, registry.LOCAL_MACHINE} {
-		if k, err := registry.OpenKey(root, key, registry.QUERY_VALUE); err == nil {
-			p, _, err := k.GetStringValue("")
-			k.Close()
-			if err == nil && p != "" {
-				return p
-			}
-		}
-	}
-	for _, p := range []string{
-		filepath.Join(os.Getenv("ProgramFiles"), `Google\Chrome\Application\chrome.exe`),
-		filepath.Join(os.Getenv("ProgramFiles(x86)"), `Google\Chrome\Application\chrome.exe`),
-		filepath.Join(os.Getenv("LOCALAPPDATA"), `Google\Chrome\Application\chrome.exe`),
-	} {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return ""
-}
-
-func openInChrome(url string) bool {
-	chrome := findChrome()
-	if chrome == "" {
-		return false
-	}
-	return exec.Command(chrome, url).Start() == nil
 }
 
 func setClipboard(text string) {

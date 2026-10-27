@@ -50,6 +50,7 @@ async function applyNow(reason) {
   const cats = enabledCats(s);
   const user = compileUserFilters(s.enabled ? s.userFilters : '');
   const errors = [];
+  let left = []; // categorías que Chrome no ha dejado activar (no caben)
 
   // 1. Rulesets estáticos.
   const current = await chrome.declarativeNetRequest.getEnabledRulesets();
@@ -65,7 +66,6 @@ async function applyNow(reason) {
         try { await chrome.declarativeNetRequest.updateEnabledRulesets({ disableRulesetIds: disable }); } catch {}
       }
       const order = ['base', 'malware', 'privacy', 'ads', 'cookies', 'annoyances'];
-      const left = [];
       for (const c of [...enable].sort((a, b) => order.indexOf(a) - order.indexOf(b))) {
         try { await chrome.declarativeNetRequest.updateEnabledRulesets({ enableRulesetIds: [c] }); } catch { left.push(c); }
       }
@@ -98,13 +98,32 @@ async function applyNow(reason) {
   try {
     await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: old.map((r) => r.id), addRules: dyn });
   } catch (e) {
-    // Alguna regla no vale: se añaden una a una para saber cuál.
-    await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: (await chrome.declarativeNetRequest.getDynamicRules()).map((r) => r.id) });
-    for (const r of dyn) {
-      try { await chrome.declarativeNetRequest.updateDynamicRules({ addRules: [r] }); } catch (err) {
+    // Alguna regla no vale. El cambio es atómico, así que siguen puestas las de antes:
+    // se buscan las malas probándolas aparte y luego se cambia todo de una vez, sin
+    // quedarse un rato sin reglas propias.
+    const bad = await findBadRules(dyn);
+    if (bad) {
+      for (const [r, why] of bad) {
         const u = userRules.find((x) => x.rule === r);
-        if (u) user.errors.push({ line: u.line, text: '', why: err.message });
-        else errors.push(err.message);
+        if (u) user.errors.push({ line: u.line, text: '', why });
+        else errors.push(why);
+      }
+      const good = dyn.filter((r) => !bad.has(r));
+      try {
+        await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: old.map((r) => r.id), addRules: good });
+      } catch (err) {
+        errors.push(err.message);
+      }
+    } else {
+      // No se ha podido probar aparte (p. ej. se llega al tope de reglas): como antes,
+      // de una en una.
+      await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: (await chrome.declarativeNetRequest.getDynamicRules()).map((r) => r.id) });
+      for (const r of dyn) {
+        try { await chrome.declarativeNetRequest.updateDynamicRules({ addRules: [r] }); } catch (err) {
+          const u = userRules.find((x) => x.rule === r);
+          if (u) user.errors.push({ line: u.line, text: '', why: err.message });
+          else errors.push(err.message);
+        }
       }
     }
   }
@@ -121,8 +140,49 @@ async function applyNow(reason) {
   await updateBadge(s);
 
   await chrome.storage.local.set({
-    status: { applied: Date.now(), build: meta.build, cats, errors, userErrors: user.errors.slice(0, 200), ms: Math.round(performance.now() - t0), reason },
+    status: { applied: Date.now(), build: meta.build, cats, left, errors, userErrors: user.errors.slice(0, 200), ms: Math.round(performance.now() - t0), reason },
   });
+}
+
+// Ids de prueba: muy por encima de los de «Mis filtros» (USER_RULE_BASE + n).
+const PROBE_BASE = 4_000_000;
+
+/**
+ * Busca qué reglas dinámicas rechaza Chrome sin quitar las que están puestas: se
+ * prueban por grupos con ids temporales (que se quitan enseguida) y el grupo que
+ * falla se parte en dos. Devuelve Map(regla → motivo), o null si no se ha podido
+ * (el error es de tope de reglas, no de una regla concreta).
+ */
+async function findBadRules(rules) {
+  const bad = new Map();
+  let giveUp = false;
+  // Reglas de prueba que quedaron puestas (el service worker murió a mitad): fuera.
+  const stale = (await chrome.declarativeNetRequest.getDynamicRules()).map((r) => r.id).filter((id) => id >= PROBE_BASE);
+  if (stale.length) await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: stale }).catch(() => {});
+  const tryAdd = async (list) => {
+    const tmp = list.map((r, i) => ({ ...r, id: PROBE_BASE + i }));
+    try {
+      await chrome.declarativeNetRequest.updateDynamicRules({ addRules: tmp });
+    } catch (e) {
+      // Que el mensaje hable de la regla de verdad, no del id de prueba.
+      if (list.length === 1) e = new Error(String(e.message).replaceAll(String(PROBE_BASE), String(list[0].id)));
+      return e;
+    }
+    await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: tmp.map((r) => r.id) }).catch(() => {});
+    return null;
+  };
+  const bisect = async (list) => {
+    if (!list.length || giveUp) return;
+    const err = await tryAdd(list);
+    if (!err) return;
+    if (/limit|exceed|maximum|quota/i.test(err.message)) { giveUp = true; return; }
+    if (list.length === 1) { bad.set(list[0], err.message); return; }
+    const mid = list.length >> 1;
+    await bisect(list.slice(0, mid));
+    await bisect(list.slice(mid));
+  };
+  await bisect(rules);
+  return giveUp || !bad.size ? null : bad;
 }
 
 // ---------- cosméticos ----------

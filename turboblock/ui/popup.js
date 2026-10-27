@@ -11,7 +11,9 @@ const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 let s = await getSettings();
 
 // ---------- categorías ----------
-function renderCats() {
+async function renderCats() {
+  const { status } = await chrome.storage.local.get('status');
+  const left = new Set(status?.left || []);
   $('cats').innerHTML = '';
   for (const c of CATEGORIES) {
     const info = CAT_INFO[c.id];
@@ -23,6 +25,12 @@ function renderCats() {
       <label class="switch"><input type="checkbox"><span></span></label>`;
     row.querySelector('.row-txt span').textContent = c.name;
     row.querySelector('small').textContent = c.hint;
+    if (left.has(c.id) && s.cats[c.id]) {
+      // Activada, pero Chrome no la ha dejado entrar: no caben más reglas.
+      row.classList.add('nofit');
+      row.title = 'No cabe: Chrome no deja más reglas. Desactiva otra categoría (Molestias o Avisos de cookies) para que entre.';
+      row.querySelector('small').textContent = 'No cabe: desactiva otra para que entre';
+    }
     const input = row.querySelector('input');
     input.checked = !!s.cats[c.id];
     row.classList.toggle('dis', !input.checked);
@@ -137,7 +145,7 @@ $('update').onclick = async () => {
   renderOverview();
 };
 
-chrome.storage.onChanged.addListener((ch) => { if (ch.updateState) renderOverview(); });
+chrome.storage.onChanged.addListener((ch) => { if (ch.updateState) renderOverview(); if (ch.status) renderCats(); });
 
 renderState();
 renderCats();

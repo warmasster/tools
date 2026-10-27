@@ -20,8 +20,13 @@ const (
 	prioAllow       = 20 // una excepción gana a ambos
 	prioImportant   = 30 // $important gana a las excepciones
 	prioImpRedirect = 35
-	maxRegexRules   = 900 // Chrome admite 1000 por ruleset
-	AllowIDBase     = 500000
+	// El aviso de malware gana a las excepciones de las demás categorías (una lista de
+	// anuncios no puede quitarlo con un @@…$document); solo las excepciones de las
+	// propias listas de malware (sus falsos positivos) y las tuyas pueden con él.
+	prioMalwareDoc   = 25
+	prioMalwareAllow = 26
+	maxRegexRules    = 900 // Chrome admite 1000 por ruleset
+	AllowIDBase      = 500000
 )
 
 type dnrRule struct {
@@ -106,6 +111,13 @@ type netResult struct {
 	PopupAllow []string
 	Ghide      []string // dominios sin ocultación genérica
 	Shide      []string // dominios sin ocultación específica
+}
+
+func docPrio(malware bool) int {
+	if malware {
+		return prioMalwareDoc
+	}
+	return prioBlock
 }
 
 // buildDNR convierte los filtros de red de una categoría. bad contiene las claves
@@ -233,6 +245,9 @@ func buildDNR(filters []*netFilter, bad map[string]bool, strictDoc bool) netResu
 			}
 		case f.allow:
 			r.Priority = prioAllow
+			if strictDoc {
+				r.Priority = prioMalwareAllow
+			}
 			r.Action.Type = "allow"
 			if f.doc {
 				// @@...$document: la página entera queda sin filtrar.
@@ -283,7 +298,7 @@ func buildDNR(filters []*netFilter, bad map[string]bool, strictDoc bool) netResu
 	for _, d := range []struct {
 		hosts []string
 		prio  int
-	}{{docHosts, prioBlock}, {docImportant, prioImportant}} {
+	}{{docHosts, docPrio(strictDoc)}, {docImportant, prioImportant}} {
 		if len(d.hosts) == 0 {
 			continue
 		}

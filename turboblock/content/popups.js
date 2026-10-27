@@ -20,7 +20,26 @@
     } catch { return false; }
   };
 
-  const report = (ev) => {
+  // Botones hechos con un <div> (sin role ni onclick): se les reconoce por el cursor
+  // de mano, tabindex o una clase de botón. Solo si tienen tamaño de botón: una capa
+  // que tapa el vídeo entero (lo típico para colar una popunder) no cuenta.
+  const looksLikeButton = (el) => {
+    for (let e = el, i = 0; e && i < 4; e = e.parentElement, i++) {
+      const r = e.getBoundingClientRect();
+      if (r.width > 480 || r.height > 160 || r.width * r.height > 60000) return false;
+      const cls = typeof e.className === 'string' ? e.className : '';
+      if (e.hasAttribute('tabindex') || /(^|[\s_-])(btn|button|boton)([\s_-]|$)/i.test(cls)) return true;
+      // El cursor se hereda: solo cuenta donde empieza (una capa con cursor de mano no
+      // convierte en botón todo lo que lleva dentro).
+      try {
+        const parent = e.parentElement;
+        if (getComputedStyle(e).cursor === 'pointer' && (!parent || getComputedStyle(parent).cursor !== 'pointer')) return true;
+      } catch { /* sin estilos */ }
+    }
+    return false;
+  };
+
+  const report = (ev, menu = false) => {
     if (!ev.isTrusted) return; // los clics simulados por scripts no cuentan
     const t = ev.target instanceof Element ? ev.target : null;
     if (!t) return;
@@ -33,11 +52,13 @@
       type: 'click',
       href: link ? a.href : (form && t.closest('button,input[type=submit]') ? form.action : ''),
       newTab,
-      control: !link && (!!a || !!t.closest(CONTROL)),
+      control: !link && (!!a || !!t.closest(CONTROL) || looksLikeButton(t)),
+      menu, // clic derecho: puede acabar en «Abrir enlace en una pestaña nueva»
     }).catch(() => {});
   };
-  addEventListener('pointerdown', report, true);
-  addEventListener('auxclick', report, true);
+  addEventListener('pointerdown', (ev) => report(ev), true);
+  addEventListener('auxclick', (ev) => report(ev), true);
+  addEventListener('contextmenu', (ev) => report(ev, true), true);
   addEventListener('keydown', (ev) => { if (ev.isTrusted && (ev.key === 'Enter' || ev.key === ' ')) report(ev); }, true);
 
   if (window !== top) return;

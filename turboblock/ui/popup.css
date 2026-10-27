@@ -91,6 +91,8 @@ body.off .site, .site.paused { filter: saturate(.25); }
 .group { display: grid; }
 .row { display: flex; align-items: center; gap: 10px; padding: 5px 2px; border-top: 1px solid var(--brd); }
 #cats .row-txt small { display: none; }
+#cats .row.nofit .row-txt small { display: block; color: var(--warn); }
+#cats .row.nofit .row-txt span::after { content: ' ⚠'; color: var(--warn); }
 #cats .row:first-child { border-top: none; }
 .cic {
   width: 26px; height: 26px; flex: none; border-radius: 8px; display: grid; place-items: center;
