@@ -21,6 +21,7 @@ type App struct {
 	dir string
 
 	mu         sync.RWMutex
+	acceptMu   sync.Mutex // de un envío entrante en un envío al elegir nombres
 	settings   Settings
 	port       int
 	srvErr     string
@@ -40,6 +41,7 @@ func NewApp() *App {
 	a := &App{dir: dataDir()}
 	a.settings = defaultSettings()
 	_ = loadJSON(filepath.Join(a.dir, "settings.json"), &a.settings)
+	a.settings.migrate()
 	a.settings.normalize()
 	a.shares = newShareStore(a.dir)
 	a.rooms = newRoomStore(a.dir)
@@ -60,6 +62,7 @@ func NewApp() *App {
 	a.server = newPublicServer(a)
 	a.tunnel = newTunnel(a.dir, a.server.nonce, nil)
 	a.direct = newDirect(a.server.nonce, nil)
+	a.direct.recordPath = filepath.Join(a.dir, "upnp.json")
 	a.rooms.onChange = func(id string) { a.emit("roomchg", id) }
 	a.hub.onPresence = func(id string) { a.membersChanged(id) }
 	a.importV1()
@@ -82,6 +85,7 @@ func (a *App) directBase() string { return a.direct.Base() }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	go a.finishPending()
 	a.startNetwork()
 	a.startControl()
 
@@ -115,7 +119,7 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) startNetwork() {
 	s := a.getSettings()
-	port, err := a.server.Start(s.Port)
+	port, err := a.server.Start(s.Port, s.needsNetwork())
 	a.mu.Lock()
 	a.port = port
 	if err != nil {
@@ -392,7 +396,7 @@ type State struct {
 
 func (a *App) bases() (cf, direct, lan string) {
 	a.mu.RLock()
-	port := a.port
+	port, lanOn := a.port, a.settings.LANLink
 	a.mu.RUnlock()
 	ts := a.tunnel.State()
 	if ts.Status == "online" {
@@ -404,7 +408,7 @@ func (a *App) bases() (cf, direct, lan string) {
 	if ip == "" {
 		ip = lanIP()
 	}
-	if ip != "" {
+	if ip != "" && lanOn {
 		lan = fmt.Sprintf("http://%s:%d", ip, port)
 	}
 	return
@@ -686,6 +690,7 @@ func (a *App) SetTitle(t string) { runtime.WindowSetTitle(a.ctx, t) }
 
 func (a *App) SaveSettings(s Settings) error {
 	s.normalize()
+	s.Rev = settingsRev
 	a.mu.Lock()
 	old := a.settings
 	a.settings = s
@@ -695,6 +700,13 @@ func (a *App) SaveSettings(s Settings) error {
 	}
 	// El cambio de puerto se aplica al reiniciar la app.
 	go func() {
+		if s.needsNetwork() != old.needsNetwork() {
+			if err := a.server.Rebind(s.needsNetwork()); err != nil {
+				a.mu.Lock()
+				a.srvErr = "No se pudo cambiar a qué redes escucha TurboSEND: " + err.Error()
+				a.mu.Unlock()
+			}
+		}
 		tunnelChanged := s.Tunnel != old.Tunnel || s.TunnelToken != old.TunnelToken || s.TunnelHost != old.TunnelHost
 		if tunnelChanged {
 			if s.Tunnel {

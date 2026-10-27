@@ -127,7 +127,8 @@ func newRoomStore(base string) *RoomStore {
 		if loadJSON(filepath.Join(s.dir, e.Name()), &r) == nil && r.ID != "" {
 			// las transferencias a medias quedan pendientes de reanudar
 			for _, b := range r.In {
-				if b.Status == "transferring" {
+				// "finishing": se cerró la app justo al guardar; se vuelve a intentar.
+				if b.Status == "transferring" || b.Status == "finishing" {
 					b.Status = "accepted"
 				}
 			}

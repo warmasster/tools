@@ -43,11 +43,44 @@ func attachKillOnClose(pid int) {
 	windows.CloseHandle(ph)
 }
 
-// verifyCloudflareSignature comprueba la firma Authenticode y que el firmante sea Cloudflare.
+var (
+	wintrust                   = windows.NewLazySystemDLL("wintrust.dll")
+	procProvDataFromStateData  = wintrust.NewProc("WTHelperProvDataFromStateData")
+	procGetProvSignerFromChain = wintrust.NewProc("WTHelperGetProvSignerFromChain")
+)
+
+// Estructuras de wintrust (solo los campos del principio, que son los que se leen).
+type cryptProviderSgnr struct {
+	Size         uint32
+	VerifyAsOf   windows.Filetime
+	CertChainLen uint32
+	CertChain    *cryptProviderCert
+}
+
+type cryptProviderCert struct {
+	Size uint32
+	Cert *windows.CertContext
+}
+
+// verifyCloudflareSignature comprueba la firma Authenticode y que quien firma sea
+// Cloudflare. Se mira el certificado del firmante que Windows acaba de validar, no
+// cualquiera de los que van dentro del archivo (ahí se puede meter cualquier cosa).
 func verifyCloudflareSignature(path string) error {
-	p, err := windows.UTF16PtrFromString(path)
+	name, err := verifiedSigner(path)
 	if err != nil {
 		return err
+	}
+	if !strings.HasPrefix(name, "Cloudflare") {
+		return errors.New("el ejecutable no está firmado por Cloudflare")
+	}
+	return nil
+}
+
+// verifiedSigner valida la firma de un archivo y devuelve el nombre de su firmante.
+func verifiedSigner(path string) (string, error) {
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return "", err
 	}
 	fi := &windows.WinTrustFileInfo{Size: uint32(unsafe.Sizeof(windows.WinTrustFileInfo{})), FilePath: p}
 	data := &windows.WinTrustData{
@@ -57,36 +90,39 @@ func verifyCloudflareSignature(path string) error {
 		UnionChoice:                     windows.WTD_CHOICE_FILE,
 		StateAction:                     windows.WTD_STATEACTION_VERIFY,
 		FileOrCatalogOrBlobOrSgnrOrCert: unsafe.Pointer(fi),
+		// Sin ir a internet a por listas de revocación: sin red no se queda esperando.
+		ProvFlags: windows.WTD_REVOCATION_CHECK_NONE | windows.WTD_CACHE_ONLY_URL_RETRIEVAL,
 	}
 	verr := windows.WinVerifyTrustEx(windows.InvalidHWND, &windows.WINTRUST_ACTION_GENERIC_VERIFY_V2, data)
-	data.StateAction = windows.WTD_STATEACTION_CLOSE
-	windows.WinVerifyTrustEx(windows.InvalidHWND, &windows.WINTRUST_ACTION_GENERIC_VERIFY_V2, data)
+	defer func() {
+		data.StateAction = windows.WTD_STATEACTION_CLOSE
+		windows.WinVerifyTrustEx(windows.InvalidHWND, &windows.WINTRUST_ACTION_GENERIC_VERIFY_V2, data)
+	}()
 	if verr != nil {
-		return errors.New("firma digital no válida")
+		return "", errors.New("firma digital no válida")
 	}
-
-	var enc, ctype, ftype uint32
-	var store, msg windows.Handle
-	if err := windows.CryptQueryObject(windows.CERT_QUERY_OBJECT_FILE, unsafe.Pointer(p),
-		windows.CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED, windows.CERT_QUERY_FORMAT_FLAG_BINARY, 0,
-		&enc, &ctype, &ftype, &store, &msg, nil); err != nil {
-		return errors.New("no se pudo leer la firma")
+	if procProvDataFromStateData.Find() != nil || procGetProvSignerFromChain.Find() != nil {
+		return "", errors.New("no se pudo leer la firma")
 	}
-	defer windows.CertCloseStore(store, 0)
-	var cert *windows.CertContext
-	for {
-		cert, err = windows.CertEnumCertificatesInStore(store, cert)
-		if err != nil || cert == nil {
-			break
-		}
-		buf := make([]uint16, 256)
-		n := windows.CertGetNameString(cert, windows.CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, nil, &buf[0], uint32(len(buf)))
-		if n > 1 && strings.HasPrefix(windows.UTF16ToString(buf[:n]), "Cloudflare") {
-			windows.CertFreeCertificateContext(cert)
-			return nil
-		}
+	prov, _, _ := procProvDataFromStateData.Call(uintptr(data.StateData))
+	if prov == 0 {
+		return "", errors.New("no se pudo leer la firma")
 	}
-	return errors.New("el ejecutable no está firmado por Cloudflare")
+	sp, _, _ := procGetProvSignerFromChain.Call(prov, 0, 0, 0)
+	if sp == 0 {
+		return "", errors.New("no se pudo leer la firma")
+	}
+	// Memoria de wintrust (no de Go), válida hasta cerrar el estado.
+	sgnr := (*cryptProviderSgnr)(*(*unsafe.Pointer)(unsafe.Pointer(&sp)))
+	if sgnr.CertChainLen == 0 || sgnr.CertChain == nil || sgnr.CertChain.Cert == nil {
+		return "", errors.New("no se pudo leer la firma")
+	}
+	buf := make([]uint16, 256)
+	n := windows.CertGetNameString(sgnr.CertChain.Cert, windows.CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, nil, &buf[0], uint32(len(buf)))
+	if n <= 1 {
+		return "", errors.New("no se pudo leer la firma")
+	}
+	return windows.UTF16ToString(buf[:n]), nil
 }
 
 var (

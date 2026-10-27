@@ -60,7 +60,14 @@ type RoomView struct {
 	Unread   int                `json:"unread"`
 	Typing   []string           `json:"typing"`
 	Links    *ShareLinks        `json:"links,omitempty"`
+	// Older: hay mensajes anteriores que no van en el saludo (se piden con /history).
+	Older bool `json:"older,omitempty"`
 }
+
+// guestPage: mensajes que recibe un invitado al entrar (y en cada página de
+// /history). Un chat guarda hasta 3000 de hasta 4000 letras: mandarlos todos en
+// cada saludo eran decenas de MB.
+const guestPage = 150
 
 func inView(b *InBundle, guest bool, viewer string) InView {
 	v := InView{ID: b.ID, From: b.From, Name: b.Name, Kind: b.Kind, Count: len(b.Files), Total: b.Total,
@@ -106,8 +113,13 @@ func (a *App) roomView(id string, guest bool, viewer string) (RoomView, bool) {
 		for _, m := range r.Members {
 			v.Members = append(v.Members, MemberView{PID: m.PID, Name: m.Name, Color: m.Color, Online: online[m.PID]})
 		}
-		v.Messages = make([]Message, len(r.Messages))
-		for i, m := range r.Messages {
+		list := r.Messages
+		if guest && len(list) > guestPage {
+			list = list[len(list)-guestPage:]
+			v.Older = true
+		}
+		v.Messages = make([]Message, len(list))
+		for i, m := range list {
 			v.Messages[i] = *m
 			if m.Kind == "out" {
 				outIDs = append(outIDs, m.Bundle)
@@ -250,8 +262,54 @@ func (p *PublicServer) handleRoomInfo(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, 404, "not_found")
 		return
 	}
-	me := p.app.rooms.MemberByMid(room, r.URL.Query().Get("mid"))
+	mid := r.Header.Get("X-Member")
+	if mid == "" {
+		mid = r.URL.Query().Get("mid") // páginas de antes de la 2.1.2
+	}
+	me := p.app.rooms.MemberByMid(room, mid)
 	writeJSON(w, 200, p.roomPayload(r, room, me))
+}
+
+// handleHistory devuelve la página de mensajes anterior a "before".
+func (p *PublicServer) handleHistory(w http.ResponseWriter, r *http.Request) {
+	room := r.PathValue("room")
+	if _, err := p.member(r, r.URL.Query().Get("mid")); err != nil {
+		jsonErr(w, 403, err.Error())
+		return
+	}
+	before := r.URL.Query().Get("before")
+	var msgs []Message
+	var outIDs []string
+	older := false
+	p.app.rooms.With(room, func(rm *Room) bool {
+		end := -1
+		for i, m := range rm.Messages {
+			if m.ID == before {
+				end = i
+				break
+			}
+		}
+		if end < 0 {
+			return false
+		}
+		start := max(0, end-guestPage)
+		older = start > 0
+		for _, m := range rm.Messages[start:end] {
+			msgs = append(msgs, *m)
+			if m.Kind == "out" {
+				outIDs = append(outIDs, m.Bundle)
+			}
+		}
+		return false
+	})
+	out := map[string]OutView{}
+	for _, id := range outIDs {
+		out[id] = p.app.outView(id)
+	}
+	if msgs == nil {
+		msgs = []Message{}
+	}
+	writeJSON(w, 200, map[string]any{"messages": msgs, "out": out, "older": older})
 }
 
 func (p *PublicServer) handleJoin(w http.ResponseWriter, r *http.Request) {

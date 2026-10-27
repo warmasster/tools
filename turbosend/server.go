@@ -28,9 +28,19 @@ var copyBufPool = sync.Pool{New: func() any { b := make([]byte, 1<<20); return &
 type PublicServer struct {
 	app   *App
 	srv   *http.Server
+	lnMu  sync.Mutex
 	ln    net.Listener
+	port  int
 	nonce string
 	web   fs.FS
+}
+
+// listenAddr: todas las redes, o solo este PC (127.0.0.1) si no hacen falta.
+func listenAddr(port int, network bool) string {
+	if network {
+		return fmt.Sprintf(":%d", port)
+	}
+	return fmt.Sprintf("127.0.0.1:%d", port)
 }
 
 func newPublicServer(app *App) *PublicServer {
@@ -38,12 +48,13 @@ func newPublicServer(app *App) *PublicServer {
 	return &PublicServer{app: app, nonce: newID(), web: sub}
 }
 
-// Start escucha en todas las interfaces (necesario para modo directo y LAN).
-func (p *PublicServer) Start(port int) (int, error) {
+// Start escucha en todas las interfaces si hace falta (modo directo y red local);
+// si no, solo en este PC.
+func (p *PublicServer) Start(port int, network bool) (int, error) {
 	var ln net.Listener
 	var err error
 	for i := 0; i < 20; i++ {
-		ln, err = net.Listen("tcp", fmt.Sprintf(":%d", port+i))
+		ln, err = net.Listen("tcp", listenAddr(port+i, network))
 		if err == nil {
 			port = port + i
 			break
@@ -63,6 +74,7 @@ func (p *PublicServer) Start(port int) (int, error) {
 	mux.HandleFunc("GET /api/r/{room}", p.handleRoomInfo)
 	mux.HandleFunc("POST /api/r/{room}/join", p.handleJoin)
 	mux.HandleFunc("GET /api/r/{room}/poll", p.handlePoll)
+	mux.HandleFunc("GET /api/r/{room}/history", p.handleHistory)
 	mux.HandleFunc("POST /api/r/{room}/msg", p.handleMsg)
 	mux.HandleFunc("POST /api/r/{room}/typing", p.handleTyping)
 	mux.HandleFunc("POST /api/r/{room}/offer", p.handleOffer)
@@ -77,7 +89,7 @@ func (p *PublicServer) Start(port int) (int, error) {
 	mux.HandleFunc("POST /fin/{id}", p.handleFin)
 	mux.HandleFunc("/", p.handleNotFound)
 
-	p.ln = ln
+	p.ln, p.port = ln, port
 	p.srv = &http.Server{
 		Handler:           secHeaders(mux),
 		ReadHeaderTimeout: 15 * time.Second,
@@ -91,6 +103,33 @@ func (p *PublicServer) Close() {
 	if p.srv != nil {
 		p.srv.Close()
 	}
+}
+
+// Rebind cambia a qué redes se escucha sin cortar lo que está en marcha: se cierra
+// solo el punto de escucha (las conexiones abiertas siguen) y se abre el nuevo en
+// el mismo puerto.
+func (p *PublicServer) Rebind(network bool) error {
+	p.lnMu.Lock()
+	defer p.lnMu.Unlock()
+	if p.srv == nil || p.ln == nil {
+		return nil
+	}
+	old := p.ln
+	oldAddr := old.Addr().String()
+	old.Close()
+	ln, err := net.Listen("tcp", listenAddr(p.port, network))
+	if err != nil {
+		// Se vuelve a como estaba.
+		ln, err2 := net.Listen("tcp", oldAddr)
+		if err2 == nil {
+			p.ln = ln
+			go p.srv.Serve(ln)
+		}
+		return err
+	}
+	p.ln = ln
+	go p.srv.Serve(ln)
+	return nil
 }
 
 func secHeaders(h http.Handler) http.Handler {

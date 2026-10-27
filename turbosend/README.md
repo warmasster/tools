@@ -6,7 +6,8 @@ Envía y recibe archivos y carpetas de cualquier tamaño desde tu PC, en chats. 
 - **Tres formas de llegar a tu PC**:
   - **⚡ Directo** (`http://TU-IP:47831/...`): abre el puerto en el router por UPnP y lo cierra al salir. Es lo más rápido, pero no funciona si tu operadora usa CG-NAT.
   - **☁️ Cloudflare** (`https://xxxx.trycloudflare.com/...`): va por HTTPS y funciona siempre, sin abrir puertos. La dirección cambia cada vez que abres la app, salvo que pongas un dominio propio.
-  - **🏠 Red local**: para quien esté en tu misma red.
+  - **🏠 Red local**: para quien esté en tu misma red. Se puede quitar en Ajustes: sin red local, sin UPnP y sin directo forzado, TurboSEND solo escucha en tu PC y todo pasa por Cloudflare.
+- **Tu IP no se enseña por defecto**: quien entra por Cloudflare ya no ve el botón para pasarse al enlace directo (que lleva tu IP pública) salvo que lo actives en Ajustes. Si actualizas desde una versión anterior, este ajuste vuelve a estar apagado una vez.
 - **Lo que tú envías**:
   - En Chrome/Edge va en **modo turbo**: varias conexiones a la vez y cada bloque verificado con CRC32. Si se corta, reintenta; si falla del todo, se puede reanudar.
   - Las carpetas se guardan con su estructura (en turbo) o se descargan como un ZIP generado al vuelo.
@@ -15,8 +16,11 @@ Envía y recibe archivos y carpetas de cualquier tamaño desde tu PC, en chats. 
   - La subida va en bloques de 16 MB con CRC32, con varias conexiones a la vez, y se puede reanudar.
   - Se guarda en `Descargas\TurboSEND\<chat>\`, marcada como descargada de Internet. «Abrir» no ejecuta programas ni scripts que te manden (`.exe`, `.bat`, `.lnk`…): los enseña en su carpeta.
   - Quien envía tiene que tener el chat abierto. Si recarga la página, se le pide volver a elegir los archivos y continúa donde se quedó.
+  - Aceptar un envío de miles de archivos es inmediato: cada archivo se crea en el disco cuando llega su primer trozo.
+- **Chats largos**: quien entra recibe los últimos 150 mensajes y puede pedir los anteriores con «Ver mensajes anteriores».
+- **Si la app se cierra de golpe, el puerto del router no se queda abierto para siempre**: TurboSEND apunta el puerto que abrió y lo quita al volver a abrirse (o al desactivar UPnP).
 - **Dominio propio (opcional)**: en Ajustes pones la dirección (`enviar.tudominio.com`) y el token del túnel. Dentro de la app están los pasos. Si falla o lo dejas vacío, se usa el enlace temporal.
-- **Sin ventanas de terminal**: `cloudflared` se ejecuta oculto y se cierra con la app. Si no lo tienes, TurboSEND lo descarga de GitHub (el oficial; comprueba que la firma sea de Cloudflare).
+- **Sin ventanas de terminal**: `cloudflared` se ejecuta oculto y se cierra con la app. Si no lo tienes, TurboSEND lo descarga de GitHub (el oficial; comprueba que quien lo firma sea Cloudflare, no solo que lleve un certificado suyo).
 
 Velocidad medida por Cloudflare: unos 40–60 MB/s de bajada y unos 8–20 MB/s de subida. Para subidas grandes conviene el enlace directo ⚡.
 

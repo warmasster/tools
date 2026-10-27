@@ -442,7 +442,8 @@ window.EnvLib = (() => {
         const x = new XMLHttpRequest();
         this.xhrs = this.xhrs || new Set();
         this.xhrs.add(x);
-        x.open("PUT", `/api/r/${encodeURIComponent(this.o.room)}/in/${encodeURIComponent(this.o.bid)}/${j.f.i}?off=${off}&mid=${encodeURIComponent(this.o.mid)}`);
+        x.open("PUT", `/api/r/${encodeURIComponent(this.o.room)}/in/${encodeURIComponent(this.o.bid)}/${j.f.i}?off=${off}`);
+        x.setRequestHeader("X-Member", this.o.mid);
         x.setRequestHeader("X-CRC32", crc);
         x.setRequestHeader("Content-Type", "application/octet-stream");
         x.upload.onprogress = (e) => { j.sent = e.loaded; };

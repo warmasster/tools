@@ -75,7 +75,7 @@
   }
 
   async function api(path, opts) {
-    const r = await fetch(API + path, Object.assign({ cache: "no-store", headers: { "Content-Type": "application/json" } }, opts || {}));
+    const r = await fetch(API + path, Object.assign({ cache: "no-store", headers: { "Content-Type": "application/json", "X-Member": mid } }, opts || {}));
     let data = null;
     try { data = await r.json(); } catch {}
     if (!r.ok) throw new Error((data && data.error) || "HTTP " + r.status);
@@ -86,7 +86,7 @@
   async function boot() {
     let data;
     try {
-      data = await api("?mid=" + encodeURIComponent(mid));
+      data = await api("");
     } catch (e) {
       if (String(e.message).includes("not_found")) return gone("Este chat ya no existe", "Puede que lo hayan borrado o que el enlace esté mal copiado.");
       msgs.innerHTML = `<div class="sys">No se puede conectar con el ordenador de origen.<br>Puede que esté apagado o que haya cerrado TurboSEND.<br><br><button class="fbtn" id="rt">${svg("refresh")} Reintentar</button></div>`;
@@ -154,7 +154,7 @@
     (async () => {
       while (!stopped) {
         try {
-          const r = await fetch(`${API}/poll?mid=${encodeURIComponent(mid)}&since=${since}`, { cache: "no-store" });
+          const r = await fetch(`${API}/poll?since=${since}`, { cache: "no-store", headers: { "X-Member": mid } });
           if (r.status === 404) { stopped = true; gone("Este chat ya no existe", "Puede que lo hayan borrado."); break; }
           if (r.status === 403) { stopped = true; location.reload(); break; }
           if (!r.ok) throw new Error("HTTP " + r.status);
@@ -367,6 +367,18 @@
       const e = msgs.querySelector(".empty");
       if (e) e.remove();
     }
+    if (S.room.older && list.length) {
+      let o = els.get("older");
+      if (!o) {
+        o = document.createElement("div");
+        o.className = "sys";
+        o.innerHTML = `<button class="fbtn" data-act="older">${svg("clock")} Ver mensajes anteriores</button>`;
+        els.set("older", o);
+      }
+      seen.add("older");
+      if (msgs.firstChild !== o) msgs.insertBefore(o, msgs.firstChild);
+      prevEl = o;
+    }
     let lastDay = "";
     for (let i = 0; i < list.length; i++) {
       const m = list[i];
@@ -476,7 +488,7 @@
     if (!u || !u.files) { renderAll(false); return; }
     if (u.up && u.state === "run") return;
     let st;
-    try { st = await api(`/in/${encodeURIComponent(bid)}?mid=${encodeURIComponent(mid)}`); }
+    try { st = await api(`/in/${encodeURIComponent(bid)}`); }
     catch (e) { u.state = "fail"; u.err = e.message; renderAll(false); return; }
     const missing = {};
     for (const f of st.files) missing[f.i] = f.missing;
@@ -531,7 +543,7 @@
   async function cancelUpload(bid) {
     const u = ups.get(bid);
     if (u && u.up) u.up.cancel();
-    try { await api(`/in/${encodeURIComponent(bid)}/cancel?mid=${encodeURIComponent(mid)}`, { method: "POST" }); } catch {}
+    try { await api(`/in/${encodeURIComponent(bid)}/cancel`, { method: "POST" }); } catch {}
   }
 
   // ---------- clics en tarjetas ----------
@@ -551,8 +563,34 @@
       case "up-cancel": cancelUpload(id); break;
       case "up-retry": { const u = ups.get(id); if (u) { u.state = "wait"; startUpload(id); } break; }
       case "reselect": pick(b.dataset.kind, id); break;
+      case "older": loadOlder(b); break;
     }
   });
+
+  // Los chats largos llegan por partes: al entrar, solo los últimos mensajes.
+  let loadingOlder = false;
+  async function loadOlder(btn) {
+    const first = S.room.messages[0];
+    if (!first || loadingOlder) return;
+    loadingOlder = true;
+    btn.disabled = true;
+    try {
+      const d = await api(`/history?before=${encodeURIComponent(first.id)}`);
+      const have = new Set(S.room.messages.map((m) => m.id));
+      const add = (d.messages || []).filter((m) => !have.has(m.id));
+      Object.assign(S.room.out, d.out || {});
+      S.room.older = !!d.older && add.length > 0;
+      const h = msgs.scrollHeight, top = msgs.scrollTop;
+      S.room.messages = add.concat(S.room.messages);
+      renderAll(false);
+      msgs.scrollTop = top + (msgs.scrollHeight - h); // que no salte lo que estabas leyendo
+    } catch (e) {
+      toast(e.message, "error");
+    } finally {
+      loadingOlder = false;
+      btn.disabled = false;
+    }
+  }
 
   // ---------- escribir ----------
   function autosize() { text.style.height = "auto"; text.style.height = Math.min(160, text.scrollHeight) + "px"; text.style.overflowY = text.scrollHeight > 160 ? "auto" : "hidden"; }

@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +30,53 @@ type Direct struct {
 	done     chan struct{}
 	nonce    string
 	onChange func()
+	// recordPath: dónde se apunta el puerto abierto en el router. Si TurboSEND se
+	// cae, en routers que no admiten caducidad el puerto quedaría abierto para
+	// siempre: al volver a abrirse, se cierra (o se reutiliza).
+	recordPath string
+}
+
+type upnpRecord struct {
+	Ext      int    `json:"ext"`
+	Internal int    `json:"internal"`
+	Local    string `json:"local"`
+}
+
+func (d *Direct) loadRecord() *upnpRecord {
+	if d.recordPath == "" {
+		return nil
+	}
+	var r upnpRecord
+	if loadJSON(d.recordPath, &r) != nil || r.Ext <= 0 {
+		return nil
+	}
+	return &r
+}
+
+func (d *Direct) saveRecord(r upnpRecord) {
+	if d.recordPath != "" {
+		if b, err := json.Marshal(r); err == nil {
+			os.WriteFile(d.recordPath, b, 0o644)
+		}
+	}
+}
+
+func (d *Direct) clearRecord() {
+	if d.recordPath != "" {
+		os.Remove(d.recordPath)
+	}
+}
+
+// dropStale cierra el puerto que dejó abierto una ejecución anterior (si sigue
+// siendo nuestro y no es el que se acaba de abrir).
+func (d *Direct) dropStale(g *igd, keep int) {
+	r := d.loadRecord()
+	if r == nil || r.Ext == keep {
+		return
+	}
+	if cl, p := g.mappingOwner(r.Ext); cl == r.Local && p == r.Internal {
+		g.Unmap(r.Ext)
+	}
 }
 
 func newDirect(nonce string, onChange func()) *Direct {
@@ -99,6 +148,7 @@ func (d *Direct) run(ctx context.Context, port int, useUPnP, force bool) {
 			go func() { g.Unmap(ext); close(done) }()
 			select {
 			case <-done:
+				d.clearRecord()
 			case <-unctx.Done():
 			}
 			c()
@@ -129,6 +179,14 @@ func (d *Direct) attempt(ctx context.Context, port int, useUPnP, force bool) (*i
 	}
 	if !useUPnP {
 		manual("UPnP desactivado en ajustes.")
+		if d.loadRecord() != nil {
+			// Quedó un puerto abierto de antes de desactivar UPnP (o de un cierre a
+			// destiempo): se cierra.
+			if g, err := discoverIGD(ctx); err == nil {
+				d.dropStale(g, 0)
+				d.clearRecord()
+			}
+		}
 		return nil, 0
 	}
 	g, err := discoverIGD(ctx)
@@ -152,6 +210,8 @@ func (d *Direct) attempt(ctx context.Context, port int, useUPnP, force bool) (*i
 		})
 		return nil, 0
 	}
+	d.dropStale(g, ext)
+	d.saveRecord(upnpRecord{Ext: ext, Internal: port, Local: g.localIP})
 	if pub == "" {
 		pub = routerIP
 	}

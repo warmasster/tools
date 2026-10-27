@@ -599,6 +599,7 @@
     $("#s-tunnel").checked = s.tunnel;
     $("#s-upnp").checked = s.upnp;
     $("#s-showdirect").checked = s.showDirectOnTunnel;
+    $("#s-lan").checked = s.lanLink;
     $("#s-force").checked = s.forceDirect;
     $("#s-conns").value = s.connections;
     $("#s-conns-v").textContent = s.connections;
@@ -618,7 +619,7 @@
     const s = {
       hostName: $("#s-name").value, sounds: $("#s-sounds").checked, recvDir: draftRecv,
       autoAccept: $("#s-auto").checked, autoLimitGB: +$("#s-limit").value || 0,
-      tunnel: $("#s-tunnel").checked, upnp: $("#s-upnp").checked, showDirectOnTunnel: $("#s-showdirect").checked,
+      tunnel: $("#s-tunnel").checked, upnp: $("#s-upnp").checked, showDirectOnTunnel: $("#s-showdirect").checked, lanLink: $("#s-lan").checked,
       forceDirect: $("#s-force").checked, connections: +$("#s-conns").value, port: +$("#s-port").value || S.settings.port,
       tunnelHost: $("#s-host").value, tunnelToken: $("#s-token").value,
     };

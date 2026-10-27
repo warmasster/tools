@@ -138,7 +138,8 @@
         <h3>Conexión</h3>
         <label class="row toggle"><div><b>Túnel de Cloudflare</b><span>Enlace HTTPS que funciona desde cualquier red, sin abrir puertos.</span></div><input type="checkbox" id="s-tunnel"><i></i></label>
         <label class="row toggle"><div><b>Abrir puerto con UPnP</b><span>Pide al router que abra el puerto para el enlace directo ⚡ (el más rápido).</span></div><input type="checkbox" id="s-upnp"><i></i></label>
-        <label class="row toggle"><div><b>Ofrecer el enlace directo en la página de Cloudflare</b><span>Quien entre por Cloudflare verá un botón para pasarse al directo. Mostrará tu IP pública.</span></div><input type="checkbox" id="s-showdirect"><i></i></label>
+        <label class="row toggle"><div><b>Ofrecer el enlace directo en la página de Cloudflare</b><span>Quien entre por Cloudflare verá un botón para pasarse al directo, que es más rápido pero enseña tu IP pública.</span></div><input type="checkbox" id="s-showdirect"><i></i></label>
+        <label class="row toggle"><div><b>Enlace de red local</b><span>Para quien esté en tu misma red (el Wi-Fi de casa). Sin él, ni UPnP ni directo forzado, TurboSEND solo escucha en este PC y todo pasa por Cloudflare.</span></div><input type="checkbox" id="s-lan"><i></i></label>
         <label class="row toggle"><div><b>Forzar enlace directo</b><span>Si has abierto el puerto a mano en el router y UPnP no funciona.</span></div><input type="checkbox" id="s-force"><i></i></label>
         <div class="row"><div><b>Conexiones turbo</b><span>Tramos que se descargan en paralelo en Chrome/Edge.</span></div><div class="range"><input type="range" id="s-conns" min="1" max="16"><output id="s-conns-v"></output></div></div>
         <div class="row"><div><b>Puerto</b><span>Se aplica al reiniciar TurboSEND.</span></div><input type="number" class="num" id="s-port" min="1024" max="65535"></div>

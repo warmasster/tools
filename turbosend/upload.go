@@ -170,11 +170,22 @@ func (a *App) Offer(roomID string, m *Member, files []offerFile) (*InBundle, err
 	return b, nil
 }
 
-// AcceptIn prepara los archivos de destino y pide al invitado que empiece a enviar.
+// AcceptIn elige dónde se guardará cada archivo y pide al invitado que empiece a
+// enviar. Los archivos se crean al llegar su primer bloque: con un envío de cien
+// mil archivos, crearlos todos aquí, con el chat bloqueado, congelaba la app.
 func (a *App) AcceptIn(roomID, bid string) error {
 	set := a.getSettings()
+	// Elegir nombres libres mira el disco una vez por nombre: se hace sin el candado
+	// del chat, pero de un envío en un envío para que dos no elijan el mismo.
+	a.acceptMu.Lock()
+	defer a.acceptMu.Unlock()
+
 	var err error
-	var from string
+	var from, base, kind string
+	var need int64
+	var rels []string // solo la primera vez: aún no tiene nombres
+	var taken map[string]bool
+	ok := false
 	a.rooms.With(roomID, func(r *Room) bool {
 		b := r.inBundle(bid)
 		if b == nil {
@@ -184,68 +195,105 @@ func (a *App) AcceptIn(roomID, bid string) error {
 		if b.Status != "offered" && b.Status != "failed" {
 			return false
 		}
-		from = b.From
-		base := filepath.Join(set.RecvDir, safeComponent(r.Name))
-		if e := os.MkdirAll(base, 0o755); e != nil {
-			err = fmt.Errorf("no se pudo crear la carpeta de recepción: %v", e)
+		ok = true
+		from, kind = b.From, b.Kind
+		need = b.Total - b.Received
+		base = filepath.Join(set.RecvDir, safeComponent(r.Name))
+		if b.Root == "" {
+			rels = make([]string, len(b.Files))
+			for i, f := range b.Files {
+				rels[i] = f.Rel
+			}
+		}
+		return false
+	})
+	if err != nil || !ok {
+		return err
+	}
+	if rels != nil {
+		taken = a.reservedTops(base, bid)
+	}
+	if e := os.MkdirAll(base, 0o755); e != nil {
+		return fmt.Errorf("no se pudo crear la carpeta de recepción: %v", e)
+	}
+	if free, e := freeSpace(base); e == nil && free < uint64(need)+(256<<20) {
+		return fmt.Errorf("no hay espacio suficiente en el disco (hacen falta %s)", humanBytes(need))
+	}
+	var finals []string
+	root := ""
+	if rels != nil {
+		finals = make([]string, len(rels))
+		tops := map[string]string{}
+		for i, rel := range rels {
+			parts := strings.Split(rel, "/")
+			top, seen := tops[parts[0]]
+			if !seen {
+				top = uniqueName(base, parts[0], taken)
+				taken[strings.ToLower(top)] = true
+				tops[parts[0]] = top
+			}
+			parts[0] = top
+			finals[i] = filepath.Join(append([]string{base}, parts...)...)
+		}
+		if kind == "file" || len(tops) == 1 {
+			for _, t := range tops {
+				root = filepath.Join(base, t)
+			}
+		} else {
+			root = base
+		}
+	}
+	accepted := false
+	a.rooms.With(roomID, func(r *Room) bool {
+		b := r.inBundle(bid)
+		if b == nil {
+			err = errors.New("ese envío ya no existe")
 			return false
 		}
-		if free, e := freeSpace(base); e == nil && free < uint64(b.Total-b.Received)+(256<<20) {
-			err = fmt.Errorf("no hay espacio suficiente en el disco (hacen falta %s)", humanBytes(b.Total))
+		if b.Status != "offered" && b.Status != "failed" {
 			return false
 		}
-		if b.Root == "" { // primera vez: elegimos nombres finales libres
-			taken := map[string]bool{}
-			tops := map[string]string{}
-			for _, f := range b.Files {
-				parts := strings.Split(f.Rel, "/")
-				top, ok := tops[parts[0]]
-				if !ok {
-					top = uniqueName(base, parts[0], taken)
-					taken[strings.ToLower(top)] = true
-					tops[parts[0]] = top
-				}
-				parts[0] = top
-				f.Final = filepath.Join(append([]string{base}, parts...)...)
+		if b.Root == "" && len(finals) == len(b.Files) {
+			for i, f := range b.Files {
+				f.Final = finals[i]
 			}
-			if b.Kind == "file" || len(tops) == 1 {
-				for _, t := range tops {
-					b.Root = filepath.Join(base, t)
-				}
-			} else {
-				b.Root = base
-			}
-		}
-		for _, f := range b.Files {
-			if f.Done {
-				continue
-			}
-			if e := os.MkdirAll(filepath.Dir(f.Final), 0o755); e != nil {
-				err = e
-				return false
-			}
-			part := f.Final + ".turbosend-part"
-			fh, e := os.OpenFile(part, os.O_CREATE|os.O_WRONLY, 0o644)
-			if e != nil {
-				err = e
-				return false
-			}
-			if st, _ := fh.Stat(); st != nil && st.Size() != f.Size {
-				fh.Truncate(f.Size)
-			}
-			fh.Close()
+			b.Root = root
 		}
 		b.Status = "accepted"
 		b.Error = ""
+		accepted = true
 		return true
 	})
-	if err != nil {
+	if err != nil || !accepted {
 		return err
 	}
 	a.bundleChanged(roomID, bid)
 	a.hub.SendTo(roomID, from, "upload", map[string]string{"bundle": bid})
 	a.maybeFinish(roomID, bid) // por si solo había archivos vacíos
 	return nil
+}
+
+// reservedTops: nombres ya dados (dentro de base) a envíos sin terminar de cualquier
+// chat. Sus archivos pueden no existir aún en el disco, y dos chats con el mismo
+// nombre comparten carpeta.
+func (a *App) reservedTops(base, except string) map[string]bool {
+	taken := map[string]bool{}
+	for _, id := range a.rooms.IDs() {
+		a.rooms.With(id, func(r *Room) bool {
+			for _, o := range r.In {
+				if o.ID == except || o.Root == "" || o.Status == "done" || o.Status == "rejected" || o.Status == "cancelled" {
+					continue
+				}
+				for _, f := range o.Files {
+					if rel, e := filepath.Rel(base, f.Final); e == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+						taken[strings.ToLower(strings.SplitN(filepath.ToSlash(rel), "/", 2)[0])] = true
+					}
+				}
+			}
+			return false
+		})
+	}
+	return taken
 }
 
 func (a *App) RejectIn(roomID, bid string) {
@@ -285,6 +333,8 @@ func (a *App) setInStatus(roomID, bid, status, errMsg string, cleanup bool) {
 func (a *App) receiveChunk(roomID, bid string, fi int, off int64, data []byte) error {
 	var final string
 	var err error
+	fresh := false // aún no ha llegado ningún bloque de este archivo
+	from := ""
 	a.rooms.With(roomID, func(r *Room) bool {
 		b := r.inBundle(bid)
 		if b == nil || (b.Status != "accepted" && b.Status != "transferring") {
@@ -309,12 +359,35 @@ func (a *App) receiveChunk(roomID, bid string, fi int, off int64, data []byte) e
 			return false
 		}
 		final = f.Final
+		fresh = !f.anyHave()
+		from = b.From
 		return false
 	})
 	if err != nil {
 		return err
 	}
-	fh, e := os.OpenFile(final+".turbosend-part", os.O_WRONLY, 0o644)
+	part := final + ".turbosend-part"
+	fh, e := os.OpenFile(part, os.O_WRONLY, 0o644)
+	if errors.Is(e, os.ErrNotExist) {
+		if !fresh {
+			// Ya habían llegado bloques y el archivo a medias no está (un antivirus, o
+			// lo han borrado): crearlo de nuevo lo dejaría con ceros donde iban. Se
+			// vuelve a pedir entero.
+			a.forgetFile(roomID, bid, fi)
+			// Cuando al invitado le llegue el error, que vuelva a empezar con lo que falta.
+			go func() {
+				time.Sleep(1500 * time.Millisecond)
+				a.hub.SendTo(roomID, from, "upload", map[string]string{"bundle": bid})
+			}()
+			return errPartLost
+		}
+		// Primer bloque de este archivo: se crea ahora (y su carpeta).
+		os.MkdirAll(filepath.Dir(final), 0o755)
+		fh, e = os.OpenFile(part, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644)
+		if errors.Is(e, os.ErrExist) {
+			fh, e = os.OpenFile(part, os.O_WRONLY, 0o644) // otro bloque del mismo archivo lo acaba de crear
+		}
+	}
 	if e != nil {
 		return fmt.Errorf("no se pudo abrir el archivo de destino: %v", e)
 	}
@@ -323,10 +396,16 @@ func (a *App) receiveChunk(roomID, bid string, fi int, off int64, data []byte) e
 	if e != nil {
 		return fmt.Errorf("no se pudo escribir en el disco: %v", e)
 	}
-	first := false
+	first, gone := false, false
 	a.rooms.With(roomID, func(r *Room) bool {
 		b := r.inBundle(bid)
 		if b == nil {
+			gone = true
+			return false
+		}
+		if b.Status != "accepted" && b.Status != "transferring" && b.Status != "finishing" {
+			// Se canceló mientras llegaba el bloque: no se deja el archivo a medias.
+			gone = b.Status == "cancelled" || b.Status == "rejected"
 			return false
 		}
 		f := b.Files[fi]
@@ -341,11 +420,73 @@ func (a *App) receiveChunk(roomID, bid string, fi int, off int64, data []byte) e
 		}
 		return true
 	})
+	if gone {
+		os.Remove(part)
+		return errors.New("este envío ya no está aceptado")
+	}
 	if first {
 		a.bundleChanged(roomID, bid)
 	}
 	a.maybeFinish(roomID, bid)
 	return nil
+}
+
+// errPartLost: el archivo a medias ha desaparecido o le falta algo.
+var errPartLost = errors.New("el archivo a medias ha desaparecido (¿un antivirus?): se vuelve a pedir")
+
+// anyHave: ha llegado algún bloque de este archivo.
+func (f *InFile) anyHave() bool {
+	for _, b := range f.Have {
+		if b != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// forgetFile olvida los bloques recibidos de un archivo (para pedirlo otra vez).
+func (a *App) forgetFile(roomID, bid string, fi int) {
+	a.rooms.With(roomID, func(r *Room) bool {
+		b := r.inBundle(bid)
+		if b == nil || fi < 0 || fi >= len(b.Files) {
+			return false
+		}
+		f := b.Files[fi]
+		for i := int64(0); i < f.chunks(b.Chunk); i++ {
+			if f.has(i) {
+				b.Received -= min(b.Chunk, f.Size-i*b.Chunk)
+			}
+		}
+		f.Have = nil
+		if b.Received < 0 {
+			b.Received = 0
+		}
+		return true
+	})
+}
+
+// ensurePart comprueba que el archivo a medias está entero. Los vacíos no reciben
+// ningún bloque, así que se crean aquí; uno que falta (o más corto) no se rellena con
+// ceros: errPartLost.
+func ensurePart(final string, size int64) error {
+	part := final + ".turbosend-part"
+	st, err := os.Stat(part)
+	switch {
+	case err == nil && st.Size() == size:
+		return nil
+	case err == nil && st.Size() > size:
+		return os.Truncate(part, size)
+	case err == nil || size > 0 || !errors.Is(err, os.ErrNotExist):
+		return errPartLost
+	}
+	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
+		return err
+	}
+	fh, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	return fh.Close()
 }
 
 // maybeFinish renombra los archivos cuando han llegado todos los bloques.
@@ -382,7 +523,22 @@ func (a *App) maybeFinish(roomID, bid string) {
 	}
 	var ferr error
 	finals := map[*InFile]string{}
+	var lost []*InFile
 	for _, f := range moves {
+		if err := ensurePart(f.Final, f.Size); err != nil {
+			if !errors.Is(err, errPartLost) {
+				ferr = err
+				continue
+			}
+			// Sin archivo a medias pero con el definitivo de su tamaño: se guardó justo
+			// antes de que se cerrara la app.
+			if st, e := os.Stat(f.Final); e == nil && !st.IsDir() && st.Size() == f.Size {
+				finals[f] = f.Final
+				continue
+			}
+			lost = append(lost, f)
+			continue
+		}
 		part := f.Final + ".turbosend-part"
 		dst := f.Final
 		if _, err := os.Stat(dst); err == nil { // alguien creó ese nombre mientras tanto
@@ -395,23 +551,33 @@ func (a *App) maybeFinish(roomID, bid string) {
 		markFromInternet(dst)
 		finals[f] = dst
 	}
+	from := ""
 	a.rooms.With(roomID, func(r *Room) bool {
 		b := r.inBundle(bid)
 		if b == nil {
 			return false
 		}
-		for f, dst := range finals { // con el candado: el guardado y la vista leen Final
+		// Con el candado: el guardado y la vista leen Final. Cada archivo que ya se
+		// guardó queda hecho aunque otro haya fallado (al reintentar, solo los demás).
+		for f, dst := range finals {
 			f.Final = dst
+			f.Done = true
+			f.Have = nil
 		}
-		for _, f := range b.Files {
-			for _, m := range moves {
-				if m == f && ferr == nil {
-					f.Done = true
+		if len(lost) > 0 && ferr == nil {
+			// Faltan archivos a medias: se olvida lo recibido de ellos y se piden otra vez.
+			for _, f := range lost {
+				for i := int64(0); i < f.chunks(b.Chunk); i++ {
+					if f.has(i) {
+						b.Received -= min(b.Chunk, f.Size-i*b.Chunk)
+					}
 				}
-			}
-			if f.Done {
 				f.Have = nil
 			}
+			b.Received = max(b.Received, 0)
+			b.Status = "accepted"
+			from = b.From
+			return true
 		}
 		if ferr != nil {
 			b.Status, b.Error = "failed", "No se pudo guardar: "+ferr.Error()
@@ -422,6 +588,11 @@ func (a *App) maybeFinish(roomID, bid string) {
 		}
 		return true
 	})
+	if from != "" {
+		a.bundleChanged(roomID, bid)
+		a.hub.SendTo(roomID, from, "upload", map[string]string{"bundle": bid})
+		return
+	}
 	a.tracker.Finish("in|" + bid)
 	a.bundleChanged(roomID, bid)
 	if ferr == nil {
@@ -458,7 +629,29 @@ func (a *App) missingChunks(roomID, bid, pid string) (map[string]any, error) {
 		out = map[string]any{"status": b.Status, "chunk": b.Chunk, "files": files}
 		return false
 	})
+	if err == nil && out != nil && out["status"] == "accepted" {
+		go a.maybeFinish(roomID, bid)
+	}
 	return out, err
+}
+
+// finishPending termina al arrancar los envíos que llegaron enteros pero no se
+// llegaron a guardar (la app se cerró justo entonces).
+func (a *App) finishPending() {
+	for _, id := range a.rooms.IDs() {
+		var bids []string
+		a.rooms.With(id, func(r *Room) bool {
+			for _, b := range r.In {
+				if b.Status == "accepted" {
+					bids = append(bids, b.ID)
+				}
+			}
+			return false
+		})
+		for _, bid := range bids {
+			a.maybeFinish(id, bid)
+		}
+	}
 }
 
 func humanBytes(n int64) string {

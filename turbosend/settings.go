@@ -24,10 +24,31 @@ type Settings struct {
 	AutoAccept         bool    `json:"autoAccept"`
 	AutoLimitGB        float64 `json:"autoLimitGB"` // 0 = sin límite
 	Sounds             bool    `json:"sounds"`
+	// LANLink: enlace para la misma red (Wi-Fi de casa). Sin él, ni UPnP ni directo
+	// forzado, TurboSEND solo escucha en este PC (el túnel de Cloudflare llega por ahí).
+	LANLink bool `json:"lanLink"`
 	// Dominio propio (túnel con nombre de Cloudflare). Vacío = túnel temporal.
 	TunnelToken string `json:"tunnelToken"`
 	TunnelHost  string `json:"tunnelHost"`
+	// Rev: versión de los ajustes guardados, para ponerlos al día (ver migrate).
+	Rev int `json:"rev"`
 }
+
+const settingsRev = 1
+
+// migrate pone al día los ajustes guardados por versiones anteriores.
+func (s *Settings) migrate() {
+	if s.Rev < 1 {
+		// Hasta la 2.1.1 se ofrecía por defecto el enlace directo a quien entraba por
+		// Cloudflare, y ese enlace lleva tu IP pública. Ahora se activa a propósito.
+		s.ShowDirectOnTunnel = false
+	}
+	s.Rev = settingsRev
+}
+
+// needsNetwork: hay que escuchar en todas las redes (directo o red local). Si no,
+// basta con este PC, que es por donde llega el túnel de Cloudflare.
+func (s Settings) needsNetwork() bool { return s.UPnP || s.ForceDirect || s.LANLink }
 
 func defaultSettings() Settings {
 	return Settings{
@@ -35,7 +56,8 @@ func defaultSettings() Settings {
 		Port:               47831,
 		Tunnel:             true,
 		UPnP:               true,
-		ShowDirectOnTunnel: true,
+		ShowDirectOnTunnel: false,
+		LANLink:            true,
 		Connections:        4,
 		RecvDir:            filepath.Join(downloadsDir(), "TurboSEND"),
 		Sounds:             true,
