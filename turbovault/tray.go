@@ -282,7 +282,11 @@ func (t *tray) iconAndTip(d *notifyIconData) (uintptr, string) {
 		if left < 1 {
 			left = 1
 		}
-		tip = fmt.Sprintf("TurboVAULT · abierta (se cierra en %d min)", left)
+		if left >= 60 {
+			tip = fmt.Sprintf("TurboVAULT · abierta (se cierra en %d h %d min)", left/60, left%60)
+		} else {
+			tip = fmt.Sprintf("TurboVAULT · abierta (se cierra en %d min)", left)
+		}
 	} else if !t.a.v.Exists() {
 		tip = "TurboVAULT · sin bóveda todavía"
 	}

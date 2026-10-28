@@ -518,3 +518,39 @@ func TestExtensionNotFoundIsNoAlarm(t *testing.T) {
 		t.Fatalf("no debería avisar de extensión modificada (aviso=%v, %q)", warned, bad)
 	}
 }
+
+// Cambiar la duración en Ajustes se aplica a la sesión abierta; con la bóveda
+// cerrada solo se guarda, y no se aceptan duraciones fuera de la lista.
+func TestSessionDurationAppliesNow(t *testing.T) {
+	a := newTestAgent(t)
+	must(t, a, app(), "create", map[string]string{"master": testMaster}, nil)
+	must(t, a, app(), "setSettings", map[string]int{"sessionMin": 240}, nil)
+	a.mu.Lock()
+	left := time.Until(a.expires)
+	a.mu.Unlock()
+	if left < 239*time.Minute || left > 240*time.Minute {
+		t.Fatalf("tras pedir 4 h quedan %v", left)
+	}
+	must(t, a, app(), "setSettings", map[string]int{"sessionMin": 2}, nil)
+	a.mu.Lock()
+	left = time.Until(a.expires)
+	a.mu.Unlock()
+	if left < time.Minute || left > 2*time.Minute {
+		t.Fatalf("tras pedir 2 min quedan %v", left)
+	}
+	must(t, a, app(), "lock", nil, nil)
+	must(t, a, app(), "setSettings", map[string]int{"sessionMin": 30}, nil)
+	a.mu.Lock()
+	zero := a.expires.IsZero()
+	a.mu.Unlock()
+	if !zero || a.v.Unlocked() {
+		t.Fatal("con la bóveda cerrada, cambiar la duración no debe abrir ninguna sesión")
+	}
+	if getSettings().SessionMin != 30 {
+		t.Fatalf("no se guardó: %d", getSettings().SessionMin)
+	}
+	must(t, a, app(), "setSettings", map[string]int{"sessionMin": 10000}, nil)
+	if getSettings().SessionMin != 10 {
+		t.Fatalf("duración fuera de la lista aceptada: %d", getSettings().SessionMin)
+	}
+}

@@ -66,13 +66,19 @@ type Settings struct {
 	BreachCheck  bool           `json:"breachCheck"`  // se ha aceptado consultar filtraciones
 	LastBreachAt int64          `json:"lastBreachAt"` // última comprobación
 	MaxRev       int64          `json:"maxRev"`       // versión más alta de la bóveda vista (avisa si vuelve atrás)
+	AutoBreach   bool           `json:"autoBreach"`   // comprobar filtraciones cada vez que se abre
+	LockOnClose  bool           `json:"lockOnClose"`  // cerrar la bóveda al cerrar la ventana
+	LockOnMin    bool           `json:"lockOnMin"`    // cerrar la bóveda al minimizar la ventana
+	RevealSec    int            `json:"revealSec"`    // segundos que se ve una contraseña mostrada
 }
 
 func defaultSettings() Settings {
-	return Settings{SessionMin: 10, ClipSeconds: 20, Autostart: true, HideCapture: true, Gen: gen.Default()}
+	return Settings{SessionMin: 10, ClipSeconds: 20, Autostart: true, HideCapture: true, RevealSec: 30, Gen: gen.Default()}
 }
 
-var allowedSessions = []int{1, 2, 5, 10, 15, 30, 60}
+// Minutos que puede durar la sesión (hasta 8 h). Se cierra antes igualmente al
+// bloquear Windows, suspender el PC o cerrar sesión.
+var allowedSessions = []int{1, 2, 5, 10, 15, 30, 60, 120, 240, 480}
 
 func (s *Settings) sanitize() {
 	ok := false
@@ -86,6 +92,11 @@ func (s *Settings) sanitize() {
 	}
 	if s.ClipSeconds < 5 || s.ClipSeconds > 120 {
 		s.ClipSeconds = 20
+	}
+	switch s.RevealSec {
+	case 10, 30, 60:
+	default:
+		s.RevealSec = 30
 	}
 	if s.Gen.Mode == "" {
 		s.Gen = gen.Default()

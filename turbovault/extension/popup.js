@@ -45,8 +45,9 @@
     if (!st.unlocked) { p.textContent = 'Cerrada'; return; }
     // TurboVAULT y Chrome van en el mismo PC: misma hora.
     const left = Math.max(0, st.expires - Date.now());
-    const m = Math.floor(left / 60000), s = Math.floor((left % 60000) / 1000);
-    p.textContent = st.expires ? `Abierta · ${m}:${String(s).padStart(2, '0')}` : 'Abierta';
+    const h = Math.floor(left / 3600000), m = Math.floor((left % 3600000) / 60000), s = Math.floor((left % 60000) / 1000);
+    const t = h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+    p.textContent = st.expires ? `Abierta · ${t}` : 'Abierta';
     p.classList.add(left < 60000 ? 'soon' : 'open');
   }
   setInterval(() => info && pill(), 1000);

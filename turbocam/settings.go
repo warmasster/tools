@@ -235,6 +235,8 @@ type Settings struct {
 	Idle       bool               `json:"idle"`     // pedir menos fotogramas al móvil si nadie mira
 	OnTop      bool               `json:"onTop"`    // modo ventana: siempre encima
 	Welcomed   bool               `json:"welcomed"` // ya vio la explicación inicial
+	PhotoTimer int                `json:"photoTimer"` // cuenta atrás de la foto en segundos (0 = al momento)
+	NoAskClose bool               `json:"noAskClose"` // cerrar sin preguntar aunque haya móviles o apps
 }
 
 func defaultSettings() Settings {
@@ -312,6 +314,11 @@ func (s Settings) normalized() Settings {
 	case 15, 24, 30:
 	default:
 		s.FPS = 30
+	}
+	switch s.PhotoTimer {
+	case 0, 3, 5, 10:
+	default:
+		s.PhotoTimer = 0
 	}
 	switch s.Link {
 	case "direct", "lan":

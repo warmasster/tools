@@ -930,7 +930,7 @@ func (v *Vault) Never() ([]string, error) {
 	if v.key == nil {
 		return nil, ErrLocked
 	}
-	return append([]string(nil), v.data.Never...), nil
+	return append([]string{}, v.data.Never...), nil // nunca null: la ventana espera una lista
 }
 
 // SetNever añade o quita una web de la lista de "no guardar nunca".
@@ -968,7 +968,7 @@ func (v *Vault) Pairs() ([]Pair, error) {
 	if v.key == nil {
 		return nil, ErrLocked
 	}
-	return append([]Pair(nil), v.data.Pairs...), nil
+	return append([]Pair{}, v.data.Pairs...), nil
 }
 
 // HasPair dice si ese token (su huella) está vinculado y apunta el uso.

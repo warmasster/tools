@@ -37,15 +37,16 @@ El móvil hace el trabajo caro y lo reparte: la GPU recorta y escala solo la par
 
 - **Escenas**: el móvil, una **región de la pantalla** (con o sin el ratón) o **imagen sobre imagen**: un móvil en una esquina sobre la pantalla, sobre otro móvil, etc. La esquina y el tamaño se eligen con un clic.
 - **Varios móviles a la vez**: se elige cuál sale con «Poner en cámara». Los que no salen (en espera) mandan solo una vista previa pequeña a pocos fotogramas por segundo; la imagen de la cámara va a ritmo completo.
-- **Foto** (`Ctrl+Alt+P`): se la pide al móvil a la resolución de su cámara, con el mismo encuadre, y la guarda en `Imágenes\TurboCAM`.
+- **Foto** (`Ctrl+Alt+P`): se la pide al móvil a la resolución de su cámara, con el mismo encuadre, y la guarda en `Imágenes\TurboCAM`. Con **cuenta atrás** opcional (3, 5 o 10 s, en Ajustes), que se ve en grande sobre la imagen; otro clic en «Foto» o Esc la cancela.
 - **Congelar** (`Ctrl+Alt+F`): la cámara se queda con la última imagen.
 - **Tapar** (`Ctrl+Alt+T`): en vez de la imagen sale una tarjeta «Cámara tapada».
 - Los atajos funcionan desde cualquier programa y se pueden cambiar en Ajustes.
 - **Perfiles por app**: un perfil guarda la escena y los retoques. Si le asignas apps (`discord.exe`, `ms-teams.exe`…), se pone solo cuando esa app abre la cámara y, al cerrarla, todo vuelve a como estaba.
-- **Modo ventana** (sin cámara virtual): la ventana se convierte en un visor siempre encima, para compartirlo en una llamada.
+- **Modo ventana** (sin cámara virtual): la ventana se convierte en un visor siempre encima, para compartirlo en una llamada. Doble clic en la imagen para entrar o salir; lo de «siempre encima» se puede quitar en Ajustes.
 - **Resolución automática**: manda la que pide la app que usa la cámara (hasta 1080p). También se puede fijar de 1080p a 360p, y a 15, 24 o 30 fotogramas por segundo. Además, cada móvil puede mandar menos (en «Imagen» → «Envío»): el PC lo escala.
 - **Ahorro**: si ninguna app usa la cámara y la ventana no se ve, el móvil baja a 1 imagen por segundo.
-- Al cerrar con la cámara en uso, pregunta antes (se puede minimizar).
+- Al cerrar con la cámara en uso, pregunta antes (se puede minimizar, o marcar «No volver a preguntar»; se vuelve a activar en Ajustes).
+- En «Conectar», un clic en el enlace lo copia y un clic en el QR lo enseña en grande, para escanearlo desde lejos.
 
 Sin imagen, la cámara enseña una tarjeta que explica qué pasa: «TurboCAM está cerrado», «Esperando al móvil», «El móvil está en pausa» o «Cámara tapada».
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"path/filepath"
 
 	"github.com/wailsapp/wails/v2"
@@ -13,6 +14,25 @@ import (
 
 //go:embed all:frontend
 var assets embed.FS
+
+//go:embed wails.json
+var wailsJSON []byte
+
+// version sale de wails.json (info.productVersion), que es lo que publica el workflow.
+var version = func() string {
+	var w struct {
+		Info struct {
+			ProductVersion string `json:"productVersion"`
+		} `json:"info"`
+	}
+	if json.Unmarshal(wailsJSON, &w) == nil && w.Info.ProductVersion != "" {
+		return w.Info.ProductVersion
+	}
+	return "0.0.0"
+}()
+
+// Version es la versión que se enseña en Ajustes.
+func (a *App) Version() string { return version }
 
 func main() {
 	app := NewApp()

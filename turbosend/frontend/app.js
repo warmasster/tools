@@ -608,6 +608,7 @@
     $("#s-token").value = s.tunnelToken || "";
     $("#s-token").type = "password";
     $("#s-svc").textContent = "localhost:" + S.port;
+    if (api.Version) api.Version().then((v) => { if (v) $("#s-ver").textContent = "TurboSEND " + v; }).catch(() => {});
     $("#settings").hidden = false;
   }
   $("#wb-settings").addEventListener("click", openSettings);

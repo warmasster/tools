@@ -213,6 +213,8 @@
   const SCORE_LABEL = ['Muy débil', 'Débil', 'Aceptable', 'Fuerte', 'Muy fuerte'];
   const SCORE_COLOR = ['#f43f5e', '#fb7185', '#fbbf24', '#34d399', '#22d3ee'];
 
+  const fmtMin = (m) => (m >= 60 ? `${m / 60} h` : `${m} min`);
+
   function fmtDate(sec) {
     if (!sec) return '—';
     const d = new Date(sec * 1000);
@@ -254,6 +256,7 @@
     S.state = st;
     S.skew = Date.now() - st.now;
     const wasOpen = prev && prev.unlocked;
+    document.body.classList.toggle('locked', !st.unlocked);
     if (!st.unlocked) {
       if (wasOpen || !prev) wipe();
       renderLock();
@@ -299,6 +302,10 @@
     $('#detail').innerHTML = '';
     ['#gen', '#health', '#activity', '#backup', '#settings'].forEach((s) => ($(s).innerHTML = ''));
     $$('.modal').forEach((m) => m.remove());
+    $('#side').innerHTML = '';
+    $('#count').textContent = '';
+    $('#banners').innerHTML = '';
+    qIn.value = ''; S.q = ''; $('#q-wrap').classList.remove('has');
     closeCtx();
     stopOtp();
   }
@@ -315,6 +322,18 @@
     $('#lock').hidden = true;
     await loadItems();
     renderView();
+    autoBreach();
+  }
+
+  async function autoBreach() {
+    try { S.settings = await call('settings'); } catch { return; }
+    if (!S.settings.autoBreach) return;
+    try {
+      const h = await call('breach');
+      S.health = h; renderSide();
+      if (S.view === 'health') renderHealth();
+      if (h.breached && h.breached.length) toast(`${h.breached.length} ${h.breached.length === 1 ? 'contraseña sale' : 'contraseñas salen'} en filtraciones`, 'warn', { ttl: 9000, action: 'Ver', onAction: () => { S.healthTab = 'breached'; go('health'); } });
+    } catch { /* sin internet: se intenta la próxima vez */ }
   }
 
   // ---------- temporizador de la sesión ----------
@@ -324,18 +343,37 @@
     if (!st || !st.unlocked || !st.expires) return;
     const left = Math.max(0, st.expires - (Date.now() - S.skew));
     const total = (st.sessionMin || 10) * 60000;
-    const m = Math.floor(left / 60000), s = Math.floor((left % 60000) / 1000);
-    $('#session-left').textContent = `${m}:${String(s).padStart(2, '0')}`;
+    const h = Math.floor(left / 3600000), m = Math.floor((left % 3600000) / 60000), s = Math.floor((left % 60000) / 1000);
+    $('#session-left').textContent = h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
     $('#session-ring').style.strokeDashoffset = String(47.12 * (1 - left / total));
     $('#session').classList.toggle('soon', left < 60000);
     if (st.waitUntil) renderWait();
   }
-  $('#session').onclick = () => toast('La sesión dura un tiempo fijo y no se alarga con el uso. Cámbialo en Ajustes.', 'ok', { ttl: 4500 });
+  // Clic en el contador: a Ajustes, al selector del tiempo.
+  $('#session').onclick = async () => {
+    if (S.mode !== '' || !S.state || !S.state.unlocked) return;
+    go('settings');
+    for (let i = 0; i < 20 && !$('#st-session'); i++) await sleep(50);
+    const row = $('#st-session-row');
+    if (row) { row.scrollIntoView({ block: 'center', behavior: 'smooth' }); row.classList.add('flash'); setTimeout(() => row.classList.remove('flash'), 1400); $('#st-session').focus(); }
+  };
 
   // ---------- ventana ----------
-  $('#wb-min').onclick = () => rt.WindowMinimise();
+  $('#wb-min').onclick = () => { lockIfMin(); rt.WindowMinimise(); };
   $('#wb-max').onclick = () => rt.WindowToggleMaximise();
-  $('#wb-close').onclick = () => rt.Quit();
+  $('#wb-close').onclick = async () => {
+    if (S.mode === '' && S.state && S.state.unlocked && S.settings && S.settings.lockOnClose) { try { await call('lock'); } catch { /* nada */ } }
+    rt.Quit();
+  };
+  // «Cerrar al minimizar»: con el botón, con la barra de tareas o con Win+D.
+  function lockIfMin() {
+    if (S.mode === '' && S.state && S.state.unlocked && S.settings && S.settings.lockOnMin) lockNow();
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') lockIfMin(); });
+  setInterval(async () => {
+    if (!(S.settings && S.settings.lockOnMin && S.state && S.state.unlocked) || !rt.WindowIsMinimised) return;
+    try { if (await rt.WindowIsMinimised()) lockIfMin(); } catch { /* nada */ }
+  }, 1000);
   $('#wb-lock').onclick = () => lockNow();
   async function lockNow() {
     try { await call('lock'); } catch (e) { fail(e); }
@@ -429,7 +467,7 @@
     const el = $('#lock');
     el.hidden = false;
     el.innerHTML = `<div class="lock-card"><div class="ok-big">${ic('ok')}</div>
-      <h1>Bóveda abierta</h1><p class="sub">Vuelve al navegador. Se cerrará sola en ${S.state.sessionMin} min.</p></div>`;
+      <h1>Bóveda abierta</h1><p class="sub">Vuelve al navegador. Se cerrará sola en ${fmtMin(S.state.sessionMin)}.</p></div>`;
     setTimeout(() => { if (S.mode === 'unlock') rt.Quit(); }, 1100);
   }
 
@@ -790,9 +828,9 @@
       return;
     }
     const items = [];
-    if (it.username) items.push({ icon: 'user', label: 'Copiar usuario', run: () => copyField(it.id, 'username') });
-    if (it.hasPassword) items.push({ icon: 'key', label: 'Copiar contraseña', run: () => copyField(it.id, 'password') });
-    if (it.hasTotp) items.push({ icon: 'otp', label: 'Copiar código 2FA', run: () => copyField(it.id, 'totp') });
+    if (it.username) items.push({ icon: 'user', label: 'Copiar usuario (Ctrl+B)', run: () => copyField(it.id, 'username') });
+    if (it.hasPassword) items.push({ icon: 'key', label: 'Copiar contraseña (Ctrl+C)', run: () => copyField(it.id, 'password') });
+    if (it.hasTotp) items.push({ icon: 'otp', label: 'Copiar código 2FA (Ctrl+Mayús+C)', run: () => copyField(it.id, 'totp') });
     if (items.length) items.push('-');
     items.push({ icon: 'edit', label: 'Editar', run: () => editSelected() });
     items.push({ icon: 'star', label: it.fav ? 'Quitar de favoritas' : 'Marcar como favorita', run: () => toggleFav(it) });
@@ -875,7 +913,7 @@
         h += `<div class="d-sec"><div class="sec-h"><span class="label">Webs</span></div><div class="urls">`;
         for (const u of it.urls) {
           const insecure = /^http:\/\//i.test(u);
-          h += `<div class="url">${insecure ? `<span class="warn" title="Sin https: la contraseña viaja sin cifrar">${ic('warn')}</span>` : ''}<span>${esc(u)}</span></div>`;
+          h += `<div class="url">${insecure ? `<span class="warn" title="Sin https: la contraseña viaja sin cifrar">${ic('warn')}</span>` : ''}<span class="grow" title="Clic para copiar" data-curl="${esc(u)}">${esc(u)}</span><button class="ibtn sm" data-ourl="${esc(u)}" title="Abrir">${ic('link')}</button></div>`;
         }
         h += '</div></div>';
       }
@@ -956,12 +994,14 @@
       ctxMenu(r.left - 180, r.bottom + 6, items);
     });
     $$('[data-copy]', $('#detail')).forEach((b) => (b.onclick = () => copyField(it.id, b.dataset.copy, b)));
+    $$('[data-curl]', $('#detail')).forEach((b) => (b.onclick = async () => { try { await call('copyText', { text: b.dataset.curl, secret: false }); toast('Web copiada'); } catch (e) { fail(e); } }));
+    $$('[data-ourl]', $('#detail')).forEach((b) => (b.onclick = () => { const u = b.dataset.ourl.replace(/^\*\./, ''); api.OpenURL(u.includes('://') ? u : 'https://' + u); }));
   }
 
   function toggleReveal() {
     S.reveal = !S.reveal;
     clearTimeout(S.revealTimer);
-    if (S.reveal) S.revealTimer = setTimeout(() => { S.reveal = false; renderDetail(); }, 30000);
+    if (S.reveal) S.revealTimer = setTimeout(() => { S.reveal = false; renderDetail(); }, ((S.settings && S.settings.revealSec) || 30) * 1000);
     renderDetail();
   }
 
@@ -1442,29 +1482,35 @@
     const el = $('#settings');
     let st, pairs, never, ext;
     try {
-      [st, pairs, never] = await Promise.all([call('settings'), call('pairs'), call('never')]);
-      ext = await api.ExtensionInfo();
-    } catch (e) { fail(e); return; }
+      [st, pairs, never] = await Promise.all([call('settings'), call('pairs').catch(() => []), call('never').catch(() => [])]);
+      ext = await api.ExtensionInfo().catch(() => ({}));
+    } catch (e) { fail(e); el.innerHTML = `<h1>Ajustes</h1><p class="lead">No se han podido leer: ${esc(e.message)}</p>`; return; }
+    pairs = pairs || []; never = never || []; ext = ext || {};
     S.settings = st;
     const seg = (id, vals, cur, fmt) => `<div class="seg" id="${id}">${vals.map((v) => `<button data-v="${v}" class="${v === cur ? 'on' : ''}">${fmt(v)}</button>`).join('')}</div>`;
     const tog = (id, on) => `<label class="toggle"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><i></i></label>`;
     const extLoaded = ext.loaded && ext.loaded.length > 0;
     el.innerHTML = `<h1>Ajustes</h1><p class="lead">Versión ${esc(await api.Version())}</p>
       <div class="card"><h3>${ic('clock')}Sesión</h3>
-        <div class="srow"><div><b>Cerrar la bóveda a los</b><span>Cuenta desde que la abres y no se alarga al usarla. También se cierra al bloquear Windows o suspender el PC.</span></div>
-          ${seg('st-session', [1, 2, 5, 10, 15, 30, 60], st.sessionMin, (v) => v + ' min')}</div>
+        <div class="srow" id="st-session-row"><div><b>Tiempo que se queda abierta</b><span>Cuenta desde que la abres y no se alarga al usarla. Al cambiarlo, la sesión de ahora vuelve a contar desde cero con el tiempo nuevo. Se cierra antes si bloqueas Windows, suspendes el PC o cierras sesión.</span></div>
+          <select class="fsel" id="st-session">${[1, 2, 5, 10, 15, 30, 60, 120, 240, 480].map((v) => `<option value="${v}" ${v === st.sessionMin ? 'selected' : ''}>${fmtMin(v)}</option>`).join('')}</select></div>
         <div class="srow"><div><b>Borrar el portapapeles a los</b><span>Las contraseñas copiadas no van al historial de Windows (Win+V) ni a la nube.</span></div>
-          ${seg('st-clip', [10, 20, 30, 60], st.clipSeconds, (v) => v + ' s')}</div></div>
+          ${seg('st-clip', [10, 20, 30, 60], st.clipSeconds, (v) => v + ' s')}</div>
+        <div class="srow"><div><b>Volver a ocultar lo que muestras a los</b><span>Contraseñas, campos secretos y notas que destapas con el ojo.</span></div>
+          ${seg('st-reveal', [10, 30, 60], st.revealSec || 30, (v) => v + ' s')}</div>
+        <div class="srow"><div><b>Cerrar la bóveda al cerrar la ventana</b><span>Si está apagado, sigue abierta en la bandeja hasta que acabe la sesión (para que la extensión pueda rellenar).</span></div>${tog('st-lockclose', st.lockOnClose)}</div>
+        <div class="srow"><div><b>Cerrar la bóveda al minimizar</b><span>Para que nadie la vea si dejas el PC un momento.</span></div>${tog('st-lockmin', st.lockOnMin)}</div></div>
       <div class="card"><h3>${ic('shield')}Privacidad</h3>
         <div class="srow"><div><b>Ocultar la ventana en capturas</b><span>Sale en negro en capturas de pantalla, grabaciones y al compartir pantalla.</span></div>${tog('st-capture', st.hideCapture)}</div>
         <div class="srow"><div><b>Avisar al rellenar</b><span>Un aviso junto al reloj cada vez que el navegador usa una contraseña.</span></div>${tog('st-notify', st.notifyFill)}</div>
+        <div class="srow"><div><b>Buscar filtraciones al abrir la bóveda</b><span>Comprueba en segundo plano si alguna contraseña sale en filtraciones conocidas (Have I Been Pwned). Solo se mandan los 5 primeros caracteres de su huella, nunca la contraseña.</span></div>${tog('st-breach', st.autoBreach)}</div>
         <div class="srow"><div><b>Arrancar con Windows</b><span>Deja TurboVAULT en la bandeja (junto a la flechita) para que la extensión funcione siempre.</span></div>${tog('st-auto', st.autostart)}</div></div>
       <div class="card"><h3>${ic('key')}Contraseña maestra</h3>
         <div class="srow"><div><b>Cambiar la contraseña maestra</b><span>También cambia la clave interna de cifrado: las copias viejas siguen abriéndose solo con la contraseña de entonces.</span></div>
           <button class="btn ghost sm" id="st-master">Cambiar…</button></div></div>
       <div class="card"><h3>${ic('browser')}Navegador</h3>
         <div class="srow"><div><b>Extensión</b><span>${extLoaded ? 'Cargada en el navegador.' : 'Aún no está cargada en el navegador.'} ${ext.host ? '' : 'El puente con el navegador no está registrado.'}</span>
-          <span class="mono">${esc(ext.dir)}</span></div>
+          <span class="mono">${esc(ext.dir || '')}</span></div>
           <button class="btn ${extLoaded ? 'ghost' : 'primary'} sm" id="st-ext">${extLoaded ? 'Reinstalar' : 'Preparar'}</button></div>
         ${pairs.length ? pairs.map((p) => `<div class="srow"><div><b>${esc(p.name || 'Navegador')}</b><span>Vinculado ${esc(fmtDate(p.created))}</span></div><button class="btn ghost xs danger-txt" data-unpair="${esc(p.hash)}">Desvincular</button></div>`).join('')
           : '<div class="srow"><div><b>Ningún navegador vinculado</b><span>Al usar la extensión por primera vez te pedirá vincularla con un código.</span></div></div>'}</div>
@@ -1474,11 +1520,22 @@
         <div class="srow"><div><b>Carpeta de la bóveda</b><span class="mono">${esc(await api.DataFolder())}</span><span>Solo tu usuario de Windows puede abrirla.</span></div>
           <button class="btn ghost sm" id="st-folder">Abrir</button></div></div>`;
     const set = async (patch) => { try { S.settings = await call('setSettings', patch); toast('Guardado'); } catch (e) { fail(e); } };
-    $$('#st-session button').forEach((b) => (b.onclick = () => { set({ sessionMin: +b.dataset.v }); $$('#st-session button').forEach((x) => x.classList.toggle('on', x === b)); toast('Se aplica la próxima vez que abras la bóveda'); }));
+    $('#st-session').onchange = async (e) => {
+      const v = +e.target.value;
+      try {
+        S.settings = await call('setSettings', { sessionMin: v });
+        await refreshState();
+        toast(`Se cerrará dentro de ${fmtMin(v)}${v >= 120 ? '. Recuerda bloquear Windows (Win+L) si te alejas del PC' : ''}`, v >= 120 ? 'warn' : 'ok', { ttl: 5000 });
+      } catch (err) { fail(err); }
+    };
     $$('#st-clip button').forEach((b) => (b.onclick = () => { set({ clipSeconds: +b.dataset.v }); $$('#st-clip button').forEach((x) => x.classList.toggle('on', x === b)); }));
     $('#st-capture').onchange = (e) => { set({ hideCapture: e.target.checked }); api.Protect(e.target.checked); };
     $('#st-notify').onchange = (e) => set({ notifyFill: e.target.checked });
     $('#st-auto').onchange = (e) => set({ autostart: e.target.checked });
+    $$('#st-reveal button').forEach((b) => (b.onclick = () => { set({ revealSec: +b.dataset.v }); $$('#st-reveal button').forEach((x) => x.classList.toggle('on', x === b)); }));
+    $('#st-lockclose').onchange = (e) => set({ lockOnClose: e.target.checked });
+    $('#st-lockmin').onchange = (e) => set({ lockOnMin: e.target.checked });
+    $('#st-breach').onchange = (e) => set({ autoBreach: e.target.checked });
     $('#st-master').onclick = changeMaster;
     $('#st-ext').onclick = setupExtension;
     $('#st-folder').onclick = async () => api.ShowInFolder(await api.DataFolder());
@@ -1554,7 +1611,10 @@
     if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); if (S.view !== 'items') go('items'); qIn.focus(); qIn.select(); return; }
     if (e.ctrlKey && e.key.toLowerCase() === 'n') { e.preventDefault(); openEditor(null); return; }
     if (e.ctrlKey && e.key.toLowerCase() === 'l') { e.preventDefault(); lockNow(); return; }
-    if (inField) { if (e.key === 'Escape') e.target.blur(); return; }
+    if (inField) {
+      if (e.key === 'Escape') { if (e.target === qIn && qIn.value) $('#q-clear').click(); else e.target.blur(); }
+      return;
+    }
     if (S.view !== 'items') return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
@@ -1567,6 +1627,7 @@
       if (row) row.scrollIntoView({ block: 'nearest' });
       return;
     }
+    if (S.sel && e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c') { const it = findItem(S.sel); if (it && it.hasTotp) copyField(it.id, 'totp'); return; }
     if (S.sel && e.ctrlKey && e.key.toLowerCase() === 'c') { const it = findItem(S.sel); if (it && it.hasPassword) copyField(it.id, 'password'); return; }
     if (S.sel && e.ctrlKey && e.key.toLowerCase() === 'b') { const it = findItem(S.sel); if (it && it.username) copyField(it.id, 'username'); return; }
     if (S.sel && e.key === 'Enter') { editSelected(); return; }

@@ -585,6 +585,21 @@ func lockReason(r string) string {
 
 // expired comprueba la sesión por si el temporizador se ha retrasado (equipo
 // suspendido, reloj cambiado).
+// resetSession aplica una duración nueva a la sesión abierta: se cierra a los
+// min minutos contando desde ahora. Con la bóveda cerrada no hace nada.
+func (a *Agent) resetSession(min int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.v.Unlocked() || a.expires.IsZero() || time.Now().After(a.expires) {
+		return
+	}
+	a.expires = time.Now().Add(time.Duration(min) * time.Minute)
+	if a.timer != nil {
+		a.timer.Stop()
+	}
+	a.timer = time.AfterFunc(time.Until(a.expires), func() { a.lockNow("tiempo") })
+}
+
 func (a *Agent) expired() bool {
 	a.mu.Lock()
 	exp := a.expires

@@ -96,7 +96,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 		return false
 	}
 	st := a.engine.State()
-	if len(st.Phones) == 0 && len(st.Consumers) == 0 {
+	if len(st.Phones) == 0 && len(st.Consumers) == 0 || getSettings().NoAskClose {
 		return false
 	}
 	// Hay móviles o apps usando la cámara: mejor preguntar.
@@ -410,6 +410,11 @@ func (a *App) TakePhoto() (string, error) {
 func (a *App) onHotkey(action string) {
 	switch action {
 	case "photo":
+		// Con cuenta atrás, la ventana la enseña sobre la imagen mientras se espera.
+		if n := getSettings().PhotoTimer; n > 0 {
+			runtime.EventsEmit(a.ctx, "countdown", n)
+			time.Sleep(time.Duration(n) * time.Second)
+		}
 		if p, err := a.engine.TakePhoto(); err != nil {
 			a.toast("error", "No se pudo hacer la foto: "+err.Error())
 		} else {
@@ -450,6 +455,18 @@ func (a *App) SetHotkey(action, combo string) (string, error) {
 	a.hotkeys.Reload()
 	a.changed()
 	return a.hotkeys.Errors()[action], nil
+}
+
+// SetPhotoTimer elige la cuenta atrás de las fotos (0, 3, 5 o 10 s).
+func (a *App) SetPhotoTimer(sec int) {
+	updateSettings(func(s *Settings) { s.PhotoTimer = sec })
+	a.changed()
+}
+
+// SetNoAskClose: cerrar sin preguntar aunque haya móviles conectados.
+func (a *App) SetNoAskClose(on bool) {
+	updateSettings(func(s *Settings) { s.NoAskClose = on })
+	a.changed()
 }
 
 func (a *App) PickPhotoDir() string {

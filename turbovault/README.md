@@ -52,6 +52,7 @@ Gestor de contraseñas que guarda todo **cifrado en tu PC**, con extensión para
 
 - La bóveda se abre durante un **tiempo fijo** (10 minutos por defecto; de 1 a 60) que **no se alarga** al usarla. Después hay que volver a escribir la contraseña maestra.
 - Se cierra también al **bloquear Windows** (Win+L), al **suspender** el PC y al cerrar sesión.
+- Con la bóveda cerrada la ventana no deja ver nada de lo que había detrás: la pantalla de bloqueo es opaca y la lista se borra.
 - Tras 3 intentos fallidos hay que esperar (5 s, 10 s, 20 s… hasta 15 minutos), aunque se cierre y se vuelva a abrir TurboVAULT. Cuenta todo lo que pide la contraseña maestra (abrir, exportar, cambiarla, restaurar), no solo abrir. Los intentos fallidos salen en la actividad.
 - Si bloqueas Windows o suspendes el PC justo mientras se está abriendo, se queda cerrada.
 - Si alguien pone en su sitio una versión más antigua del archivo de la bóveda (por ejemplo, una copia vieja), avisa al abrirla.
@@ -91,11 +92,11 @@ Al desinstalar se quita todo menos la bóveda, que sigue en `%APPDATA%\TurboVAUL
 
 ## Ajustes
 
-Duración de la sesión, segundos hasta borrar el portapapeles, ocultar la ventana en capturas, aviso junto al reloj al rellenar, arrancar con Windows, cambiar la contraseña maestra, navegadores vinculados, webs donde no ofrecer guardar y la carpeta de datos. Se guardan en `%APPDATA%\TurboVAULT\ajustes.json` (nada secreto).
+Duración de la sesión (de 1 minuto a 8 horas; al cambiarla, la sesión abierta vuelve a contar desde cero con el tiempo nuevo, y un clic en el contador de arriba lleva a este ajuste), segundos hasta borrar el portapapeles, cuánto se ve lo que destapas con el ojo (10, 30 o 60 s), cerrar la bóveda al cerrar la ventana o al minimizarla, ocultar la ventana en capturas, aviso junto al reloj al rellenar, buscar filtraciones cada vez que se abre la bóveda, arrancar con Windows, cambiar la contraseña maestra, navegadores vinculados, webs donde no ofrecer guardar y la carpeta de datos. Se guardan en `%APPDATA%\TurboVAULT\ajustes.json` (nada secreto).
 
 ## Teclado
 
-Ctrl+F buscar · Ctrl+N nueva · Ctrl+L cerrar la bóveda · flechas para moverte · Ctrl+C copiar la contraseña · Ctrl+B copiar el usuario · Intro editar · Supr a la papelera · Ctrl+Intro guardar en el editor. En el navegador: Ctrl+Mayús+L.
+Ctrl+F buscar (Esc borra la búsqueda) · Ctrl+N nueva · Ctrl+L cerrar la bóveda · flechas para moverte · Ctrl+C copiar la contraseña · Ctrl+B copiar el usuario · Ctrl+Mayús+C copiar el código 2FA · Intro editar · Supr a la papelera · Ctrl+Intro guardar en el editor. En el navegador: Ctrl+Mayús+L.
 
 ## Cómo funciona por dentro
 

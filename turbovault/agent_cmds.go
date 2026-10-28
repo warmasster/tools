@@ -371,6 +371,10 @@ func (a *Agent) appCmd(cmd string, raw json.RawMessage) (any, error) {
 			Autostart   *bool
 			HideCapture *bool
 			BreachCheck *bool
+			AutoBreach  *bool
+			LockOnClose *bool
+			LockOnMin   *bool
+			RevealSec   *int
 		}
 		if err := decode(raw, &p); err != nil {
 			return nil, err
@@ -394,9 +398,24 @@ func (a *Agent) appCmd(cmd string, raw json.RawMessage) (any, error) {
 			if p.BreachCheck != nil {
 				s.BreachCheck = *p.BreachCheck
 			}
+			if p.AutoBreach != nil {
+				s.AutoBreach = *p.AutoBreach
+			}
+			if p.LockOnClose != nil {
+				s.LockOnClose = *p.LockOnClose
+			}
+			if p.LockOnMin != nil {
+				s.LockOnMin = *p.LockOnMin
+			}
+			if p.RevealSec != nil {
+				s.RevealSec = *p.RevealSec
+			}
 		})
 		if p.Autostart != nil {
 			setAutostart(*p.Autostart)
+		}
+		if p.SessionMin != nil {
+			a.resetSession(s.SessionMin)
 		}
 		a.broadcast()
 		return s, nil

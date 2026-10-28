@@ -50,6 +50,15 @@
   $("#fb-freeze").onclick = () => api.ToggleFreeze();
   $("#fb-cover").onclick = () => api.ToggleCover();
   $(".titlebar").addEventListener("dblclick", (e) => { if (!e.target.closest("button,.pill")) rt.WindowToggleMaximise(); });
+  // Doble clic en la imagen: entra o sale del modo ventana (el visor para compartir).
+  $("#stage").addEventListener("dblclick", (e) => { if (!e.target.closest(".float-bar") && S.st) api.SetWindowMode(!S.st.windowMode); });
+  // Esc cierra el diálogo de encima aunque no tenga el foco (y cancela la cuenta atrás).
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (S.counting) { stopCountdown(); return; }
+    const ms = $$("#modal-root .modal");
+    if (ms.length && !ms[ms.length - 1].contains(document.activeElement)) close(ms[ms.length - 1]);
+  });
 
   // La vista previa solo se pide mientras la ventana se ve (y el móvil baja el ritmo si no).
   function onVisibility() {
@@ -67,12 +76,43 @@
 
   async function photo() {
     const b = $("#a-photo");
+    if (S.counting) { stopCountdown(); return; } // un segundo clic la cancela
+    const n = (S.st && S.st.settings.photoTimer) || 0;
+    if (n > 0 && !(await countdown(n))) return;
     b.classList.remove("flash"); void b.offsetWidth; b.classList.add("flash");
     try {
       const p = await api.TakePhoto();
       photoToast(p);
     } catch (e) { toast("error", "No se pudo hacer la foto: " + errText(e)); }
   }
+
+  // Cuenta atrás grande sobre la imagen. Devuelve false si se cancela.
+  function countdown(n) {
+    stopCountdown();
+    const el = $("#countdown");
+    $("#a-photo").classList.add("on");
+    return new Promise((resolve) => {
+      let left = n;
+      const draw = () => { el.textContent = left; el.hidden = false; el.classList.remove("tick"); void el.offsetWidth; el.classList.add("tick"); };
+      draw();
+      S.counting = { resolve, timer: setInterval(() => {
+        left--;
+        if (left > 0) { draw(); return; }
+        const c = S.counting; S.counting = null; clearInterval(c.timer);
+        el.hidden = true; $("#a-photo").classList.remove("on");
+        resolve(true);
+      }, 1000) };
+    });
+  }
+  function stopCountdown() {
+    const c = S.counting;
+    if (!c) return;
+    S.counting = null; clearInterval(c.timer);
+    $("#countdown").hidden = true; $("#a-photo").classList.remove("on");
+    c.resolve(false);
+  }
+  // Con el atajo de teclado la espera la hace Go: aquí solo se enseña.
+  rt.EventsOn("countdown", (n) => { countdown(n); });
 
   function photoToast(path) {
     const name = path.split(/[\\/]/).pop();
@@ -287,7 +327,7 @@
     const mode = st.settings.link, L = st.links[mode] || {};
     const statusText = linkStatus(mode, L);
     let qr;
-    if (L.qr) qr = `<div class="qr-box"><img src="${L.qr}" alt="Código QR"></div>`;
+    if (L.qr) qr = `<div class="qr-box" data-act="bigqr" title="Clic para verlo en grande"><img src="${L.qr}" alt="Código QR"></div>`;
     else {
       const prog = L.status === "preparing" && L.progress > 0 ? `<div class="prog"><i style="width:${Math.round(L.progress * 100)}%"></i></div>` : "";
       const spin = ["off", "error", "noupnp", "cgnat"].includes(L.status) ? "" : '<div class="spinner"></div>';
@@ -304,7 +344,7 @@
         <div class="seg qr-modes" id="modes">${modes}</div>
         ${qr}
         <div class="qr-status">${statusText.html}</div>
-        ${L.url ? `<div class="qr-link"><code title="${esc(L.url)}">${esc(L.url)}</code><button class="ibtn" data-act="copy" title="Copiar el enlace">${ic("copy")}</button></div>` : ""}
+        ${L.url ? `<div class="qr-link"><code data-act="copy" title="Clic para copiar: ${esc(L.url)}">${esc(L.url)}</code><button class="ibtn" data-act="copy" title="Copiar el enlace">${ic("copy")}</button></div>` : ""}
         ${tip}
       </div>
       <div class="card"><div class="steps">
@@ -345,7 +385,17 @@
     if (!a) return;
     if (a.dataset.act === "copy") {
       const L = S.st.links[S.st.settings.link];
-      if (L && L.url) { await api.Copy(L.url); toast("ok", "Enlace copiado"); }
+      if (L && L.url) {
+        await api.Copy(L.url);
+        const row = a.closest(".qr-link");
+        if (row) { row.classList.add("done"); setTimeout(() => row.classList.remove("done"), 1200); }
+        toast("ok", "Enlace copiado");
+      }
+    }
+    if (a.dataset.act === "bigqr") {
+      const L = S.st.links[S.st.settings.link];
+      if (L && L.qr) modal(`<div class="modal-head"><h2>Escanea con el móvil</h2><button class="ibtn" data-close>${ic("x")}</button></div>
+        <div class="modal-body"><div class="qr-big"><img src="${L.qr}" alt="Código QR"></div><p style="margin:12px 0 0;text-align:center;color:var(--muted);font-size:12.5px">Conexión «${esc(MODES[S.st.settings.link].label)}» · Esc para cerrar</p></div>`, "qr");
     }
     if (a.dataset.act === "renew") {
       const ok = await confirmDialog("¿Cambiar el enlace?", "Los móviles conectados se desconectarán y tendrán que escanear el código nuevo. Si alguno tenía TurboCAM instalado en la pantalla de inicio, tendrá que volver a instalarlo.", "Cambiar enlace");
@@ -631,7 +681,15 @@
 
         <div class="sec">Fotos</div>
         <div class="srow"><div><b>Carpeta</b><span class="s path" title="${esc(st.photoDir)}">${esc(st.photoDir)}</span></div>
-          <div class="ctl"><button class="btn ghost sm" id="s-photodir">Cambiar…</button></div></div>
+          <div class="ctl"><button class="btn ghost sm" id="s-photoopen">Abrir</button><button class="btn ghost sm" id="s-photodir">Cambiar…</button></div></div>
+        <div class="srow"><div><b>Cuenta atrás</b><span class="s">Para salir en la foto sin prisas. Vale para el botón y para el atajo. Otro clic en «Foto» o Esc la cancela.</span></div>
+          <div class="ctl"><div class="seg" id="s-timer">${[0, 3, 5, 10].map((v) => `<button data-v="${v}" class="${(s.photoTimer || 0) === v ? "on" : ""}">${v ? v + " s" : "No"}</button>`).join("")}</div></div></div>
+
+        <div class="sec">Ventana</div>
+        <div class="srow"><div><b>Modo ventana siempre encima</b><span class="s">El visor para compartir en una llamada se queda delante de las demás ventanas. Doble clic en la imagen para entrar o salir.</span></div>
+          <div class="ctl"><label class="toggle"><input type="checkbox" id="s-ontop" ${s.onTop ? "checked" : ""}><i></i></label></div></div>
+        <div class="srow"><div><b>Preguntar antes de cerrar</b><span class="s">Si hay móviles conectados o una app usa la cámara.</span></div>
+          <div class="ctl"><label class="toggle"><input type="checkbox" id="s-askclose" ${s.noAskClose ? "" : "checked"}><i></i></label></div></div>
 
         <div class="sec">Conexión</div>
         <div class="srow"><div><b>Abrir el puerto en el router (UPnP)</b><span class="s">Para la conexión «Directa» desde fuera de casa. Se cierra al salir.</span></div>
@@ -650,6 +708,10 @@
     $("#s-fps", m).onclick = (e) => { const b = e.target.closest("button"); if (b) { api.SetOutput(S.st.settings.resolution, Number(b.dataset.v)); segOn(b); } };
     $("#s-idle", m).onchange = (e) => api.SetIdle(e.target.checked);
     $("#s-upnp", m).onchange = (e) => api.SetUPnP(e.target.checked);
+    $("#s-timer", m).onclick = (e) => { const b = e.target.closest("button"); if (b) { api.SetPhotoTimer(Number(b.dataset.v)); segOn(b); } };
+    $("#s-ontop", m).onchange = (e) => api.SetOnTop(e.target.checked);
+    $("#s-askclose", m).onchange = (e) => api.SetNoAskClose(!e.target.checked);
+    $("#s-photoopen", m).onclick = () => api.OpenPhotos();
     $("#s-photodir", m).onclick = async () => {
       const d = await api.PickPhotoDir();
       if (d) $(".path", m).textContent = d;
@@ -818,11 +880,12 @@
     const e = S.st ? S.st.engine : { consumers: [], phones: [] };
     const apps = uniqueApps(e.consumers);
     const why = apps.length ? `${apps.join(", ")} está usando la cámara: dejará de verse la imagen.` : "Hay móviles conectados: se desconectarán.";
-    const m = modal(`<div class="modal-head"><h2>¿Cerrar TurboCAM?</h2></div><div class="modal-body"><p style="margin:0;color:var(--muted)">${esc(why)} Si solo quieres quitarlo de en medio, minimízalo.</p></div>
+    const m = modal(`<div class="modal-head"><h2>¿Cerrar TurboCAM?</h2></div><div class="modal-body"><p style="margin:0;color:var(--muted)">${esc(why)} Si solo quieres quitarlo de en medio, minimízalo.</p>
+      <label class="field" style="margin-top:14px"><label class="toggle"><input type="checkbox" id="c-noask"><i></i></label><span>No volver a preguntar</span></label></div>
       <div class="modal-foot"><button class="btn ghost" id="c-min">Minimizar</button><button class="btn danger-solid" id="c-quit">Cerrar</button></div>`);
     m.classList.add("closing");
     $("#c-min", m).onclick = () => { close(m); rt.WindowMinimise(); };
-    $("#c-quit", m).onclick = () => api.Quit();
+    $("#c-quit", m).onclick = () => { if ($("#c-noask", m).checked) api.SetNoAskClose(true); api.Quit(); };
   }
 
   function welcome() {
@@ -952,6 +1015,7 @@
       async MonitorShot() { return shot(200, "Escritorio (muestra)"); },
       async ReinstallCamera() { }, SetWindowMode(on) { st.windowMode = on; push(); }, SetOnTop(v) { st.settings.onTop = v; push(); },
       SetWelcomed() { st.settings.welcomed = true; }, Quit() { },
+      SetPhotoTimer(v) { st.settings.photoTimer = v; push(); }, SetNoAskClose(v) { st.settings.noAskClose = v; push(); },
     };
   }
 })();

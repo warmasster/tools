@@ -171,6 +171,14 @@
     else toast("Copiado");
   }
 
+  // Copia un enlace con un clic y lo marca un momento.
+  async function copyLink(b) {
+    try { await api.CopyText(b.dataset.cl); } catch (_) { navigator.clipboard && navigator.clipboard.writeText(b.dataset.cl); }
+    b.classList.add("done");
+    setTimeout(() => b.classList.remove("done"), 1400);
+    toast("Enlace copiado");
+  }
+
   function setFoot(html) {
     foot.hidden = !html;
     foot.innerHTML = html || "";
@@ -301,7 +309,10 @@
         ${dep("doc", d.office, "Office o LibreOffice", d.office ? esc(d.office) + ": puedes pasar documentos a PDF" : "Necesario para pasar documentos de Word, Excel o PowerPoint a PDF", "")}
       </div>
       <div class="label">Rapidez<span class="gl"></span></div>
-      <div class="card"><div class="dep" style="grid-template-columns:30px minmax(0,1fr) auto"><div class="di">${ic("bolt")}</div><div><b>Abrir al instante</b><span>Deja TurboMENU preparado al iniciar sesión (usa algo de memoria).</span></div><label class="toggle"><input type="checkbox" id="h-pre" ${info.prewarm ? "checked" : ""}><i></i></label></div></div>
+      <div class="card"><div class="dep" style="grid-template-columns:30px minmax(0,1fr) auto"><div class="di">${ic("bolt")}</div><div><b>Abrir al instante</b><span>Deja TurboMENU preparado al iniciar sesión (usa algo de memoria).</span></div><label class="toggle"><input type="checkbox" id="h-pre" ${info.prewarm ? "checked" : ""}><i></i></label></div>
+        <div class="dep" style="grid-template-columns:30px minmax(0,1fr) auto"><div class="di">${ic("clock")}</div><div><b>Minutos preparado tras cerrar</b><span>Si lo vuelves a usar en ese rato, se abre al instante.</span></div><div class="seg mini" id="h-idle">${[5, 15, 30, 60].map((m) => `<button data-v="${m}" class="${(info.idleMins || 15) === m ? "on" : ""}">${m}</button>`).join("")}</div></div></div>
+      <div class="label">Privacidad<span class="gl"></span></div>
+      <div class="card"><div class="dep" style="grid-template-columns:30px minmax(0,1fr) auto"><div class="di">${ic("hash")}</div><div><b>Preguntar si el archivo es conocido</b><span>En «¿Es seguro?», consulta la huella del archivo en CIRCL (un servicio público de Luxemburgo). El archivo no se sube.</span></div><label class="toggle"><input type="checkbox" id="h-known" ${d.knownLookup === "yes" ? "checked" : ""}><i></i></label></div></div>
     `);
     $("#h-menu").onclick = async () => {
       try {
@@ -316,6 +327,10 @@
     if (ts) ts.onclick = () => api.OpenTurboSETUP();
     $("#h-vt").onclick = () => d.virustotal ? api.SetVTKey("").then(() => R.home()) : vtKeyDialog(() => R.home());
     $("#h-pre").onchange = (e) => api.SetPrewarm(e.target.checked);
+    $$("#h-idle button").forEach((b) => (b.onclick = async () => {
+      try { await api.SetIdleMins(+b.dataset.v); $$("#h-idle button").forEach((x) => x.classList.toggle("on", x === b)); toast("Guardado"); } catch (e) { toast(errText(e), "error"); }
+    }));
+    $("#h-known").onchange = async (e) => { const v = e.target.checked ? "yes" : "no"; await api.SetKnownLookup(v); S.deps.knownLookup = v; toast(e.target.checked ? "Se consultará CIRCL" : "No se consultará fuera de tu PC"); };
     $("#h-mod").onchange = async (e) => {
       const on = e.target.checked;
       e.target.disabled = true;
@@ -819,8 +834,12 @@
           return [e.clean ? "ok" : "bad", e.summary, e.threats && e.threats.length ? esc(e.threats.join(", ")) : ""];
         case "signature":
           return [e.status === "valid" ? "ok" : e.status === "unsigned" ? "warn" : "bad", e.summary, e.issuer ? "Emitido por " + esc(e.issuer) : ""];
-        case "origin":
-          return [e.marked ? (e.site ? "warn" : "warn") : "ok", e.summary, e.host ? esc(e.host) : ""];
+        case "origin": {
+          // Los enlaces se copian con un clic (la página y el archivo exacto).
+          const links = [[e.referrer, "Página"], [e.host, "Archivo"]].filter(([u]) => u && /^[a-z]+:\/\//i.test(u))
+            .map(([u, k]) => `<button class="clink" data-cl="${esc(u)}" title="Clic para copiar">${ic("copy")}<em>${k}</em><code>${esc(u)}</code></button>`).join("");
+          return [e.marked ? "warn" : "ok", e.summary, links || (e.host ? esc(e.host) : ""), true];
+        }
         case "known":
           return [e.known ? (e.malicious ? "bad" : "ok") : "na", e.summary, e.product ? esc(e.product) : ""];
       }
@@ -846,6 +865,7 @@
         return `<div class="check"><span class="ci ${lvl}">${ic(lvl === "ok" ? "check" : lvl === "bad" ? "x" : lvl === "warn" ? "alert" : "info")}</span><div class="ct"><b>${esc(r.title)}</b><span>${esc(t)}</span>${sub ? `<span>${raw ? sub : sub}</span>` : ""}</div>${k === "virustotal" && ev.virusTotal && ev.virusTotal.link ? `<button class="ibtn" data-url="${esc(ev.virusTotal.link)}" title="Ver la ficha">${ic("ext")}</button>` : "<span></span>"}</div>`;
       }).join("");
       $$("[data-url]").forEach((b) => (b.onclick = () => api.OpenURL(b.dataset.url)));
+      $$("[data-cl]").forEach((b) => (b.onclick = () => copyLink(b)));
       $$("[data-known]").forEach((b) => (b.onclick = async () => {
         const v = b.dataset.known;
         await api.SetKnownLookup(v);
@@ -860,8 +880,9 @@
       const up = $("#vt-up"); if (up) up.onclick = () => vtUpload(job, f);
       if (ev.hashes) {
         $("#hashes").hidden = false;
-        $("#hash-list").innerHTML = [["SHA-256", ev.hashes.sha256], ["SHA-1", ev.hashes.sha1], ["MD5", ev.hashes.md5]].map(([n, h]) => `<div class="hash"><span>${n}</span><code>${esc(h)}</code><button class="ibtn" data-h="${esc(h)}" title="Copiar">${ic("copy")}</button></div>`).join("");
+        $("#hash-list").innerHTML = [["SHA-256", ev.hashes.sha256], ["SHA-1", ev.hashes.sha1], ["MD5", ev.hashes.md5]].map(([n, h]) => `<div class="hash"><span>${n}</span><code title="Clic para copiar">${esc(h)}</code><button class="ibtn" data-h="${esc(h)}" title="Copiar">${ic("copy")}</button></div>`).join("");
         $$("[data-h]").forEach((b) => (b.onclick = () => copy(b.dataset.h, b)));
+        $$(".hash code").forEach((c) => (c.onclick = () => c.nextElementSibling.click()));
       }
       if (done) S.busy = false;
       fit();
@@ -928,6 +949,7 @@
     </div>`);
     setFoot(`<button class="linkbtn" id="o-unmark" title="Quita el aviso de «este archivo viene de internet» al abrirlo">Quitar la marca de internet</button><span class="grow"></span>${link ? `<button class="btn ghost" id="o-copy">${ic("copy")}Copiar enlace</button>` : ""}${page || link ? `<button class="btn primary" id="o-open">${ic("ext")}Abrir la web</button>` : '<button class="btn primary" id="f-close">Cerrar</button>'}`);
     $$("[data-c]").forEach((b) => (b.onclick = () => copy(b.dataset.c, b)));
+    $$(".linkrow code").forEach((c) => { c.title = "Clic para copiar"; c.onclick = () => c.nextElementSibling.click(); });
     const oc = $("#o-copy"); if (oc) oc.onclick = () => copy(link);
     const oo = $("#o-open"); if (oo) oo.onclick = () => api.OpenURL(page || link);
     const fc = $("#f-close"); if (fc) fc.onclick = close;
@@ -1111,7 +1133,7 @@
           case "GetJob": return job;
           case "Show": case "Resize": { const w = document.querySelector(".win"); w.style.height = a[1] + "px"; w.style.width = a[0] + "px"; return; }
           case "Thumb": return files[0] && files[0].kind === "image" ? svgImg("#0ea5e9", "#8b5cf6") : "";
-          case "HomeInfo": return { installed: true, modern: false, prewarm: false, version: "1.0.0", deps: job.deps };
+          case "HomeInfo": return { installed: true, modern: false, prewarm: false, idleMins: 15, version: "1.0.0", deps: job.deps };
           case "Plan": {
             if (a[0] === "reduce") {
               if (kind === "image" || kind === "multi") return { kind: "image", origSize: job.total, image: { quality: 80, scales: [{ id: "100", title: "Original", sub: "4000 × 3000" }, { id: "75", title: "75 %", sub: "3000 × 2250" }, { id: "50", title: "50 %", sub: "2000 × 1500" }, { id: "25", title: "25 %", sub: "1000 × 750" }] } };
@@ -1128,7 +1150,7 @@
           case "StartQR": setTimeout(() => fire("qr", { cloudflare: "https://ejemplo.trycloudflare.com/q/abc/", cfStatus: "online", dirStatus: "verified", direct: "http://83.45.12.9:47832/q/abc/", qrCF: '<svg viewBox="0 0 21 21"><path d="M0 0h7v7H0zM14 0h7v7h-7zM0 14h7v7H0zM9 9h3v3H9zM15 15h3v3h-3z"/></svg>', qrDirect: '<svg viewBox="0 0 21 21"><path d="M0 0h7v7H0zM14 0h7v7h-7zM0 14h7v7H0z"/></svg>', downloads: [{ name: files[0] ? files[0].name : "x", bytes: 2e7, total: 4.7e7, speed: 5e6 }], uploads: [{ name: "IMG_2041.HEIC", size: 3e6, got: 3e6, done: true, final: "x" }, { name: "VID_2042.MOV", size: 9e7, got: 3e7 }] }), 1200); return;
           case "QRState": return { cfStatus: "starting", dirStatus: "searching" };
           case "StartSafe": setTimeout(() => fire("safe", { step: "signature", evidence: { signature: { status: "valid", summary: "Firmado por Valve Corp.", issuer: "DigiCert" }, origin: { marked: true, site: "steampowered.com", summary: "Descargado de steampowered.com", host: "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe" } }, verdict: { level: "unknown", title: "Comprobando…", summary: "" } }), 300);
-            setTimeout(() => fire("safe", { step: "done", evidence: { hashes: { sha256: "a3f1c0ffee7b2d4e9a8c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f", sha1: "0123456789abcdef0123456789abcdef01234567", md5: "0123456789abcdef0123456789abcdef" }, signature: { status: "valid", summary: "Firmado por Valve Corp.", issuer: "DigiCert" }, defender: { available: true, clean: true, summary: "Microsoft Defender no ha encontrado nada" }, origin: { marked: true, site: "steampowered.com", summary: "Descargado de steampowered.com", host: "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe" }, known: { known: false, summary: "No aparece en la base de archivos conocidos" } }, verdict: { level: "clean", title: "Parece seguro", summary: "Firmado por Valve Corp. y Defender no encuentra nada" } }), 1300);
+            setTimeout(() => fire("safe", { step: "done", evidence: { hashes: { sha256: "a3f1c0ffee7b2d4e9a8c6b5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f", sha1: "0123456789abcdef0123456789abcdef01234567", md5: "0123456789abcdef0123456789abcdef" }, signature: { status: "valid", summary: "Firmado por Valve Corp.", issuer: "DigiCert" }, defender: { available: true, clean: true, summary: "Microsoft Defender no ha encontrado nada" }, origin: { marked: true, site: "steampowered.com", summary: "Descargado de steampowered.com", referrer: "https://store.steampowered.com/about/", host: "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe" }, known: { known: false, summary: "No aparece en la base de archivos conocidos" } }, verdict: { level: "clean", title: "Parece seguro", summary: "Firmado por Valve Corp. y Defender no encuentra nada" } }), 1300);
             return;
           case "GetOrigin": return { marked: true, zoneId: 3, zone: "Internet", site: "steampowered.com", referrer: "https://store.steampowered.com/about/", host: "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe", created: "2026-10-21T18:42:00Z", summary: "Descargado de steampowered.com" };
           case "LockScan": await wait(400); return { procs: [{ pid: 4120, name: "Microsoft Word", exe: "WINWORD.EXE", kind: "app", files: [files[0] ? files[0].path : ""] }, { pid: 880, name: "Explorador de Windows", exe: "explorer.exe", kind: "explorer", files: ["a", "b"] }] };

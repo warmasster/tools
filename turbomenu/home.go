@@ -12,6 +12,7 @@ type HomeInfo struct {
 	Installed bool   `json:"installed"`
 	Modern    bool   `json:"modern"` // también en el menú nuevo de Windows 11
 	Prewarm   bool   `json:"prewarm"`
+	IdleMins  int    `json:"idleMins"` // minutos que se queda preparado tras cerrar
 	Version   string `json:"version"`
 	Exe       string `json:"exe"`
 	Deps      Deps   `json:"deps"`
@@ -19,7 +20,8 @@ type HomeInfo struct {
 
 func (a *App) HomeInfo() HomeInfo {
 	exe, _ := os.Executable()
-	return HomeInfo{Installed: menuInstalled(exe) || modernMenuInstalled(), Modern: modernMenuInstalled(), Prewarm: getSettings().Prewarm,
+	s := getSettings()
+	return HomeInfo{Installed: menuInstalled(exe) || modernMenuInstalled(), Modern: modernMenuInstalled(), Prewarm: s.Prewarm, IdleMins: s.IdleMins,
 		Version: version, Exe: exe, Deps: detectDeps()}
 }
 
@@ -46,6 +48,16 @@ func (a *App) UninstallMenu() error {
 func (a *App) SetPrewarm(on bool) error {
 	setPrewarm(on)
 	return updateSettings(func(s *Settings) { s.Prewarm = on })
+}
+
+// SetIdleMins elige cuánto se queda preparado tras cerrar una ventana (para reabrir al instante).
+func (a *App) SetIdleMins(m int) error {
+	switch m {
+	case 5, 15, 30, 60:
+	default:
+		return errors.New("Valor no válido")
+	}
+	return updateSettings(func(s *Settings) { s.IdleMins = m })
 }
 
 // SetJob cambia el trabajo de la ventana (p. ej. «Enviar» con el archivo ya reducido).

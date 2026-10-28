@@ -7,7 +7,7 @@ window.__tvMock = function () {
   const now = () => Math.floor(Date.now() / 1000);
   let unlocked = false, exists = !new URLSearchParams(location.search).has('nueva'), expires = 0, fails = 0;
   let pending = null;
-  const settings = { sessionMin: 10, clipSeconds: 20, notifyFill: false, autostart: true, hideCapture: true, gen: { mode: 'random', length: 20, lower: true, upper: true, digits: true, symbols: true, noAmbiguous: false, words: 5, sep: '-', capitalize: true, number: true }, backups: [] };
+  const settings = { sessionMin: 10, clipSeconds: 20, revealSec: 30, lockOnClose: false, lockOnMin: false, autoBreach: false, notifyFill: false, autostart: true, hideCapture: true, gen: { mode: 'random', length: 20, lower: true, upper: true, digits: true, symbols: true, noAmbiguous: false, words: 5, sep: '-', capitalize: true, number: true }, backups: [] };
   let n = 0;
   const id = () => 'm' + (++n);
   const items = [];
@@ -62,7 +62,7 @@ window.__tvMock = function () {
   const api = {
     __rt: {
       EventsOn: (n, f) => { (handlers[n] = handlers[n] || []).push(f); },
-      WindowMinimise() {}, WindowToggleMaximise() {}, Quit() { console.log('Quit'); },
+      WindowMinimise() {}, WindowToggleMaximise() {}, Quit() { console.log('Quit'); }, WindowIsMinimised: async () => false,
     },
     Mode: async () => new URLSearchParams(location.search).get('mode') || '',
     SetMode: async () => {},
@@ -116,13 +116,13 @@ window.__tvMock = function () {
         case 'breach': { const h = (await api.Call('health')).data; h.breached = [Object.assign({}, h.weak[0], { note: 'Aparece 1.234 veces en filtraciones' })]; h.breachAt = Date.now(); return ok(h); }
         case 'events': return ok(events);
         case 'clearEvents': events.length = 0; return ok(null);
-        case 'never': return ok(['facebook.com']);
+        case 'never': return ok(new URLSearchParams(location.search).has('vacia') ? null : ['facebook.com']);
         case 'setNever': return ok(null);
-        case 'pairs': return ok([{ hash: 'h', name: 'Chrome', created: now() - 86400 * 3 }]);
+        case 'pairs': return ok(new URLSearchParams(location.search).has('vacia') ? null : [{ hash: 'h', name: 'Chrome', created: now() - 86400 * 3 }]);
         case 'unpair': return ok(null);
         case 'approvePair': case 'rejectPair': pending = null; push(); return ok(null);
         case 'settings': return ok(settings);
-        case 'setSettings': Object.assign(settings, a); return ok(settings);
+        case 'setSettings': Object.assign(settings, a); if (a.sessionMin && unlocked) { expires = Date.now() + a.sessionMin * 60000; push(); } return ok(settings);
         case 'verifyMaster': return a.master === 'maestra-de-prueba' ? ok(null) : err('Contraseña maestra incorrecta.', 'wrong');
         case 'changeMaster': return ok(null);
         case 'import': return ok({ source: 'Chrome', added: 42, dupes: 3, skipped: 1, wiped: true });
