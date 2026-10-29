@@ -13,9 +13,11 @@ import (
 	"image"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -35,15 +37,16 @@ type phone struct {
 	quit      chan struct{}
 	quitOnce  sync.Once
 
-	// Decodificación aparte: siempre el fotograma más nuevo. El móvil comprime con
-	// varios hilos y alguno puede llegar después de uno posterior: ese se descarta.
-	dmu     sync.Mutex
-	pending []byte
-	pendSeq uint32
-	hasPend bool
-	wake    chan struct{}
-	lastSeq uint32 // solo lo usa el decodificador
-	anySeq  bool
+	// Decodificación aparte, en su propio hilo. Los JPEG son sueltos: basta el más
+	// nuevo (el móvil comprime con varios hilos y alguno llega después de uno
+	// posterior: ese se descarta). El H.264 hay que decodificarlo entero y en orden.
+	dmu   sync.Mutex
+	vq    []videoChunk
+	wake  chan struct{}
+	keyAt time.Time // última vez que se le pidió un fotograma clave
+
+	rtc     *rtcPeer    // conexión WebRTC (con mu)
+	rtcLive atomic.Bool // el vídeo llega por WebRTC
 
 	mu       sync.Mutex
 	name     string
@@ -59,6 +62,12 @@ type phone struct {
 	camFPS   float64 // fotogramas por segundo que da la cámara del móvil
 	camW     int
 	camH     int
+	hw       bool    // el móvil comprime por hardware
+	bitrate  int     // kb/s que pide al codificador (H.264)
+	path     string  // por dónde llega el vídeo: ws | http | rtc
+	codec    string  // h264 | jpeg (lo último que ha llegado)
+	decMs    float64 // lo que tarda el PC en decodificar cada fotograma
+	thumbAt  time.Time
 	frame    *image.YCbCr
 	jpeg     []byte
 	seq      uint64
@@ -89,6 +98,11 @@ type PhoneInfo struct {
 	CamFPS    float64         `json:"camFps"`
 	CamW      int             `json:"camW"`
 	CamH      int             `json:"camH"`
+	Codec     string          `json:"codec"`
+	HW        bool            `json:"hw"`
+	Bitrate   int             `json:"bitrate"`
+	DecMs     float64         `json:"decMs"`
+	Path      string          `json:"path"`
 	Width     int             `json:"width"`
 	Height    int             `json:"height"`
 	Role      string          `json:"role"`
@@ -131,6 +145,7 @@ type Engine struct {
 	onChange  func()
 	onToast   func(kind, msg string)
 	pcName    string
+	rtc       *rtcHub // WebRTC (nil si no se pudo abrir el puerto UDP)
 }
 
 type restorePoint struct {
@@ -213,6 +228,10 @@ const maxPhones = 8
 func (e *Engine) addPhone(id, name, model, via string, t transport) (*phone, error) {
 	p := &phone{id: id, t: t, via: via, connected: time.Now(), hub: newJPEGHub(), photo: make(chan []byte, 1),
 		name: name, model: model, battery: -1, quality: 0, quit: make(chan struct{}), wake: make(chan struct{}, 1)}
+	p.path = "ws"
+	if _, ok := t.(*httpTransport); ok {
+		p.path = "http"
+	}
 	e.mu.Lock()
 	old := e.phones[id]
 	if old == nil && len(e.phones) >= maxPhones {
@@ -263,6 +282,7 @@ func (e *Engine) addPhone(id, name, model, via string, t transport) (*phone, err
 // removePhone se llama al cerrarse su conexión.
 func (e *Engine) removePhone(p *phone) {
 	p.stop()
+	e.rtcDrop(p, nil, false)
 	e.mu.Lock()
 	if e.phones[p.id] != p {
 		e.mu.Unlock()
@@ -338,14 +358,33 @@ func adoptDevice(s *Settings, id, model string, online map[string]bool) *Device 
 	return d
 }
 
-// queueFrame deja el fotograma para el decodificador (si había otro esperando, se
-// sustituye: no tiene sentido decodificar uno que ya es viejo).
-func (e *Engine) queueFrame(p *phone, seq uint32, data []byte) {
+// videoChunk es un trozo de vídeo de un móvil: un JPEG o un fotograma H.264.
+type videoChunk struct {
+	kind byte // frameKindVideo (JPEG) | frameKindH264
+	seq  uint32
+	key  bool // H.264: fotograma clave (se puede empezar a decodificar por él)
+	gap  bool // se ha perdido algo justo antes (por WebRTC)
+	rtc  bool // ha llegado por WebRTC
+	data []byte
+}
+
+// maxH264Queue: si el decodificador se queda tan atrás (no debería: tarda pocos
+// milisegundos), se tira lo que hay y se pide un fotograma clave.
+const maxH264Queue = 90
+
+// queueFrame deja el fotograma para el decodificador. Un JPEG sustituye a los que
+// hubiera esperando (no tiene sentido decodificar uno que ya es viejo).
+func (e *Engine) queueFrame(p *phone, c videoChunk) {
 	p.dmu.Lock()
-	p.pending, p.pendSeq, p.hasPend = data, seq, true
+	if c.kind == frameKindVideo {
+		p.vq = slices.DeleteFunc(p.vq, func(x videoChunk) bool { return x.kind == frameKindVideo })
+	} else if len(p.vq) >= maxH264Queue {
+		p.vq = p.vq[:0]
+	}
+	p.vq = append(p.vq, c)
 	p.dmu.Unlock()
 	p.mu.Lock()
-	p.rxBytes += len(data)
+	p.rxBytes += len(c.data)
 	p.mu.Unlock()
 	select {
 	case p.wake <- struct{}{}:
@@ -353,22 +392,138 @@ func (e *Engine) queueFrame(p *phone, seq uint32, data []byte) {
 	}
 }
 
+// askKey pide al móvil un fotograma clave (como mucho dos veces por segundo).
+func (e *Engine) askKey(p *phone) {
+	p.dmu.Lock()
+	if time.Since(p.keyAt) < 500*time.Millisecond {
+		p.dmu.Unlock()
+		return
+	}
+	p.keyAt = time.Now()
+	p.dmu.Unlock()
+	p.mu.Lock()
+	peer := p.rtc
+	p.mu.Unlock()
+	if peer != nil {
+		peer.pli()
+	}
+	p.t.send(map[string]any{"t": "key"})
+}
+
 func (e *Engine) decoder(p *phone) {
+	// Media Foundation quiere siempre el mismo hilo, con COM iniciado.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	var dec *h264Decoder
+	defer func() {
+		if dec != nil {
+			dec.close()
+		}
+	}()
+	var lastSeq uint32
+	anySeq, waitKey, comOK, decFailed := false, true, false, false
+	curRTC := false     // de dónde sale el H.264 que se está decodificando
+	var lastH264 uint32 // número del último H.264 de la conexión de siempre
 	for {
 		select {
 		case <-p.quit:
 			return
 		case <-p.wake:
 		}
-		p.dmu.Lock()
-		data, seq, ok := p.pending, p.pendSeq, p.hasPend
-		p.pending, p.hasPend = nil, false
-		p.dmu.Unlock()
-		if !ok || (p.anySeq && int32(seq-p.lastSeq) <= 0) {
-			continue // llegó tarde: ya hay uno más nuevo
-		}
-		if e.onFrame(p, data) == nil {
-			p.lastSeq, p.anySeq = seq, true
+		for {
+			p.dmu.Lock()
+			if len(p.vq) == 0 {
+				p.dmu.Unlock()
+				break
+			}
+			c := p.vq[0]
+			p.vq = p.vq[1:]
+			if len(p.vq) == 0 {
+				p.vq = nil // que no crezca para siempre por delante
+			}
+			p.dmu.Unlock()
+			select {
+			case <-p.quit:
+				return
+			default:
+			}
+			if c.kind == frameKindVideo {
+				if anySeq && int32(c.seq-lastSeq) <= 0 {
+					continue // llegó tarde: ya hay uno más nuevo
+				}
+				if img, err := decodeJPEG(c.data); err == nil {
+					lastSeq, anySeq = c.seq, true
+					e.onFrame(p, img, c.data, "jpeg", 0)
+				}
+				continue
+			}
+			if decFailed {
+				continue
+			}
+			// Mientras se pasa de una conexión a otra llega vídeo por las dos: cada flujo
+			// es una cadena distinta y no se pueden mezclar. Se cambia en un clave.
+			if c.rtc != curRTC {
+				if !c.key {
+					if c.rtc {
+						e.askKey(p)
+					}
+					continue
+				}
+				if !c.rtc && p.rtcLive.Load() {
+					continue // aún llega por WebRTC: es uno rezagado
+				}
+				curRTC = c.rtc
+				if dec != nil {
+					dec.reset()
+				}
+				p.rtcLive.Store(c.rtc)
+				if c.rtc {
+					p.t.send(map[string]any{"t": "rtcok"})
+				}
+				e.changed()
+			}
+			// Por la conexión de siempre van numerados seguidos: un salto es que falta uno
+			// (o, por HTTP, que llegan desordenados).
+			if !c.rtc {
+				if c.seq != lastH264+1 {
+					c.gap = true
+				}
+				lastH264 = c.seq
+			}
+			if c.gap && !c.key {
+				waitKey = true
+			}
+			if waitKey && !c.key {
+				e.askKey(p)
+				continue
+			}
+			if dec == nil {
+				if !comOK {
+					comInitThread()
+					comOK = true
+				}
+				d, err := newH264Decoder()
+				if err != nil {
+					// Sin decodificador (Windows N sin el Media Feature Pack): JPEG.
+					decFailed = true
+					p.t.send(map[string]any{"t": "codec", "h264": false})
+					continue
+				}
+				dec = d
+			}
+			t0 := time.Now()
+			imgs, err := dec.decode(c.data)
+			if err != nil {
+				// Se ha roto la cadena (o el flujo no era válido): de nuevo desde un clave.
+				dec.reset()
+				waitKey = true
+				e.askKey(p)
+				continue
+			}
+			waitKey = false
+			if len(imgs) > 0 {
+				e.onFrame(p, imgs[len(imgs)-1], nil, "h264", float64(time.Since(t0).Microseconds())/1000)
+			}
 		}
 	}
 }
@@ -383,17 +538,20 @@ func (e *Engine) KickAll() {
 	}
 }
 
-// onFrame llega desde la conexión del móvil: se decodifica allí mismo (cada móvil
-// en su hilo) y se avisa al compositor.
-func (e *Engine) onFrame(p *phone, data []byte) error {
-	img, err := decodeJPEG(data)
-	if err != nil {
-		return err
-	}
+// onFrame: ya hay imagen nueva de un móvil (jpg es su JPEG si llegó así). Se
+// guarda y se avisa al compositor.
+func (e *Engine) onFrame(p *phone, img *image.YCbCr, jpg []byte, codec string, decMs float64) {
 	now := time.Now()
 	p.mu.Lock()
-	p.frame, p.jpeg, p.frameAt = img, data, now
+	p.frame, p.jpeg, p.frameAt = img, jpg, now
 	p.seq++
+	p.codec = codec
+	if decMs > 0 {
+		if p.decMs == 0 {
+			p.decMs = decMs
+		}
+		p.decMs = p.decMs*0.9 + decMs*0.1
+	}
 	if p.winStart.IsZero() {
 		p.winStart = now
 	}
@@ -403,10 +561,29 @@ func (e *Engine) onFrame(p *phone, data []byte) error {
 		p.kbps = float64(p.rxBytes) * 8 / 1000 / d.Seconds()
 		p.winStart, p.winCount, p.rxBytes = now, 0, 0
 	}
+	thumb := jpg == nil && p.hub.watching() && now.Sub(p.thumbAt) >= time.Second/8
+	if thumb {
+		p.thumbAt = now
+	}
 	p.mu.Unlock()
-	p.hub.publish(data)
+	if jpg != nil {
+		p.hub.publish(jpg)
+	} else if thumb {
+		p.hub.publish(thumbJPEG(img))
+	}
 	e.kick()
-	return nil
+}
+
+// thumbJPEG hace la miniatura de la ventana (como mucho 480 de ancho).
+func thumbJPEG(img *image.YCbCr) []byte {
+	w, h := img.Rect.Dx(), img.Rect.Dy()
+	if w > 480 {
+		h, w = (h*480/w)&^1, 480
+		small := newYUV(w, h)
+		drawScaled(small, small.Rect, img, true, 0)
+		img = small
+	}
+	return encodeJPEG(img, 75)
 }
 
 func (e *Engine) onPhoto(p *phone, data []byte) {
@@ -427,6 +604,8 @@ type phoneMsg struct {
 	Quality  *float64        `json:"q"`
 	RTT      *int            `json:"rtt"`
 	Cam      *float64        `json:"cam"`
+	HW       *bool           `json:"hw"`
+	Bitrate  *int            `json:"kbps"`
 	CamW     *int            `json:"camW"`
 	CamH     *int            `json:"camH"`
 	Caps     json.RawMessage `json:"caps"`
@@ -464,6 +643,12 @@ func (e *Engine) onMessage(p *phone, m phoneMsg) {
 		}
 		if m.CamW != nil && m.CamH != nil {
 			p.camW, p.camH = *m.CamW, *m.CamH
+		}
+		if m.HW != nil {
+			p.hw = *m.HW
+		}
+		if m.Bitrate != nil {
+			p.bitrate = *m.Bitrate
 		}
 		if len(m.Caps) > 0 && len(m.Caps) < 16<<10 {
 			p.caps = m.Caps
@@ -584,7 +769,7 @@ func (e *Engine) sendConfigs(force bool) {
 		jobs = append(jobs, job{p, map[string]any{
 			"t": "config", "role": role, "w": w, "h": h, "fps": fps, "adjust": adj,
 			"name": name, "pc": e.pcName, "frozen": e.frozen, "covered": e.covered,
-			"watched": len(e.consumers) > 0,
+			"watched": len(e.consumers) > 0, "h264": h264OK(), "rtc": e.rtc != nil,
 		}})
 	}
 	e.mu.Unlock()
@@ -789,10 +974,10 @@ func (e *Engine) compose(s Settings, withScreen bool) {
 
 	// Lo normal: un móvil que ya manda el tamaño justo. Se copia tal cual y la vista
 	// previa reutiliza su JPEG.
-	if pipID == "" && main.jpeg != nil && main.img.Rect.Dx() == w && main.img.Rect.Dy() == h {
+	if pipID == "" && main.img.Rect.Dx() == w && main.img.Rect.Dy() == h {
 		e.shm.WriteFrame(w, h, func(dst []byte) { writeNV12(dst, main.img) })
 		e.shm.SetState(tcStateLive)
-		e.publishOut(main.jpeg, nil, windowMode)
+		e.publishOut(main.jpeg, main.img, windowMode)
 		e.countOut()
 		return
 	}
@@ -852,7 +1037,7 @@ func (e *Engine) phoneConnected(id string) bool {
 // publishOut alimenta la vista previa. Si hay que codificar, solo cuando alguien
 // mira y como mucho 15 veces por segundo (a ritmo completo en modo ventana).
 func (e *Engine) publishOut(jpg []byte, img *image.YCbCr, full bool) {
-	if jpg != nil {
+	if jpg != nil { // ya viene en JPEG del móvil: no hay que codificar nada
 		e.mu.Lock()
 		e.lastOut = jpg
 		e.mu.Unlock()
@@ -908,6 +1093,7 @@ func (e *Engine) housekeeping() {
 		if n++; n%4 != 0 {
 			continue
 		}
+		e.rtcWatch()
 		cons := e.shm.Consumers()
 		sort := func(a, b Consumer) int { return strings.Compare(a.Exe+fmt.Sprint(a.PID), b.Exe+fmt.Sprint(b.PID)) }
 		slices.SortFunc(cons, sort)
@@ -1154,6 +1340,7 @@ func (e *Engine) State() EngineState {
 			ID: p.id, Name: p.name, Model: p.model, Via: p.via, Visible: p.visible, Live: p.live, Error: p.errMsg,
 			Battery: p.battery, Charging: p.charging, FPS: p.fps, Kbps: p.kbps, Quality: p.quality, RTT: p.rtt,
 			CamFPS: p.camFPS, CamW: p.camW, CamH: p.camH,
+			Codec: p.codec, HW: p.hw, Bitrate: p.bitrate, DecMs: p.decMs, Path: p.path,
 			Role: role, Caps: p.caps, Connected: p.connected.UnixMilli(),
 		}
 		if time.Since(p.frameAt) > 2*time.Second {
@@ -1163,6 +1350,9 @@ func (e *Engine) State() EngineState {
 			info.Width, info.Height = p.frame.Rect.Dx(), p.frame.Rect.Dy()
 		}
 		p.mu.Unlock()
+		if p.rtcLive.Load() {
+			info.Path = "rtc"
+		}
 		if d := s.Devices[p.id]; d != nil {
 			info.Adjust = d.Adjust
 			if d.Name != "" {

@@ -42,10 +42,10 @@
     cfg: { role: "spare", w: 320, h: 180, fps: 2, adjust: { ...DEFAULT_ADJUST }, pc: "", name: "", frozen: false, covered: false, watched: false },
     stream: null, track: null, caps: {}, cameras: [],
     connected: false, transport: null, started: false, starting: false,
-    seq: 0, inflight: 0, lastSent: 0, q: 0.65, sent: new Map(), rtt: 0, rttN: 0,
+    seq: 0, inflight: 0, nextAt: 0, q: 0.65, sent: new Map(), rtt: 0, rttN: 0,
     frames: 0, fpsNow: 0, bytes: 0, kbps: 0, sentCount: 0, netBusy: 0, cpuBusy: 0,
     encMs: 0, avgSize: 0, scaleStep: 0, up: 0, down: 0, sentW: 0, sentH: 0,
-    camFrames: 0, camFps: 0, capKey: "",
+    camFrames: 0, camFps: 0, capKey: "", lastAck: 0, lastPong: 0, rttMin: 0, rttMinAt: 0,
     black: false, wake: null, stopped: false, bye: "", filterOK: false,
     hidden: document.visibilityState === "hidden",
   };
@@ -78,11 +78,14 @@
     retryDelay = 1000;
     S.inflight = 0;
     S.sent.clear();
+    S.lastAck = S.lastPong = performance.now();
+    H.forceKey = true; // el PC empieza a decodificar de cero
     sendState(true);
     render();
   }
 
   function onClosed() {
+    rtcStop(false);
     const was = S.connected;
     S.connected = false;
     S.inflight = 0;
@@ -158,7 +161,13 @@
     switch (m.t) {
       case "config": applyConfig(m); break;
       case "ack": onAck(m); break;
-      case "pong": if (m.ts) addRTT(performance.now() - m.ts); break;
+      case "pong": S.lastPong = performance.now(); if (m.ts) addRTT(performance.now() - m.ts); break;
+      case "key": H.forceKey = true; break;
+      case "rtc": rtcAnswer(m.sdp); break;
+      case "ice": if (R.pc && m.c && m.c.candidate) R.pc.addIceCandidate(m.c).catch(() => {}); break;
+      case "rtcok": R.live = true; sendState(true); render(); break;
+      case "rtcoff": rtcStop(true); break;
+      case "codec": if (m.h264 === false) h264Fail("el PC no decodifica H.264"); break;
       case "photo": takePhoto(); break;
       case "bye": onBye(m.reason); break;
     }
@@ -491,6 +500,7 @@
   // no frenar por la latencia de internet sin dejar que se acumule retraso.
   function maxInflight(interval) {
     if (!S.rttN) return 3;
+    if (useH264()) return Math.max(3, Math.min(10, Math.ceil(S.rtt / interval) + 3));
     return Math.max(2, Math.min(6, Math.ceil(S.rtt / interval) + 1));
   }
 
@@ -500,11 +510,189 @@
     if (!S.started) return false;
     const now = performance.now();
     const interval = 1000 / Math.max(1, S.cfg.fps || 1);
-    if (now - S.lastSent < interval - 4 || !S.connected || S.hidden) return false;
+    // Los fotogramas de la cámara no llegan clavados (25 ms, luego 40…): se admite
+    // uno hasta medio intervalo antes de su hora, y la hora siguiente cuenta desde la
+    // que tocaba, no desde la de llegada. Así no se pierden por el baile.
+    if (now < S.nextAt - interval * 0.5 || !S.connected || S.hidden) return false;
+    if (R.pc) rtcFeed(now, frame);
+    if (R.live) { takeSlot(now); return false; } // ya va todo por WebRTC
     const backlog = S.transport ? S.transport.backlog() : 0;
-    if (!enc.idle()) { S.cpuBusy++; return false; }
-    if (S.inflight >= maxInflight(interval) || backlog > Math.max(400e3, S.avgSize * 4)) { S.netBusy++; return false; }
-    return sendFrame(now, frame);
+    const h264 = useH264();
+    if (h264 ? !h264Idle() : !enc.idle()) { S.cpuBusy++; return false; }
+    // Con H.264 cada fotograma es pequeño: en la cola de salida no se deja más de un
+    // cuarto de segundo de vídeo (si no, se acumula retraso).
+    const maxBacklog = h264 ? Math.max(64e3, H.br / 32) : Math.max(400e3, S.avgSize * 4);
+    if (S.inflight >= maxInflight(interval) || backlog > maxBacklog) { S.netBusy++; return false; }
+    return h264 ? sendH264(now, frame) : sendFrame(now, frame);
+  }
+
+  function takeSlot(now) {
+    const interval = 1000 / Math.max(1, S.cfg.fps || 1);
+    S.nextAt = Math.max(S.nextAt, now - interval * 0.5) + interval;
+  }
+
+  // ---------- H.264 por hardware ----------
+  //
+  // El móvil comprime con su codificador de vídeo (el mismo que usa para grabar), que
+  // casi no gasta CPU y deja cada fotograma en unos pocos KB: diez veces menos que un
+  // JPEG. Si el navegador o el PC no pueden, se sigue con JPEG.
+  const H = {
+    ok: typeof VideoEncoder === "function" && typeof VideoFrame === "function" && typeof OffscreenCanvas === "function",
+    failed: "", enc: null, cfg: null, key: "", configuring: null, hw: false,
+    br: 0, minBr: 0, maxBr: 0, cfgBr: 0, cfgAt: 0, up: 0,
+    forceKey: true, lastKey: 0, canvas: null, ctx: null, crop: null, lastOut: 0, resets: [],
+  };
+
+  // Si el codificador deja de dar fotogramas (algunos móviles se cuelgan al volver de
+  // segundo plano o tras un cambio de tamaño), se rehace; si pasa mucho, a JPEG.
+  setInterval(() => {
+    const now = performance.now();
+    if (!H.enc || H.enc.state !== "configured" || H.enc.encodeQueueSize === 0) return;
+    if (now - H.lastOut < 2000 || now - H.cfgAt < 2000) return;
+    H.resets = H.resets.filter((t) => now - t < 60000).concat(now);
+    if (H.resets.length > 3) { h264Fail("el codificador se cuelga"); return; }
+    try { H.enc.close(); } catch { }
+    H.enc = null;
+    H.key = "";
+  }, 1000);
+
+  // ?jpeg en el enlace: sin H.264 (para comparar).
+  if (new URLSearchParams(location.search).has("jpeg")) H.failed = "desactivado en el enlace";
+
+  // Por el plan B por HTTP los envíos pueden llegar desordenados, y el H.264 hay que
+  // decodificarlo en orden: ahí se sigue con JPEG.
+  function useH264() { return H.ok && !H.failed && S.cfg.h264 === true && !!S.transport && S.transport.kind === "ws"; }
+  function h264Idle() { return !H.enc || H.enc.state !== "configured" || H.enc.encodeQueueSize < 2; }
+
+  function h264Fail(why) {
+    if (H.failed) return;
+    H.failed = why || "error";
+    try { if (H.enc && H.enc.state !== "closed") H.enc.close(); } catch { }
+    H.enc = null;
+    H.key = "";
+    sendState(true);
+  }
+
+  // Bits por píxel: de lo justo a muy bueno. Con pocos fotogramas por segundo se
+  // cuenta como si fueran 10 (cada uno lleva más cambio).
+  function brFor(w, h, fps, k) { return Math.round(w * h * Math.max(fps, 10) * k); }
+
+  // Nivel H.264 según los macrobloques por fotograma y por segundo.
+  function avcLevel(w, h, fps) {
+    const mbs = Math.ceil(w / 16) * Math.ceil(h / 16), rate = mbs * fps;
+    if (mbs <= 1620 && rate <= 40500) return "1E";
+    if (mbs <= 3600 && rate <= 108000) return "1F";
+    if (mbs <= 8192 && rate <= 245760) return "28";
+    return "2A";
+  }
+
+  // h264Ready: el codificador está listo para w x h a fps; si no, lo prepara (tarda
+  // unos milisegundos) y de mientras no se manda nada.
+  function h264Ready(w, h, fps) {
+    const key = w + "x" + h + "@" + fps;
+    if (H.key === key && H.enc && H.enc.state === "configured") return true;
+    if (!H.configuring) H.configuring = h264Configure(w, h, fps, key).finally(() => { H.configuring = null; });
+    return false;
+  }
+
+  async function h264Configure(w, h, fps, key) {
+    const lvl = avcLevel(w, h, fps);
+    const minBr = brFor(w, h, fps, 0.02), maxBr = brFor(w, h, fps, 0.15);
+    // Al cambiar de tamaño se conserva lo aprendido de la red (en proporción).
+    const br = H.maxBr ? Math.max(minBr, Math.min(maxBr, Math.round(H.br / H.maxBr * maxBr))) : brFor(w, h, fps, 0.07);
+    let chosen = null, hw = false;
+    outer: for (const accel of ["prefer-hardware", "no-preference"]) {
+      for (const prof of ["42E0", "4D00", "6400"]) {
+        const c = {
+          codec: "avc1." + prof + lvl, width: w, height: h, bitrate: br, framerate: fps,
+          latencyMode: "realtime", hardwareAcceleration: accel, avc: { format: "annexb" },
+        };
+        try {
+          const r = await VideoEncoder.isConfigSupported(c);
+          if (r.supported) { chosen = c; hw = accel === "prefer-hardware"; break outer; }
+        } catch { /* esa combinación no */ }
+      }
+    }
+    if (!chosen) { h264Fail("el navegador no comprime H.264"); return; }
+    try {
+      if (!H.enc || H.enc.state === "closed") H.enc = new VideoEncoder({ output: onChunk, error: (e) => h264Fail(String(e && e.message || e)) });
+      H.enc.configure(chosen);
+    } catch (e) { h264Fail(String(e && e.message || e)); return; }
+    Object.assign(H, { cfg: chosen, key, hw, br, minBr, maxBr, cfgBr: br, cfgAt: performance.now(), lastOut: performance.now(), forceKey: true });
+    sendState(true);
+  }
+
+  // Cambiar la tasa de bits sin rehacer el codificador (Chrome lo admite al vuelo).
+  function h264SetBitrate(br) {
+    if (!H.enc || H.enc.state !== "configured" || !H.cfg) return;
+    if (Math.abs(br - H.cfgBr) < H.cfgBr * 0.08 || performance.now() - H.cfgAt < 1500) return;
+    try {
+      H.cfg = { ...H.cfg, bitrate: br };
+      H.enc.configure(H.cfg);
+      H.cfgBr = br;
+      H.cfgAt = performance.now();
+    } catch (e) { h264Fail(String(e && e.message || e)); }
+  }
+
+  // makeFrame prepara el fotograma que se manda, de w x h y con los retoques. Sin
+  // retoques, se recorta el de la cámara sin copiar nada (el codificador lo escala);
+  // si no, se pinta en un lienzo. Devuelve un VideoFrame (hay que cerrarlo) o null.
+  function makeFrame(now, frame, w, h) {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (frame && (frame.displayWidth !== vw || frame.displayHeight !== vh || frame.rotation)) frame = null;
+    const g = geometry(w, h, vw, vh);
+    if (!g) return null;
+    try {
+      if (frame && !g.rot && !g.mirror && !g.filter && !g.fill && H.crop !== false) {
+        const vr = frame.visibleRect || { x: 0, y: 0 };
+        return new VideoFrame(frame, {
+          visibleRect: { x: (vr.x + g.cx) & ~1, y: (vr.y + g.cy) & ~1, width: g.cw & ~1, height: g.ch & ~1 },
+          timestamp: frame.timestamp,
+        });
+      }
+      if (!H.canvas || H.canvas.width !== w || H.canvas.height !== h) {
+        H.canvas = new OffscreenCanvas(w, h);
+        H.ctx = H.canvas.getContext("2d", { alpha: false });
+      }
+      paintFrame(H.ctx, frame || video, g, false);
+      return new VideoFrame(H.canvas, { timestamp: Math.round(now * 1000) });
+    } catch {
+      if (H.crop === null) { H.crop = false; return null; } // recortar así no va: siempre por el lienzo
+      throw new Error("no se pudo preparar el fotograma");
+    }
+  }
+
+  function sendH264(now, frame) {
+    const [w, h] = sendSize();
+    const fps = Math.max(1, S.cfg.fps || 1);
+    if (!h264Ready(w, h, fps)) return false;
+    let vf;
+    try { vf = makeFrame(now, frame, w, h); } catch (e) { h264Fail(e.message); return false; }
+    if (!vf) return false;
+    const key = H.forceKey || now - H.lastKey > 6000;
+    if (key) { H.forceKey = false; H.lastKey = now; }
+    takeSlot(now);
+    S.sentW = w; S.sentH = h;
+    try { H.enc.encode(vf, { keyFrame: key }); } catch (e) { h264Fail(String(e && e.message || e)); }
+    vf.close();
+    return false; // el fotograma de la cámara lo cierra quien llama
+  }
+
+  function onChunk(chunk) {
+    H.lastOut = performance.now();
+    if (!S.connected || !S.transport) { H.forceKey = true; return; }
+    const n = (S.seq = (S.seq + 1) >>> 0);
+    const b = new Uint8Array(6 + chunk.byteLength);
+    b[0] = 3;
+    new DataView(b.buffer).setUint32(1, n, true);
+    b[5] = chunk.type === "key" ? 1 : 0;
+    chunk.copyTo(b.subarray(6));
+    S.avgSize = S.avgSize ? S.avgSize * 0.9 + chunk.byteLength * 0.1 : chunk.byteLength;
+    S.inflight++;
+    S.sentCount++;
+    S.sent.set(n, performance.now());
+    S.bytes += chunk.byteLength;
+    S.transport.sendBlob(b);
   }
 
   function sendFrame(now, frame) {
@@ -515,7 +703,7 @@
     if (frame && (frame.displayWidth !== vw || frame.displayHeight !== vh || frame.rotation)) frame = null;
     const g = geometry(w, h, vw, vh);
     if (!g) return false;
-    S.lastSent = now;
+    takeSlot(now);
     S.sentW = w; S.sentH = h;
     const n = (S.seq = (S.seq + 1) >>> 0);
     enc.encode(g, S.q, frame).then((r) => {
@@ -531,7 +719,158 @@
     return !!frame;
   }
 
+  // ---------- WebRTC ----------
+  //
+  // Si se puede, el vídeo va directo al PC por UDP, como en una videollamada: sin
+  // pasar por Cloudflare, con menos retraso, y el navegador ajusta solo la tasa de
+  // bits y reenvía lo que se pierda. La negociación va por la conexión de siempre, y
+  // mientras tanto (o si no sale) el vídeo sigue por ella.
+  const R = {
+    ok: typeof RTCPeerConnection === "function" && typeof VideoFrame === "function" &&
+      (typeof MediaStreamTrackGenerator === "function" || "captureStream" in HTMLCanvasElement.prototype),
+    pc: null, gen: null, writer: null, cv: null, cvTrack: null, sender: null,
+    live: false, startAt: 0, failAt: 0, fails: 0, key: "", kbps: 0, hw: false, fps: 0, rtt: 0, impl: "", bytes: 0, bytesAt: 0,
+  };
+
+  // ?nortc en el enlace: sin WebRTC (para comparar).
+  if (new URLSearchParams(location.search).has("nortc")) R.ok = false;
+
+  function rtcWanted() {
+    return R.ok && S.cfg.rtc === true && S.cfg.h264 === true && S.connected && S.started && !S.hidden &&
+      !R.pc && performance.now() >= R.failAt;
+  }
+
+  async function rtcStart() {
+    const caps = RTCRtpSender.getCapabilities ? RTCRtpSender.getCapabilities("video") : null;
+    const h264 = caps ? caps.codecs.filter((c) => /h264/i.test(c.mimeType)) : [];
+    if (caps && !h264.length) { R.ok = false; return; } // este navegador no manda H.264 por WebRTC
+    let track;
+    if (typeof MediaStreamTrackGenerator === "function") {
+      R.gen = new MediaStreamTrackGenerator({ kind: "video" });
+      R.writer = R.gen.writable.getWriter();
+      track = R.gen;
+    } else {
+      R.cv = document.createElement("canvas");
+      R.cvTrack = R.cv.captureStream(0).getVideoTracks()[0];
+      track = R.cvTrack;
+    }
+    try { track.contentHint = "motion"; } catch { }
+    const pc = R.pc = new RTCPeerConnection({ iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun.cloudflare.com:3478"] }], bundlePolicy: "max-bundle" });
+    R.live = false;
+    R.startAt = performance.now();
+    R.key = "";
+    const tr = pc.addTransceiver(track, { direction: "sendonly" });
+    if (tr.setCodecPreferences && caps) {
+      // Primero el perfil que mejor llevan los codificadores por hardware.
+      const rank = (c) => (/42e01f/.test(c.sdpFmtpLine || "") ? 0 : /42001f/.test(c.sdpFmtpLine || "") ? 1 : 2) + (/packetization-mode=1/.test(c.sdpFmtpLine || "") ? 0 : 5);
+      const rtx = caps.codecs.filter((c) => /rtx/i.test(c.mimeType));
+      try { tr.setCodecPreferences(h264.sort((a, b) => rank(a) - rank(b)).concat(rtx)); } catch { }
+    }
+    R.sender = tr.sender;
+    pc.onicecandidate = (e) => { if (e.candidate && R.pc === pc) send({ t: "ice", c: e.candidate.toJSON() }); };
+    pc.onconnectionstatechange = () => {
+      const st = pc.connectionState;
+      if (st === "failed" || st === "closed") { if (R.pc === pc) rtcStop(true); }
+      else if (st === "disconnected") setTimeout(() => { if (R.pc === pc && pc.connectionState === "disconnected") rtcStop(true); }, 3000);
+    };
+    try {
+      await pc.setLocalDescription(await pc.createOffer());
+      if (R.pc === pc) send({ t: "rtc", sdp: pc.localDescription.sdp });
+    } catch { rtcStop(true); }
+  }
+
+  async function rtcAnswer(sdp) {
+    const pc = R.pc;
+    if (!pc || !sdp) return;
+    try { await pc.setRemoteDescription({ type: "answer", sdp }); rtcParams(); } catch { rtcStop(true); }
+  }
+
+  // Tope de tasa de bits y de fotogramas, y que ante poca red baje la resolución antes
+  // que los fotogramas por segundo (para una cámara se nota más el tirón).
+  function rtcParams() {
+    if (!R.sender || !R.pc) return;
+    const [w, h] = sendSize(), fps = Math.max(1, S.cfg.fps || 1);
+    const key = w + "x" + h + "@" + fps;
+    if (key === R.key) return;
+    R.key = key;
+    try {
+      const prm = R.sender.getParameters();
+      if (!prm.encodings || !prm.encodings.length) prm.encodings = [{}];
+      prm.encodings[0].maxBitrate = brFor(w, h, fps, 0.15);
+      prm.encodings[0].maxFramerate = fps;
+      prm.degradationPreference = "maintain-framerate";
+      R.sender.setParameters(prm).catch(() => {});
+    } catch { }
+  }
+
+  function rtcFeed(now, frame) {
+    const [w, h] = sendSize();
+    if (R.writer) {
+      if (R.writer.desiredSize !== null && R.writer.desiredSize < 0) return; // aún con el anterior
+      let vf;
+      try { vf = makeFrame(now, frame, w, h); } catch { return; }
+      if (vf) R.writer.write(vf).catch(() => {}); // el generador se queda con él y lo cierra
+    } else if (R.cv) {
+      const vw = video.videoWidth, vh = video.videoHeight;
+      const g = geometry(w, h, vw, vh);
+      if (!g) return;
+      if (R.cv.width !== w || R.cv.height !== h) { R.cv.width = w; R.cv.height = h; }
+      paintFrame(R.cv.getContext("2d", { alpha: false }), video, g, false);
+      if (R.cvTrack.requestFrame) R.cvTrack.requestFrame();
+    }
+    if (!R.live) return;
+    S.sentW = w; S.sentH = h;
+  }
+
+  // fail: no ha salido o se ha caído; se vuelve a probar más tarde (cada vez más tarde).
+  function rtcStop(fail) {
+    const pc = R.pc;
+    if (!pc && !R.gen && !R.cvTrack) return;
+    const wasLive = R.live;
+    R.pc = null;
+    R.live = false;
+    try { pc && pc.close(); } catch { }
+    try { R.writer && R.writer.close().catch(() => {}); } catch { }
+    try { R.gen && R.gen.stop(); } catch { }
+    try { R.cvTrack && R.cvTrack.stop(); } catch { }
+    R.gen = R.writer = R.cv = R.cvTrack = R.sender = null;
+    R.bytes = R.bytesAt = 0;
+    if (fail) {
+      R.fails++;
+      R.failAt = performance.now() + Math.min(120000, 5000 * 2 ** Math.min(R.fails, 5));
+      if (S.connected) send({ t: "rtcstop" });
+    }
+    H.forceKey = true; // el vídeo vuelve por la conexión de siempre: el PC necesita un clave
+    if (wasLive) { sendState(true); render(); }
+  }
+
+  // Números del codificador de WebRTC (para la hoja y el PC).
+  async function rtcStats() {
+    if (!R.sender || !R.live) return;
+    try {
+      (await R.sender.getStats()).forEach((r) => {
+        if (r.type === "outbound-rtp" && r.kind === "video") {
+          if (R.bytesAt && r.timestamp > R.bytesAt) S.kbps = Math.round((r.bytesSent - R.bytes) * 8 / (r.timestamp - R.bytesAt));
+          R.bytes = r.bytesSent; R.bytesAt = r.timestamp;
+          R.fps = Math.round(r.framesPerSecond || 0);
+          R.kbps = Math.round((r.targetBitrate || 0) / 1000);
+          R.impl = r.encoderImplementation || "";
+          R.hw = r.powerEfficientEncoder === true || /mediacodec|hardware|external/i.test(R.impl) && !/openh264|libvpx|software/i.test(R.impl);
+          // En el móvil, comprimir por software calienta y acaba bajando el ritmo: si
+          // WebRTC no tiene el codificador por hardware y WebCodecs sí, mejor sin WebRTC.
+          if (r.powerEfficientEncoder === false && H.hw && /Android|iPhone|iPad/.test(navigator.userAgent)) {
+            rtcStop(true);
+            R.failAt = Infinity;
+          }
+          if (r.frameWidth) { S.sentW = r.frameWidth; S.sentH = r.frameHeight; }
+        }
+        if (r.type === "remote-inbound-rtp" && r.kind === "video" && r.roundTripTime) R.rtt = Math.round(r.roundTripTime * 1000);
+      });
+    } catch { }
+  }
+
   function onAck(m) {
+    S.lastAck = performance.now();
     S.inflight = Math.max(0, S.inflight - 1);
     const t0 = S.sent.get(m.n);
     if (t0 !== undefined) { S.sent.delete(m.n); addRTT(performance.now() - t0); }
@@ -542,6 +881,10 @@
   function addRTT(ms) {
     S.rtt = S.rttN ? S.rtt * 0.8 + ms * 0.2 : ms;
     S.rttN++;
+    // La mínima de los últimos 10 s es la latencia de la red sin colas: si la media se
+    // aleja mucho, se está acumulando vídeo por el camino.
+    const now = performance.now();
+    if (!S.rttMin || ms < S.rttMin || now - S.rttMinAt > 10000) { S.rttMin = ms; S.rttMinAt = now; }
   }
 
   // Cada segundo se ajusta solo:
@@ -553,19 +896,33 @@
     S.fpsNow = S.frames; S.frames = 0;
     S.camFps = S.started ? S.camFrames : 0; S.camFrames = 0;
     checkCapture(); // por si el cambio de tamaño llegó mientras se abría la cámara
+    if (rtcWanted()) rtcStart();
+    else if (R.pc && !R.live && performance.now() - R.startAt > 12000) rtcStop(true); // no conecta
+    else if (R.pc && (!S.started || S.cfg.rtc !== true)) rtcStop(false);
+    if (R.pc) { rtcParams(); rtcStats(); }
+    if (R.live) { S.fpsNow = R.fps; }
     S.kbps = Math.round(S.bytes * 8 / 1000); S.bytes = 0;
     const target = Math.max(1, S.cfg.fps), interval = 1000 / target;
     const sent = S.sentCount, net = S.netBusy, cpu = S.cpuBusy;
     S.sentCount = 0; S.netBusy = 0; S.cpuBusy = 0;
     if (!S.connected || !S.started || target <= 4 || S.hidden) { render(); return; }
+    if (R.live) { render(); return; } // por WebRTC lo ajusta el propio navegador
     const short = sent < target * 0.85;
-    if (short && net > target * 0.2) S.q = Math.max(0.3, S.q - 0.05);
+    if (useH264() && H.cfg) {
+      // Tasa de bits: baja deprisa si la red no da abasto o si crece la cola por el
+      // camino (la latencia sube sobre la mínima); sube despacio si va holgado.
+      const queued = S.rttN > 3 && S.rtt > S.rttMin + Math.max(80, interval * 3);
+      if ((short && net > target * 0.2) || queued) { H.br = Math.max(H.minBr, Math.round(H.br * 0.75)); H.up = 0; }
+      else if (!short && net === 0 && ++H.up >= 3) { H.br = Math.min(H.maxBr, Math.round(H.br * 1.15)); H.up = 0; }
+      h264SetBitrate(H.br);
+      S.q = H.maxBr ? H.br / H.maxBr : S.q;
+    } else if (short && net > target * 0.2) S.q = Math.max(0.3, S.q - 0.05);
     else if (!short && net === 0 && S.rtt < interval * 3) S.q = Math.min(0.82, S.q + 0.02);
     if (!S.cfg.adjust.res) {
       if (short && cpu > target * 0.2) {
         S.up = 0;
         if (++S.down >= 2 && S.scaleStep < SCALES.length - 1) { S.scaleStep++; S.down = 0; }
-      } else if (cpu === 0 && S.encMs < interval * enc.count * 0.35) {
+      } else if (cpu === 0 && (useH264() || S.encMs < interval * enc.count * 0.35)) {
         S.down = 0;
         if (++S.up >= 5 && S.scaleStep > 0) { S.scaleStep--; S.up = 0; }
       } else { S.down = 0; S.up = 0; }
@@ -579,6 +936,15 @@
     send({ t: "ping", ts: performance.now() });
     sendState(false);
   }, 4000);
+
+  // Una conexión puede quedarse muerta sin cerrarse (el túnel se atasca, el móvil
+  // cambia de wifi a datos…): si no llega nada del PC en un rato, se rehace.
+  setInterval(() => {
+    if (!S.connected || S.bye) return;
+    const now = performance.now();
+    const stuck = (S.inflight > 0 && now - S.lastAck > 5000) || now - S.lastPong > 11000;
+    if (stuck) { S.connected = false; S.inflight = 0; connect(); render(); }
+  }, 1000);
 
   let battery = null;
   if (navigator.getBattery) navigator.getBattery().then((b) => {
@@ -598,10 +964,13 @@
       rtt: Math.round(S.rtt),
       caps: { ...S.caps, cameras: S.cameras, filters: S.filterOK, model },
       camW: video.videoWidth, camH: video.videoHeight,
+      codec: R.live || useH264() ? "h264" : "jpeg", hw: R.live ? R.hw : useH264() && H.hw,
+      kbps: R.live ? R.kbps : useH264() ? Math.round(H.cfgBr / 1000) : 0,
     };
+    if (R.live && R.rtt) st.rtt = R.rtt;
     if (battery) { st.battery = Math.round(battery.level * 100) / 100; st.charging = battery.charging; }
     const key = JSON.stringify(st);
-    if (!force && key === lastState) { send({ t: "state", q: st.q, rtt: st.rtt, cam: S.camFps }); return; }
+    if (!force && key === lastState) { send({ t: "state", q: st.q, rtt: st.rtt, cam: S.camFps, kbps: st.kbps }); return; }
     lastState = key;
     st.cam = S.camFps;
     send(st);
@@ -809,11 +1178,14 @@
     const vw = video.videoWidth, vh = video.videoHeight;
     $("#info").innerHTML = [
       ["Conectado a", S.cfg.pc || "—"],
-      ["Conexión", S.connected ? (S.transport.kind === "ws" ? "WebSocket" : "HTTP") + (location.hostname.endsWith("trycloudflare.com") ? " · Cloudflare" : " · directa") : "sin conexión"],
+      ["Conexión", !S.connected ? "sin conexión" : R.live ? "WebRTC · directa al PC"
+        : (S.transport.kind === "ws" ? "WebSocket" : "HTTP") + (location.hostname.endsWith("trycloudflare.com") ? " · Cloudflare" : " · directa") + (R.pc ? " (probando WebRTC…)" : "")],
       ["Cámara", vw ? `${vw}×${vh} · ${S.camFps} fps` + (camSlow() ? " (¿poca luz?)" : "") : "—"],
       ["Se envía", `${S.sentW || S.cfg.w}×${S.sentH || S.cfg.h} · ${S.fpsNow} fps · ${S.kbps} kb/s`],
-      ["Calidad", pct(S.q) + (S.rttN ? ` · ${Math.round(S.rtt)} ms` : "")],
-      ["Compresión", `${enc.count} ${enc.count === 1 ? "hilo" : "hilos"}` + (S.encMs ? ` · ${Math.round(S.encMs)} ms por imagen` : "")],
+      ["Calidad", R.live ? (R.rtt ? `${R.rtt} ms` : "—") : pct(S.q) + (S.rttN ? ` · ${Math.round(S.rtt)} ms` : "")],
+      ["Compresión", R.live ? `H.264${R.hw ? " por hardware" : ""} · WebRTC` + (R.kbps ? ` · ${fmt1(R.kbps / 1000)} Mb/s` : "")
+        : useH264() ? `H.264${H.hw ? " por hardware" : ""}` + (H.cfgBr ? ` · ${fmt1(H.cfgBr / 1e6)} Mb/s` : "")
+        : `JPEG · ${enc.count} ${enc.count === 1 ? "hilo" : "hilos"}` + (S.encMs ? ` · ${Math.round(S.encMs)} ms por imagen` : "") + (H.failed ? ` (sin H.264: ${H.failed})` : "")],
     ].map(([k, v]) => `<span>${k}</span><b>${esc(v)}</b>`).join("");
   }
 
@@ -855,7 +1227,7 @@
     res.hidden = !S.connected || !S.started || c.role === "spare";
     res.textContent = `${S.sentH || c.h}p · ${S.fpsNow} fps`;
     const mode = $("#chip-mode");
-    const slowCam = camSlow(), slowNet = S.q < 0.45, slowPhone = !c.adjust.res && S.scaleStep > 0;
+    const slowCam = camSlow(), slowNet = !R.live && S.q < (useH264() ? 0.3 : 0.45), slowPhone = !c.adjust.res && S.scaleStep > 0;
     mode.hidden = !(S.connected && S.started && c.fps > 4 && (slowCam || slowNet || slowPhone));
     mode.textContent = slowCam ? `Cámara a ${S.camFps} fps: ¿poca luz?` : slowNet ? "Red lenta" : "Resolución reducida";
 

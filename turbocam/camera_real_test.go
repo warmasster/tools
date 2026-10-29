@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -327,7 +328,32 @@ func TestPhonePage(t *testing.T) {
 		t.Skip("hace falta node")
 	}
 	r := newRig(t)
-	phone := exec.Command(node, "dev/phone.mjs", r.url("https", "/c/"+r.tok+"/"), "16")
+	url := r.url("https", "/c/"+r.tok+"/")
+	// TURBOCAM_CF=1: por un túnel de Cloudflare de verdad.
+	if os.Getenv("TURBOCAM_CF") != "" {
+		tun := newTunnel(t.TempDir(), "nonce-de-prueba", nil)
+		tun.Start(r.s.port, "", "")
+		defer tun.Stop()
+		for i := 0; i < 90 && tun.State().Status != "online"; i++ {
+			time.Sleep(time.Second)
+		}
+		if tun.State().URL == "" {
+			t.Fatalf("el túnel no arranca: %+v", tun.State())
+		}
+		url = tun.State().URL + "/c/" + r.tok + "/"
+		t.Logf("por Cloudflare: %s", tun.State().URL)
+	}
+	// TURBOCAM_JPEG=1: como antes, sin H.264 (para comparar).
+	if os.Getenv("TURBOCAM_JPEG") != "" {
+		url += "?jpeg&nortc"
+	} else if os.Getenv("TURBOCAM_NORTC") != "" {
+		url += "?nortc" // H.264 por la conexión de siempre
+	}
+	secs := 16
+	if n, err := strconv.Atoi(os.Getenv("TURBOCAM_SECS")); err == nil && n > secs {
+		secs = n // TURBOCAM_SECS=60: más rato
+	}
+	phone := exec.Command(node, "dev/phone.mjs", url, strconv.Itoa(secs))
 	var logs bytes.Buffer
 	phone.Stdout = &logs
 	phone.Env = os.Environ()
@@ -340,14 +366,35 @@ func TestPhonePage(t *testing.T) {
 		t.Logf("móvil:\n%s", logs.String())
 	}()
 	var last PhoneInfo
-	for end := time.Now().Add(15 * time.Second); time.Now().Before(end); time.Sleep(time.Second) {
+	for end := time.Now().Add(time.Duration(secs-1) * time.Second); time.Now().Before(end); time.Sleep(time.Second) {
 		st := r.e.State()
 		if len(st.Phones) != 1 {
 			continue
 		}
 		p := st.Phones[0]
-		t.Logf("PC: %s %dx%d a %.0f fps (cámara %dx%d a %.0f fps), calidad %.2f, %d ms", p.Role, p.Width, p.Height, p.FPS, p.CamW, p.CamH, p.CamFPS, p.Quality, p.RTT)
+		// TURBOCAM_RETOUCH=1: con espejo y brillo (el fotograma pasa por el lienzo).
+		if os.Getenv("TURBOCAM_RETOUCH") != "" && !p.Adjust.Mirror {
+			a := p.Adjust
+			a.Mirror, a.Brightness = true, 1.2
+			r.e.SetAdjust(p.ID, a)
+		}
+		// TURBOCAM_RTCDROP=1: a mitad se corta WebRTC (el vídeo debe seguir por el WebSocket).
+		if os.Getenv("TURBOCAM_RTCDROP") != "" && p.Path == "rtc" && time.Until(end) < time.Duration(secs/2)*time.Second {
+			r.e.mu.Lock()
+			ph := r.e.phones[p.ID]
+			r.e.mu.Unlock()
+			t.Log("--- se corta WebRTC ---")
+			r.e.rtcDrop(ph, nil, true)
+		}
+		t.Logf("PC: [%s] %s %dx%d a %.0f fps (cámara %dx%d a %.0f fps), %s hw=%v %d kb/s (llegan %.0f kb/s), decodificar %.1f ms, calidad %.2f, %d ms",
+			p.Path, p.Role, p.Width, p.Height, p.FPS, p.CamW, p.CamH, p.CamFPS, p.Codec, p.HW, p.Bitrate, p.Kbps, p.DecMs, p.Quality, p.RTT)
 		last = p
+	}
+	if dir := os.Getenv("TURBOCAM_SHOTS"); dir != "" {
+		r.e.mu.Lock()
+		out := r.e.lastOut
+		r.e.mu.Unlock()
+		os.WriteFile(filepath.Join(dir, "pc.jpg"), out, 0o644) // lo que sale por la cámara
 	}
 	if last.FPS < 20 || last.CamFPS < 20 {
 		t.Errorf("va lento: %.0f fps (cámara %.0f fps)", last.FPS, last.CamFPS)

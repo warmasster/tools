@@ -37,6 +37,7 @@ var webFS embed.FS
 const (
 	frameKindVideo = 1
 	frameKindPhoto = 2
+	frameKindH264  = 3        // [3][número u32][opciones: 1 = clave][H.264 Annex B]
 	maxMessage     = 12 << 20 // una foto a toda resolución
 )
 
@@ -50,6 +51,7 @@ type Server struct {
 
 	mu    sync.Mutex
 	conns map[string]*httpTransport // conexiones por HTTP (plan B)
+	rtc   *rtcHub
 }
 
 func startServer(e *Engine, nonce string) (*Server, error) {
@@ -86,6 +88,12 @@ func startServer(e *Engine, nonce string) (*Server, error) {
 		updateSettings(func(st *Settings) { st.Port = s.port })
 	}
 	s.ln = newSniffListener(raw, s.tlsCfg)
+	// WebRTC por UDP en el mismo número de puerto. Si no se puede, el vídeo va por la
+	// conexión de siempre.
+	if h, err := newRTCHub(s.port); err == nil {
+		s.rtc = h
+		e.rtc = h
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, s.nonce) })
@@ -125,6 +133,9 @@ func portRange() []int {
 
 func (s *Server) Close() {
 	s.srv.Close()
+	if s.rtc != nil {
+		s.rtc.Close()
+	}
 	s.mu.Lock()
 	for _, t := range s.conns {
 		t.close()
@@ -303,7 +314,7 @@ type ackMsg struct {
 	N uint32 `json:"n"`
 }
 
-// onBinary procesa un mensaje binario: [tipo][número u32][JPEG].
+// onBinary procesa un mensaje binario: [tipo][número u32][datos].
 func (s *Server) onBinary(p *phone, t transport, data []byte) {
 	if len(data) < 6 {
 		return
@@ -313,7 +324,13 @@ func (s *Server) onBinary(p *phone, t transport, data []byte) {
 	case frameKindVideo:
 		// Se confirma nada más llegar: la decodificación va aparte y no hace esperar al
 		// móvil (si no, la latencia de internet limita los fotogramas por segundo).
-		s.e.queueFrame(p, n, data[5:])
+		s.e.queueFrame(p, videoChunk{kind: frameKindVideo, seq: n, data: data[5:]})
+		t.send(ackMsg{T: "ack", N: n})
+	case frameKindH264:
+		if len(data) < 7 {
+			return
+		}
+		s.e.queueFrame(p, videoChunk{kind: frameKindH264, seq: n, key: data[5]&1 != 0, data: data[6:]})
 		t.send(ackMsg{T: "ack", N: n})
 	case frameKindPhoto:
 		s.e.onPhoto(p, data[5:])
@@ -335,6 +352,10 @@ func (s *Server) onText(p *phone, t transport, data []byte) {
 	}
 	if m.T == "forget" {
 		s.e.Forget(p)
+		return
+	}
+	if m.T == "rtc" || m.T == "ice" || m.T == "rtcstop" {
+		s.e.onRTCSignal(p, data)
 		return
 	}
 	s.e.onMessage(p, m)

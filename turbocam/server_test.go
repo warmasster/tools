@@ -10,6 +10,7 @@ import (
 	"image/jpeg"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -461,4 +462,56 @@ func TestCameraFPSFromPhone(t *testing.T) {
 		ps := r.e.State().Phones
 		return len(ps) == 1 && ps[0].CamFPS == 12 && ps[0].CamW == 640 && ps[0].CamH == 480
 	})
+}
+
+// TestPhoneH264OverWebSocket: fotogramas H.264 (Annex B) por el WebSocket. El PC los
+// decodifica todos en orden y, si empieza a mitad (sin clave), pide uno.
+func TestPhoneH264OverWebSocket(t *testing.T) {
+	if !h264OK() {
+		t.Skip("sin decodificador H.264 en este Windows")
+	}
+	r := newRig(t)
+	data, err := os.ReadFile("testdata/360p.h264")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aus := splitAnnexB(data) // 20 fotogramas, clave en el 0 y el 10
+	c := dialWS(t, r, "wss")
+	c.WriteJSON(map[string]string{"t": "hello", "id": "movilh264xx1", "name": "H264", "model": "Pixel"})
+	if cfg := readMsg(t, c, "config"); cfg["h264"] != true {
+		t.Fatalf("el PC no ofrece H.264: %v", cfg)
+	}
+	c.WriteJSON(map[string]any{"t": "state", "visible": true, "live": true})
+	h264Msg := func(n uint32, key bool, au []byte) []byte {
+		b := []byte{frameKindH264, 0, 0, 0, 0, 0}
+		binary.LittleEndian.PutUint32(b[1:5], n)
+		if key {
+			b[5] = 1
+		}
+		return append(b, au...)
+	}
+	// Empieza a mitad de la cadena: no se puede decodificar, pide un clave.
+	c.WriteMessage(websocket.BinaryMessage, h264Msg(1, false, aus[3]))
+	readMsg(t, c, "key") // (su acuse puede llegar antes o después: da igual)
+	for i, au := range aus {
+		c.WriteMessage(websocket.BinaryMessage, h264Msg(uint32(i+2), i%10 == 0, au))
+		readMsg(t, c, "ack")
+	}
+	waitFor(t, "fotogramas H.264 decodificados", func() bool {
+		st := r.e.State()
+		return len(st.Phones) == 1 && st.Phones[0].Codec == "h264" && st.Phones[0].Width == 640 && st.Status == "live"
+	})
+	r.e.mu.Lock()
+	p := r.e.phones["movilh264xx1"]
+	r.e.mu.Unlock()
+	p.mu.Lock()
+	n, y := p.seq, p.frame.Y[100*p.frame.YStride+45]
+	p.mu.Unlock()
+	if n != 20 {
+		t.Errorf("decodificados %d, quería los 20", n)
+	}
+	if y < 170 || y > 190 {
+		t.Errorf("Y = %d, quería ~180 (barra gris)", y)
+	}
+	c.Close()
 }

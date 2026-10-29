@@ -31,6 +31,9 @@ type Direct struct {
 	done     chan struct{}
 	nonce    string
 	onChange func()
+	// udpPort: el de WebRTC. Se abre en el router con el mismo número externo que el
+	// TCP, para que el vídeo pueda llegar directo aunque el móvil esté en datos.
+	udpPort int
 	// recordPath: dónde se apunta el puerto abierto en el router. Si TurboCAM se
 	// cae, en routers que no admiten caducidad el puerto quedaría abierto para
 	// siempre: al volver a abrirse, se cierra (o se reutiliza).
@@ -212,6 +215,9 @@ func (d *Direct) attempt(ctx context.Context, port int, useUPnP, force bool) (*i
 		})
 		return nil, 0
 	}
+	if d.udpPort > 0 {
+		g.addMappingProto("UDP", ext, d.udpPort, lease) // si no puede, WebRTC lo intenta igual
+	}
 	d.dropStale(g, ext)
 	d.saveRecord(upnpRecord{Ext: ext, Internal: port, Local: g.localIP})
 	if pub == "" {
@@ -258,6 +264,9 @@ func (d *Direct) keep(ctx context.Context, g *igd, port, ext int) {
 		if lease > 0 && time.Since(lastRenew) > time.Duration(lease/2)*time.Second {
 			if err := g.addMapping(ext, port, lease); err == nil {
 				lastRenew = time.Now()
+			}
+			if d.udpPort > 0 {
+				g.addMappingProto("UDP", ext, d.udpPort, lease)
 			}
 		}
 		if pub, err := publicIP(); err == nil && pub != d.State().PublicIP {

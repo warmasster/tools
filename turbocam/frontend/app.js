@@ -424,7 +424,10 @@
       parts.push(`cámara ${Math.round(p.camFps)} fps` + (p.camFps < want * 0.75 ? " (¿poca luz?)" : ""));
     }
     if (p.kbps) parts.push(p.kbps > 1000 ? (p.kbps / 1000).toFixed(1).replace(".", ",") + " Mb/s" : Math.round(p.kbps) + " kb/s");
-    if (p.quality) parts.push("calidad " + pct(p.quality));
+    // H.264: lo comprime el codificador de vídeo del móvil (por hardware casi no gasta
+    // batería ni se calienta). JPEG: el plan B, con su calidad.
+    if (p.codec === "h264") parts.push("H.264" + (p.hw ? " por hardware" : ""));
+    else if (p.quality) parts.push("JPEG · calidad " + pct(p.quality));
     if (p.rtt) parts.push(p.rtt + " ms");
     return parts.join(" · ");
   }
@@ -444,7 +447,8 @@
     }
     const { base, k } = previewBase();
     const h = ps.map((p) => {
-      const via = VIA[p.via] || VIA.lan, role = ROLE[p.role] || ROLE.spare;
+      // Por WebRTC el vídeo va directo por UDP, aunque la página se abriera por Cloudflare.
+      const via = p.path === "rtc" ? ["plug", "WebRTC"] : VIA[p.via] || VIA.lan, role = ROLE[p.role] || ROLE.spare;
       const caps = p.caps || {};
       const a = p.adjust;
       const open = S.openAdj === p.id;
@@ -455,7 +459,7 @@
           <div class="thumb"><img data-id="${esc(p.id)}" data-src="${esc(src)}" src="${esc(src || "data:,")}" alt="">${off ? `<div class="off">${off}</div>` : ""}</div>
           <div style="min-width:0">
             <div class="ph-name"><b title="${esc(p.model)}">${esc(p.name)}</b><button class="ibtn" data-act="rename" title="Cambiar el nombre">${ic("edit")}</button></div>
-            <div class="ph-meta"><span class="chip ${role[0]}">${role[1]}</span><span class="chip" title="Conexión">${ic(via[0])}${via[1]}</span><span data-bat></span></div>
+            <div class="ph-meta"><span class="chip ${role[0]}">${role[1]}</span><span class="chip ${p.path === "rtc" ? "ok" : ""}" title="${p.path === "rtc" ? "El vídeo llega directo por WebRTC" : "Conexión"}">${ic(via[0])}${via[1]}</span><span data-bat></span></div>
             <div class="ph-stats" data-stats></div>
           </div>
         </div>
@@ -968,7 +972,7 @@
     const st = {
       engine: {
         phones: [
-          { id: "abc123def456", name: "Pixel 8", model: "Pixel 8", via: "internet", visible: true, live: true, error: "", battery: 0.82, charging: true, fps: 29.6, kbps: 4820, quality: 0.78, rtt: 64, camFps: 30, camW: 1280, camH: 720, width: 1280, height: 720, role: "main", caps: { zoom: { min: 1, max: 8, step: 0.1 }, torch: true, cameras: [{ id: "a", label: "Trasera" }, { id: "b", label: "Delantera" }, { id: "c", label: "Gran angular" }], filters: true }, adjust: { ...A }, connected: Date.now() },
+          { id: "abc123def456", name: "Pixel 8", model: "Pixel 8", via: "internet", visible: true, live: true, error: "", battery: 0.82, charging: true, fps: 29.6, kbps: 2480, quality: 0.78, rtt: 64, camFps: 30, codec: "h264", hw: true, path: "rtc", camW: 1280, camH: 720, width: 1280, height: 720, role: "main", caps: { zoom: { min: 1, max: 8, step: 0.1 }, torch: true, cameras: [{ id: "a", label: "Trasera" }, { id: "b", label: "Delantera" }, { id: "c", label: "Gran angular" }], filters: true }, adjust: { ...A }, connected: Date.now() },
           { id: "zzz999yyy888", name: "iPhone", model: "iPhone", via: "lan", visible: true, live: true, error: "", battery: 0.41, charging: false, fps: 4, kbps: 210, quality: 0.7, rtt: 12, width: 320, height: 180, role: "spare", caps: { zoom: null, torch: false, cameras: [], filters: false }, adjust: { ...A, facing: "environment" }, connected: Date.now() },
         ],
         consumers: [{ pid: 1, exe: "Discord.exe", width: 1280, height: 720, fps: 30 }],

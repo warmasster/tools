@@ -253,10 +253,15 @@ func (g *igd) ExternalIP() (string, error) {
 }
 
 func (g *igd) addMapping(ext, internal int, lease int) error {
+	return g.addMappingProto("TCP", ext, internal, lease)
+}
+
+// addMappingProto abre un puerto TCP o UDP (el UDP es para WebRTC).
+func (g *igd) addMappingProto(proto string, ext, internal int, lease int) error {
 	_, err := g.call("AddPortMapping", [][2]string{
 		{"NewRemoteHost", ""},
 		{"NewExternalPort", fmt.Sprint(ext)},
-		{"NewProtocol", "TCP"},
+		{"NewProtocol", proto},
 		{"NewInternalPort", fmt.Sprint(internal)},
 		{"NewInternalClient", g.localIP},
 		{"NewEnabled", "1"},
@@ -313,12 +318,15 @@ func (g *igd) Map(internal int) (int, int, error) {
 	return 0, 0, last
 }
 
+// Unmap cierra el puerto (TCP y, si lo había, UDP).
 func (g *igd) Unmap(ext int) {
-	g.call("DeletePortMapping", [][2]string{
-		{"NewRemoteHost", ""},
-		{"NewExternalPort", fmt.Sprint(ext)},
-		{"NewProtocol", "TCP"},
-	})
+	for _, proto := range []string{"TCP", "UDP"} {
+		g.call("DeletePortMapping", [][2]string{
+			{"NewRemoteHost", ""},
+			{"NewExternalPort", fmt.Sprint(ext)},
+			{"NewProtocol", proto},
+		})
+	}
 }
 
 var cgnatNet = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}

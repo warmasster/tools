@@ -71,6 +71,9 @@ func (a *App) startup(ctx context.Context) {
 	a.direct = newDirect(a.nonce, a.changed)
 	// Si TurboCAM se cerró de golpe, el puerto que dejó abierto en el router se cierra.
 	a.direct.recordPath = filepath.Join(dataDir(), "upnp.json")
+	if a.server.rtc != nil {
+		a.direct.udpPort = a.server.rtc.port
+	}
 	a.startNetwork(true, true)
 	a.hotkeys = startHotkeys(a.onHotkey)
 	go a.watchQuit()

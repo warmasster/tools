@@ -26,6 +26,8 @@ const args = [
   '--use-fake-device-for-media-stream=fps=30', '--use-fake-ui-for-media-stream', '--ignore-certificate-errors',
   '--autoplay-policy=no-user-gesture-required', '--window-size=420,860',
 ];
+// TURBOCAM_FAKEVIDEO=cam.mjpeg: la cámara falsa pone ese vídeo (con grano, como una de verdad).
+if (process.env.TURBOCAM_FAKEVIDEO) args.push(`--use-file-for-fake-video-capture=${process.env.TURBOCAM_FAKEVIDEO}`);
 if (!headed) args.push('--headless=new');
 const proc = spawn(CHROME, args, { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
 proc.stderr.on('data', () => {});
@@ -61,6 +63,13 @@ try {
   await send('Emulation.setDeviceMetricsOverride', { width: 412, height: 860, deviceScaleFactor: 2, mobile: true }, sessionId);
   // TURBOCAM_THROTTLE=4: la CPU va 4 veces más lenta, como un móvil normal.
   if (process.env.TURBOCAM_THROTTLE) await send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.TURBOCAM_THROTTLE) }, sessionId);
+  // TURBOCAM_NET=80,3000: 80 ms más de latencia y 3000 kb/s de subida, como unos datos
+  // móviles regulares.
+  if (process.env.TURBOCAM_NET) {
+    const [lat, up] = process.env.TURBOCAM_NET.split(',').map(Number);
+    await send('Network.enable', {}, sessionId);
+    await send('Network.emulateNetworkConditions', { offline: false, latency: lat || 0, downloadThroughput: -1, uploadThroughput: up ? up * 1000 / 8 : -1 }, sessionId);
+  }
   await send('Page.navigate', { url }, sessionId);
   const ev = async (expr) => (await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }, sessionId)).result.value;
   for (let i = 0; i < 50 && !(await ev('!!document.querySelector("#go")')); i++) await sleep(100);
