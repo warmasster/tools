@@ -294,9 +294,14 @@ try {
 
   log('Rellenar');
   // Clic de verdad en el campo de la contraseña.
+  // Clic de verdad en el campo: el menú no sale solo, hay que pulsar el icono.
   await clickSelector('#pw');
+  await sleep(700);
+  check(!(await shadowQuery('.menu .it', 4)), 'al pulsar en el campo el menú no se abre solo');
+  const pwIcon = await iconIn('#pw');
+  if (pwIcon) await clickModel(pwIcon);
   const item = await shadowQuery('.menu .it');
-  check(!!item, 'el menú de TurboVAULT aparece al pulsar en el campo');
+  check(!!item, 'el menú de TurboVAULT aparece al pulsar el icono del campo');
   if (item) {
     // Clickjacking: la página vuelve casi invisible el menú e intenta que pulses.
     await ev(`document.querySelector('turbovault-ui').style.setProperty('opacity', '0.02', 'important')`);

@@ -404,7 +404,6 @@
   // ---------- foco ----------
   let current = null; // campo del menú
   let currentKind = null;
-  let dismissed = false; // el menú automático se cerró a mano en esta página
   let iconFocusing = false; // el foco lo pone TurboVAULT al pulsar el icono
   let hideTimer = 0;
   const menuOpen = () => !!menuEl && menuEl.style.display === 'block';
@@ -425,8 +424,7 @@
     currentKind = k;
     quietAutocomplete(el);
     layoutSoon();
-    // Solo se abre solo si el foco viene de ti (clic o teclado), no de la página.
-    if (!iconFocusing && !filling && !el.value && !dismissed && Date.now() - lastGesture < 800) openMenu(true);
+    // El menú no se abre al enfocar: solo con el icono (o el atajo de la extensión).
   }, true);
   on(document, 'focusout', (e) => {
     const el = e.composedPath ? e.composedPath()[0] : e.target;
@@ -439,7 +437,7 @@
     }, 180);
   }, true);
   on(document, 'keydown', (e) => {
-    if (e.key === 'Escape' && menuOpen()) { closeMenu(); dismissed = true; }
+    if (e.key === 'Escape' && menuOpen()) closeMenu();
     if (e.isTrusted && e.key === 'ArrowDown' && menuOpen() && e.target === current) {
       const first = menuEl.querySelector('.it');
       if (first) { e.preventDefault(); first.focus(); }
@@ -456,12 +454,11 @@
     if (menuOpen() && current === el && performance.now() - menuShownAt > 300) { closeMenu(); return; }
     current = el;
     currentKind = kindOf(el);
-    dismissed = false;
     if (document.activeElement !== el) {
       iconFocusing = true;
       try { el.focus({ preventScroll: true }); } finally { iconFocusing = false; }
     }
-    openMenu(false);
+    openMenu();
   }
 
   // ---------- estado ----------
@@ -500,15 +497,7 @@
     menuEl.style.left = `${Math.round(Math.max(8, Math.min(r.left, innerWidth - 330)) - o.left)}px`;
   }
 
-  // Al enfocar solo se enseña si hay algo útil (abrir la bóveda, vincular, lo guardado).
-  function worthAuto(res) {
-    const st = res.state || {};
-    if (!st.agent) return false;
-    if (st.unlocked && st.paired && !(res.matches || []).length && currentKind !== 'newpassword') return false;
-    return true;
-  }
-
-  async function openMenu(auto = false) {
+  async function openMenu() {
     ui();
     const el = current, kind = currentKind;
     if (!el) return;
@@ -516,13 +505,12 @@
     // Al instante con lo que ya se sabe; luego se confirma con TurboVAULT.
     if (pageState && (!isOpen(pageState) || matches)) {
       const cached = { state: pageState, matches: matches || [], host: pageHost() };
-      if (!auto || worthAuto(cached)) { renderMenu(cached); showMenu(); }
+      renderMenu(cached); showMenu();
     }
     let res;
-    try { res = await bg({ type: 'query', user: !auto }); } catch { return; }
+    try { res = await bg({ type: 'query', user: true }); } catch { return; }
     if (!res || res.blocked || el !== current || kind !== currentKind || seq !== menuSeq) return;
     applyQuery(res);
-    if (auto && !worthAuto(res)) return;
     renderMenu(res);
     showMenu();
   }
@@ -770,10 +758,9 @@
       try { el.focus(); } finally { iconFocusing = false; }
       current = el;
       currentKind = kindOf(el);
-      dismissed = false;
       if (!fields.has(el) && fields.size < MAX_FIELDS) { track(el); startTick(); }
       layoutSoon();
-      openMenu(false);
+      openMenu();
     } else if (msg.type === 'generateHere') {
       if (!document.hasFocus()) return;
       const el = document.activeElement;

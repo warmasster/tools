@@ -27,7 +27,7 @@ Gestor de contraseñas que guarda todo **cifrado en tu PC**, con extensión para
 
 ## La extensión de Chrome
 
-- Cada campo de usuario o contraseña lleva el icono de TurboVAULT dentro, sin tener que pulsar nada: **de color** con la bóveda abierta y **gris** con la bóveda cerrada. Un clic en el icono (o entrar en el campo) abre el menú con lo guardado **para esa web**; otro clic y rellena. También con **Ctrl+Mayús+L**, o con clic derecho → «Rellenar con TurboVAULT».
+- Cada campo de usuario o contraseña lleva el icono de TurboVAULT dentro, sin tener que pulsar nada: **de color** con la bóveda abierta y **gris** con la bóveda cerrada. Un clic en el icono abre el menú (entrar en el campo no lo abre: así no molesta) con lo guardado **para esa web**; otro clic y rellena. También con **Ctrl+Mayús+L**, o con clic derecho → «Rellenar con TurboVAULT».
 - Mientras escribes en un campo de usuario, Chrome no saca sus sugerencias de lo que escribiste otras veces, para que no tapen el menú (al salir del campo queda como estaba). El menú va por encima de la página, también en las ventanas de inicio de sesión que abren algunas webs. Si algo de la página tapa un campo (un aviso, un menú), su icono no se ve.
 - En formularios de **registro** o de **cambio de contraseña** ofrece una contraseña segura y la pone en los dos campos.
 - Al enviar un formulario ofrece **guardar** la contraseña (o **actualizarla** si ha cambiado), también en la página siguiente si la web cambia de página al entrar. «Nunca aquí» deja de preguntarlo en esa web.
@@ -69,7 +69,7 @@ Gestor de contraseñas que guarda todo **cifrado en tu PC**, con extensión para
 
 **Frente a webs y extensiones**
 
-- **Nada se rellena solo**: siempre hace falta un clic o el atajo. Solo cuentan clics y teclas **de verdad**: una página no puede pulsar por ti, y si tapa, vuelve transparente o deforma el menú de TurboVAULT para engañarte (*clickjacking*), el clic no hace nada. El menú tampoco se abre solo si es la página la que pone el foco en el campo.
+- **Nada se rellena solo**: siempre hace falta un clic o el atajo. Solo cuentan clics y teclas **de verdad**: una página no puede pulsar por ti, y si tapa, vuelve transparente o deforma el menú de TurboVAULT para engañarte (*clickjacking*), el clic no hace nada. El menú tampoco se abre solo al entrar en un campo: solo con el icono o el atajo.
 - Solo se ofrecen las entradas de **la web exacta** (con o sin `www.`) y del mismo puerto: lo guardado para `github.com` no vale en `gist.github.com`, ni en `github.com.otra-web.net`, ni en `g1thub.com`. Para que una entrada valga en todos los subdominios hay que pedirlo escribiendo la web como `*.google.com` (no vale sobre sufijos públicos como `*.github.io` o `*.co.uk`). Lo guardado con `https` no se da a una página `http`. Los `iframe` de otras webs no reciben nada.
 - La extensión **nunca ve la bóveda entera** ni la contraseña maestra: pide a TurboVAULT la contraseña de una entrada concreta para la web en la que está, y TurboVAULT comprueba él mismo que esa entrada es de esa web.
 - La contraseña maestra **nunca se escribe en el navegador**: si la bóveda está cerrada, la extensión abre una ventanita de TurboVAULT para escribirla allí.
