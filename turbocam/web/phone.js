@@ -52,15 +52,43 @@
 
   // ---------- conexión ----------
   const base = location.pathname.endsWith("/") ? location.pathname : location.pathname + "/";
-  let wsFails = Number(store.get("wsFails") || 0);
+  // El plan B por HTTP es para Safari con el certificado propio, que no abre el
+  // WebSocket aunque la página se haya aceptado. Solo se cuenta un fallo si el PC sí
+  // contesta (si no, es que está cerrado o el túnel aún arranca, y eso no es culpa del
+  // WebSocket), se recuerda unas horas como mucho y, mientras tanto, cada 15 s se
+  // vuelve a probar el WebSocket por si ya va.
+  const wsURL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + base + "ws";
+  let wsFails = 0;
+  let wsBlocked = Date.now() - Number(store.get("wsBlocked") || 0) < 6 * 3600e3;
+  if (new URLSearchParams(location.search).has("http")) wsBlocked = true; // ?http: empezar por HTTP (pruebas)
   let retryDelay = 1000, retryTimer = 0;
 
   function connect() {
     clearTimeout(retryTimer);
     if (S.bye) return;
+    // WebRTC se negocia por la conexión: con una conexión nueva, el PC no lo conoce.
+    if (typeof R !== "undefined") rtcStop(false);
     if (S.transport) S.transport.close();
-    S.transport = (wsFails >= 2 || !("WebSocket" in window)) ? httpTransport() : wsTransport();
+    S.transport = (wsBlocked || wsFails >= 2 || !("WebSocket" in window)) ? httpTransport() : wsTransport();
   }
+
+  function wsWorks() {
+    wsFails = 0;
+    if (wsBlocked) { wsBlocked = false; store.set("wsBlocked", "0"); }
+  }
+
+  setInterval(() => {
+    if (!S.connected || !S.transport || S.transport.kind !== "http" || !("WebSocket" in window) || S.bye) return;
+    let probe;
+    try { probe = new WebSocket(wsURL); } catch { return; }
+    const kill = setTimeout(() => { try { probe.close(); } catch { } }, 8000);
+    probe.onopen = () => {
+      clearTimeout(kill);
+      try { probe.close(); } catch { }
+      wsWorks();
+      connect(); // ya va: se pasa al WebSocket
+    };
+  }, 15000);
 
   function scheduleReconnect() {
     clearTimeout(retryTimer);
@@ -95,7 +123,7 @@
   }
 
   function wsTransport() {
-    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + base + "ws");
+    const ws = new WebSocket(wsURL);
     ws.binaryType = "arraybuffer";
     let opened = false;
     const t = {
@@ -107,15 +135,19 @@
     };
     ws.onopen = () => {
       opened = true;
-      if (wsFails) { wsFails = 0; store.set("wsFails", "0"); }
+      wsWorks();
       ws.send(JSON.stringify({ t: "hello", id: deviceID, name: S.cfg.name || model, model }));
       onOpen();
     };
     ws.onmessage = (ev) => { if (typeof ev.data === "string") onMessage(ev.data); };
     ws.onclose = () => {
-      // Safari no abre el WebSocket contra un certificado propio aunque la página
-      // se haya aceptado: tras dos fallos seguidos se pasa a HTTP.
-      if (!opened && location.protocol === "https:") { wsFails++; store.set("wsFails", String(wsFails)); }
+      // No ha abierto: ¿es el WebSocket o es que el PC no contesta?
+      if (!opened && location.protocol === "https:") {
+        fetch(base + "alive?t=" + Date.now(), { cache: "no-store" }).then((r) => {
+          if (!r.ok) return;
+          if (++wsFails >= 2) { wsBlocked = true; store.set("wsBlocked", String(Date.now())); }
+        }).catch(() => {});
+      }
       if (S.transport === t) onClosed();
     };
     return t;
@@ -559,9 +591,7 @@
   // ?jpeg en el enlace: sin H.264 (para comparar).
   if (new URLSearchParams(location.search).has("jpeg")) H.failed = "desactivado en el enlace";
 
-  // Por el plan B por HTTP los envíos pueden llegar desordenados, y el H.264 hay que
-  // decodificarlo en orden: ahí se sigue con JPEG.
-  function useH264() { return H.ok && !H.failed && S.cfg.h264 === true && !!S.transport && S.transport.kind === "ws"; }
+  function useH264() { return H.ok && !H.failed && S.cfg.h264 === true; }
   function h264Idle() { return !H.enc || H.enc.state !== "configured" || H.enc.encodeQueueSize < 2; }
 
   function h264Fail(why) {
@@ -729,6 +759,7 @@
     ok: typeof RTCPeerConnection === "function" && typeof VideoFrame === "function" &&
       (typeof MediaStreamTrackGenerator === "function" || "captureStream" in HTMLCanvasElement.prototype),
     pc: null, gen: null, writer: null, cv: null, cvTrack: null, sender: null,
+    why: "", // por qué no va (para la hoja y el PC)
     live: false, startAt: 0, failAt: 0, fails: 0, key: "", kbps: 0, hw: false, fps: 0, rtt: 0, impl: "", bytes: 0, bytesAt: 0,
   };
 
@@ -743,7 +774,7 @@
   async function rtcStart() {
     const caps = RTCRtpSender.getCapabilities ? RTCRtpSender.getCapabilities("video") : null;
     const h264 = caps ? caps.codecs.filter((c) => /h264/i.test(c.mimeType)) : [];
-    if (caps && !h264.length) { R.ok = false; return; } // este navegador no manda H.264 por WebRTC
+    if (caps && !h264.length) { R.ok = false; R.why = "este navegador no manda H.264 por WebRTC"; sendState(true); return; }
     let track;
     if (typeof MediaStreamTrackGenerator === "function") {
       R.gen = new MediaStreamTrackGenerator({ kind: "video" });
@@ -776,7 +807,7 @@
     try {
       await pc.setLocalDescription(await pc.createOffer());
       if (R.pc === pc) send({ t: "rtc", sdp: pc.localDescription.sdp });
-    } catch { rtcStop(true); }
+    } catch (e) { R.why = "no se pudo preparar: " + (e && e.message || e); rtcStop(true); }
   }
 
   async function rtcAnswer(sdp) {
@@ -823,6 +854,18 @@
   }
 
   // fail: no ha salido o se ha caído; se vuelve a probar más tarde (cada vez más tarde).
+  // rtcState: cómo va WebRTC, en pocas palabras.
+  function rtcState() {
+    if (R.live) return "directa";
+    if (!R.ok) return R.why || "este navegador no tiene WebRTC";
+    if (S.cfg.rtc !== true) return "el PC no lo ofrece";
+    if (S.cfg.h264 !== true) return "el PC no decodifica H.264";
+    if (R.pc) return "conectando…";
+    const left = Math.round((R.failAt - performance.now()) / 1000);
+    if (R.why) return R.why + (left > 0 && left < 1e6 ? ` · otra vez en ${left} s` : "");
+    return "esperando";
+  }
+
   function rtcStop(fail) {
     const pc = R.pc;
     if (!pc && !R.gen && !R.cvTrack) return;
@@ -859,6 +902,7 @@
           // En el móvil, comprimir por software calienta y acaba bajando el ritmo: si
           // WebRTC no tiene el codificador por hardware y WebCodecs sí, mejor sin WebRTC.
           if (r.powerEfficientEncoder === false && H.hw && /Android|iPhone|iPad/.test(navigator.userAgent)) {
+            R.why = "WebRTC comprime por software en este móvil";
             rtcStop(true);
             R.failAt = Infinity;
           }
@@ -897,7 +941,11 @@
     S.camFps = S.started ? S.camFrames : 0; S.camFrames = 0;
     checkCapture(); // por si el cambio de tamaño llegó mientras se abría la cámara
     if (rtcWanted()) rtcStart();
-    else if (R.pc && !R.live && performance.now() - R.startAt > 12000) rtcStop(true); // no conecta
+    else if (R.pc && !R.live && performance.now() - R.startAt > 12000) { // no conecta
+      const st = R.pc.iceConnectionState;
+      R.why = st === "checking" || st === "new" ? "la red no deja conexión directa" : "no conecta (" + st + ")";
+      rtcStop(true);
+    }
     else if (R.pc && (!S.started || S.cfg.rtc !== true)) rtcStop(false);
     if (R.pc) { rtcParams(); rtcStats(); }
     if (R.live) { S.fpsNow = R.fps; }
@@ -964,7 +1012,7 @@
       rtt: Math.round(S.rtt),
       caps: { ...S.caps, cameras: S.cameras, filters: S.filterOK, model },
       camW: video.videoWidth, camH: video.videoHeight,
-      codec: R.live || useH264() ? "h264" : "jpeg", hw: R.live ? R.hw : useH264() && H.hw,
+      rtc: rtcState(), codec: R.live || useH264() ? "h264" : "jpeg", hw: R.live ? R.hw : useH264() && H.hw,
       kbps: R.live ? R.kbps : useH264() ? Math.round(H.cfgBr / 1000) : 0,
     };
     if (R.live && R.rtt) st.rtt = R.rtt;
@@ -1182,6 +1230,7 @@
         : (S.transport.kind === "ws" ? "WebSocket" : "HTTP") + (location.hostname.endsWith("trycloudflare.com") ? " · Cloudflare" : " · directa") + (R.pc ? " (probando WebRTC…)" : "")],
       ["Cámara", vw ? `${vw}×${vh} · ${S.camFps} fps` + (camSlow() ? " (¿poca luz?)" : "") : "—"],
       ["Se envía", `${S.sentW || S.cfg.w}×${S.sentH || S.cfg.h} · ${S.fpsNow} fps · ${S.kbps} kb/s`],
+      ["WebRTC", rtcState()],
       ["Calidad", R.live ? (R.rtt ? `${R.rtt} ms` : "—") : pct(S.q) + (S.rttN ? ` · ${Math.round(S.rtt)} ms` : "")],
       ["Compresión", R.live ? `H.264${R.hw ? " por hardware" : ""} · WebRTC` + (R.kbps ? ` · ${fmt1(R.kbps / 1000)} Mb/s` : "")
         : useH264() ? `H.264${H.hw ? " por hardware" : ""}` + (H.cfgBr ? ` · ${fmt1(H.cfgBr / 1e6)} Mb/s` : "")

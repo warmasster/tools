@@ -515,3 +515,41 @@ func TestPhoneH264OverWebSocket(t *testing.T) {
 	}
 	c.Close()
 }
+
+// TestH264OutOfOrder: por HTTP los fotogramas pueden adelantarse unos a otros; el PC
+// los reordena y los decodifica todos sin pedir claves.
+func TestH264OutOfOrder(t *testing.T) {
+	if !h264OK() {
+		t.Skip("sin decodificador H.264 en este Windows")
+	}
+	r := newRig(t)
+	data, _ := os.ReadFile("testdata/360p.h264")
+	aus := splitAnnexB(data)
+	c := dialWS(t, r, "wss")
+	c.WriteJSON(map[string]string{"t": "hello", "id": "movildesorden", "name": "Desorden", "model": "Pixel"})
+	readMsg(t, c, "config")
+	c.WriteJSON(map[string]any{"t": "state", "visible": true, "live": true})
+	order := []int{0, 2, 1, 3, 5, 4, 6, 7, 9, 8, 10, 12, 11, 13, 14, 16, 15, 17, 19, 18}
+	for _, i := range order {
+		b := []byte{frameKindH264, 0, 0, 0, 0, 0}
+		binary.LittleEndian.PutUint32(b[1:5], uint32(i+1))
+		if i%10 == 0 {
+			b[5] = 1
+		}
+		c.WriteMessage(websocket.BinaryMessage, append(b, aus[i]...))
+	}
+	r.e.mu.Lock()
+	p := r.e.phones["movildesorden"]
+	r.e.mu.Unlock()
+	waitFor(t, "los 20 decodificados", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.seq == 20
+	})
+	p.dmu.Lock()
+	asked := !p.keyAt.IsZero()
+	p.dmu.Unlock()
+	if asked {
+		t.Error("ha pedido un clave: no ha reordenado")
+	}
+}

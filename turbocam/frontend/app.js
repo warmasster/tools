@@ -429,6 +429,7 @@
     if (p.codec === "h264") parts.push("H.264" + (p.hw ? " por hardware" : ""));
     else if (p.quality) parts.push("JPEG · calidad " + pct(p.quality));
     if (p.rtt) parts.push(p.rtt + " ms");
+    if (p.path !== "rtc" && p.rtc && p.rtc !== "esperando") parts.push("WebRTC: " + p.rtc);
     return parts.join(" · ");
   }
 

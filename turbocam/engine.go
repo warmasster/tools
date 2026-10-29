@@ -48,6 +48,13 @@ type phone struct {
 	rtc     *rtcPeer    // conexión WebRTC (con mu)
 	rtcLive atomic.Bool // el vídeo llega por WebRTC
 
+	// Reordenar el H.264 que llega por la conexión de siempre: por HTTP (POST) los
+	// fotogramas pueden adelantarse unos a otros. Con dmu.
+	nextH264 uint32
+	anyH264  bool
+	held     []videoChunk
+	heldAt   time.Time
+
 	mu       sync.Mutex
 	name     string
 	model    string
@@ -68,6 +75,7 @@ type phone struct {
 	codec    string  // h264 | jpeg (lo último que ha llegado)
 	decMs    float64 // lo que tarda el PC en decodificar cada fotograma
 	thumbAt  time.Time
+	rtcState string // cómo va WebRTC según el móvil
 	frame    *image.YCbCr
 	jpeg     []byte
 	seq      uint64
@@ -103,6 +111,7 @@ type PhoneInfo struct {
 	Bitrate   int             `json:"bitrate"`
 	DecMs     float64         `json:"decMs"`
 	Path      string          `json:"path"`
+	RTC       string          `json:"rtc"`
 	Width     int             `json:"width"`
 	Height    int             `json:"height"`
 	Role      string          `json:"role"`
@@ -376,6 +385,18 @@ const maxH264Queue = 90
 // hubiera esperando (no tiene sentido decodificar uno que ya es viejo).
 func (e *Engine) queueFrame(p *phone, c videoChunk) {
 	p.dmu.Lock()
+	if c.kind == frameKindH264 && !c.rtc {
+		p.reorderLocked(c)
+		p.dmu.Unlock()
+		p.mu.Lock()
+		p.rxBytes += len(c.data)
+		p.mu.Unlock()
+		select {
+		case p.wake <- struct{}{}:
+		default:
+		}
+		return
+	}
 	if c.kind == frameKindVideo {
 		p.vq = slices.DeleteFunc(p.vq, func(x videoChunk) bool { return x.kind == frameKindVideo })
 	} else if len(p.vq) >= maxH264Queue {
@@ -389,6 +410,44 @@ func (e *Engine) queueFrame(p *phone, c videoChunk) {
 	select {
 	case p.wake <- struct{}{}:
 	default:
+	}
+}
+
+// reorderLocked pasa a la cola el H.264 de la conexión de siempre en su orden. Uno que
+// se adelanta espera a los que faltan, como mucho 8 fotogramas o 300 ms (entonces se
+// sigue sin ellos y el decodificador pide un clave). Un clave no espera a nadie.
+func (p *phone) reorderLocked(c videoChunk) {
+	push := func(x videoChunk) {
+		if len(p.vq) >= maxH264Queue {
+			p.vq = p.vq[:0]
+		}
+		p.vq = append(p.vq, x)
+		p.nextH264, p.anyH264 = x.seq+1, true
+	}
+	switch d := int32(c.seq - p.nextH264); {
+	case !p.anyH264 || d == 0 || (c.key && d > 0):
+		push(c)
+	case d < 0:
+		return // repetido o tardísimo
+	default:
+		if len(p.held) == 0 {
+			p.heldAt = time.Now()
+		}
+		p.held = append(p.held, c)
+	}
+	// Los que esperaban y ya tocan (o se ha esperado demasiado).
+	for len(p.held) > 0 {
+		slices.SortFunc(p.held, func(a, b videoChunk) int { return int(int32(a.seq - b.seq)) })
+		h := p.held[0]
+		if d := int32(h.seq - p.nextH264); d < 0 {
+			p.held = p.held[1:]
+			continue
+		} else if d > 0 && len(p.held) < 8 && time.Since(p.heldAt) < 300*time.Millisecond {
+			break
+		}
+		p.held = p.held[1:]
+		push(h)
+		p.heldAt = time.Now()
 	}
 }
 
@@ -606,6 +665,7 @@ type phoneMsg struct {
 	Cam      *float64        `json:"cam"`
 	HW       *bool           `json:"hw"`
 	Bitrate  *int            `json:"kbps"`
+	RTC      *string         `json:"rtc"`
 	CamW     *int            `json:"camW"`
 	CamH     *int            `json:"camH"`
 	Caps     json.RawMessage `json:"caps"`
@@ -649,6 +709,9 @@ func (e *Engine) onMessage(p *phone, m phoneMsg) {
 		}
 		if m.Bitrate != nil {
 			p.bitrate = *m.Bitrate
+		}
+		if m.RTC != nil {
+			p.rtcState = truncate(*m.RTC, 120)
 		}
 		if len(m.Caps) > 0 && len(m.Caps) < 16<<10 {
 			p.caps = m.Caps
@@ -1340,7 +1403,7 @@ func (e *Engine) State() EngineState {
 			ID: p.id, Name: p.name, Model: p.model, Via: p.via, Visible: p.visible, Live: p.live, Error: p.errMsg,
 			Battery: p.battery, Charging: p.charging, FPS: p.fps, Kbps: p.kbps, Quality: p.quality, RTT: p.rtt,
 			CamFPS: p.camFPS, CamW: p.camW, CamH: p.camH,
-			Codec: p.codec, HW: p.hw, Bitrate: p.bitrate, DecMs: p.decMs, Path: p.path,
+			Codec: p.codec, HW: p.hw, Bitrate: p.bitrate, DecMs: p.decMs, Path: p.path, RTC: p.rtcState,
 			Role: role, Caps: p.caps, Connected: p.connected.UnixMilli(),
 		}
 		if time.Since(p.frameAt) > 2*time.Second {

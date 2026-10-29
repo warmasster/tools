@@ -349,6 +349,13 @@ func TestPhonePage(t *testing.T) {
 	} else if os.Getenv("TURBOCAM_NORTC") != "" {
 		url += "?nortc" // H.264 por la conexión de siempre
 	}
+	if os.Getenv("TURBOCAM_HTTP") != "" { // empieza atascado en el plan B por HTTP
+		if strings.Contains(url, "?") {
+			url += "&http"
+		} else {
+			url += "?http"
+		}
+	}
 	secs := 16
 	if n, err := strconv.Atoi(os.Getenv("TURBOCAM_SECS")); err == nil && n > secs {
 		secs = n // TURBOCAM_SECS=60: más rato
