@@ -164,7 +164,19 @@
     else h += `<span class="pill" title="Ninguna app está usando la cámara TurboCAM"><i class="dot"></i>Ninguna app usa la cámara</span>`;
     if (e.autoProfile) h += `<span class="pill prof">${ic("layers")}Perfil <b>${esc(e.autoProfile)}</b></span>`;
     if (st.camera.error) h += `<span class="pill" style="color:#fecaca;border-color:rgba(248,113,113,.4)">${ic("err")}<b>La cámara virtual no está registrada</b></span>`;
+    // Windows 11 sin la cámara nativa: Discord (desde octubre de 2026) no ve la otra.
+    if (st.camera.nativeSupported && !st.camera.native)
+      h += `<button class="pill warn" id="pill-native" title="Discord y la app Cámara de Windows solo ven la cámara nativa">${ic("cam")}<b>Activa la cámara de Windows 11</b> para Discord</button>`;
     setHTML($("#pills"), h);
+    const pn = $("#pill-native");
+    if (pn) pn.onclick = enableNative;
+  }
+
+  // Activar la cámara nativa: Windows pide permiso de administrador.
+  async function enableNative() {
+    toast("info", "Windows va a pedir permiso de administrador para crear la cámara…");
+    try { await api.EnableNativeCam(); toast("ok", "Cámara de Windows 11 activada: ya aparece en Discord y en el resto de apps"); }
+    catch (e) { toast("error", errText(e)); }
   }
 
   function uniqueApps(cons) {
@@ -175,7 +187,7 @@
     }
     return out;
   }
-  const APP_NAMES = { "discord.exe": "Discord", "chrome.exe": "Chrome", "msedge.exe": "Edge", "msedgewebview2.exe": "Edge", "firefox.exe": "Firefox", "obs64.exe": "OBS", "obs32.exe": "OBS", "zoom.exe": "Zoom", "ms-teams.exe": "Teams", "teams.exe": "Teams", "ffmpeg.exe": "ffmpeg", "skype.exe": "Skype", "slack.exe": "Slack", "brave.exe": "Brave", "opera.exe": "Opera", "whatsapp.exe": "WhatsApp", "telegram.exe": "Telegram", "vlc.exe": "VLC" };
+  const APP_NAMES = { "discord.exe": "Discord", "chrome.exe": "Chrome", "msedge.exe": "Edge", "msedgewebview2.exe": "Edge", "firefox.exe": "Firefox", "obs64.exe": "OBS", "obs32.exe": "OBS", "zoom.exe": "Zoom", "ms-teams.exe": "Teams", "teams.exe": "Teams", "ffmpeg.exe": "ffmpeg", "skype.exe": "Skype", "slack.exe": "Slack", "brave.exe": "Brave", "opera.exe": "Opera", "whatsapp.exe": "WhatsApp", "telegram.exe": "Telegram", "vlc.exe": "VLC", "windows": "una app (cámara de Windows 11)" };
   function prettyApp(exe) {
     const k = String(exe || "").toLowerCase();
     return APP_NAMES[k] || (exe || "?").replace(/\.exe$/i, "");
@@ -704,7 +716,11 @@
           <div style="display:flex;gap:8px"><input class="inp mono" id="s-cfhost" placeholder="cam.tudominio.com" value="${esc(s.cfHost)}"><button class="btn ghost sm" id="s-cfsave">Guardar</button></div></div></div>
 
         <div class="sec">Cámara virtual</div>
-        <div class="srow"><div><b>${cam.registered && !cam.error ? "Registrada para este usuario" : "No está registrada"}</b><span class="s">${esc(cam.error || "Aparece como «TurboCAM» en las apps. No hace falta ser administrador.")}</span></div>
+        ${cam.nativeSupported ? `<div class="srow"><div><b>${cam.native ? "Cámara de Windows 11: activada" : "Cámara de Windows 11: sin activar"}</b><span class="s">${cam.native
+          ? "Aparece como «TurboCAM (Windows Virtual Camera)» en todas las apps. La abre Windows, así que va también en las que no dejan cargar cámaras de otros (Discord) y en la app Cámara."
+          : "Discord (desde octubre de 2026) y la app Cámara de Windows solo ven esta. Pide permiso de administrador una vez."}</span></div>
+          <div class="ctl"><button class="btn ${cam.native ? "ghost" : "primary"} sm" id="s-native">${cam.native ? "Quitar" : "Activar"}</button></div></div>` : ""}
+        <div class="srow"><div><b>${cam.native ? "Cámara clásica: escondida" : cam.registered && !cam.error ? "Cámara clásica: registrada para este usuario" : "Cámara clásica: no está registrada"}</b><span class="s">${esc(cam.error || (cam.native ? "La sustituye la de Windows 11 (si no, saldrían dos «TurboCAM»)." : "Aparece como «TurboCAM» en las apps que dejan cargarla. No hace falta ser administrador."))}</span></div>
           <div class="ctl"><button class="btn ghost sm" id="s-recam">${ic("redo")}Reparar</button></div></div>
       </div>
       <div class="modal-foot"><span class="ver">TurboCAM ${esc(st.version)}</span><button class="btn primary" data-close>Hecho</button></div>`);
@@ -725,6 +741,12 @@
       const tok = $("#s-cftoken", m).value.trim(), host = $("#s-cfhost", m).value.trim();
       api.SetDomain(tok.startsWith("•") ? "•" : tok, host);
       toast("ok", tok || host ? "Dominio guardado: conectando…" : "Dominio quitado");
+    };
+    if ($("#s-native", m)) $("#s-native", m).onclick = async () => {
+      if (!S.st.camera.native) { m.remove(); enableNative(); return; }
+      toast("info", "Windows va a pedir permiso de administrador para quitar la cámara…");
+      try { await api.DisableNativeCam(); toast("ok", "Cámara de Windows 11 quitada: vuelve la clásica"); m.remove(); }
+      catch (e) { toast("error", errText(e)); }
     };
     $("#s-recam", m).onclick = async () => {
       try { await api.ReinstallCamera(); toast("ok", "Cámara virtual registrada de nuevo"); }
@@ -985,7 +1007,7 @@
         direct: { status: "noupnp", url: "", message: "Tu router no responde por UPnP (puede estar desactivado en su configuración).", progress: 0, qr: "" },
         lan: { status: "online", url: "https://192.168.1.20:47851/c/3f2a9c…/", message: "", progress: 0, qr },
       },
-      camera: { registered: true, error: "" }, hotkeyErrors: {}, preview: "", version: "1.0.0 (muestra)", pc: "PC-DE-MUESTRA", windowMode: false, photoDir: "C:\\Users\\muestra\\Pictures\\TurboCAM",
+      camera: { registered: true, error: "", nativeSupported: true, native: false }, hotkeyErrors: {}, preview: "", version: "1.0.0 (muestra)", pc: "PC-DE-MUESTRA", windowMode: false, photoDir: "C:\\Users\\muestra\\Pictures\\TurboCAM",
     };
     const outImg = shot(250, "Salida (muestra)");
     setTimeout(() => {
@@ -1018,7 +1040,7 @@
       OverwriteProfile() { }, DeleteProfile(id) { st.settings.profiles = st.settings.profiles.filter((p) => p.id !== id); push(); }, async ApplyProfile() { },
       async Monitors() { return [{ index: 0, name: "Pantalla 1", x: 0, y: 0, w: 2560, h: 1440, primary: true }, { index: 1, name: "Pantalla 2", x: 2560, y: 0, w: 1920, h: 1080, primary: false }]; },
       async MonitorShot() { return shot(200, "Escritorio (muestra)"); },
-      async ReinstallCamera() { }, SetWindowMode(on) { st.windowMode = on; push(); }, SetOnTop(v) { st.settings.onTop = v; push(); },
+      async ReinstallCamera() { }, async EnableNativeCam() { st.camera.native = true; push(); }, async DisableNativeCam() { st.camera.native = false; push(); }, SetWindowMode(on) { st.windowMode = on; push(); }, SetOnTop(v) { st.settings.onTop = v; push(); },
       SetWelcomed() { st.settings.welcomed = true; }, Quit() { },
       SetPhotoTimer(v) { st.settings.photoTimer = v; push(); }, SetNoAskClose(v) { st.settings.noAskClose = v; push(); },
     };

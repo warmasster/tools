@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
 	"os"
 	"runtime"
 	"testing"
+
+	"github.com/pion/ice/v4"
 )
 
 // splitAnnexB parte un flujo H.264 en unidades de acceso (fotogramas): cada una
@@ -124,5 +127,51 @@ func TestStartBitrateInAnswer(t *testing.T) {
 	}
 	if !h264IsKey([]byte{0, 0, 0, 1, 0x67, 1, 0, 0, 1, 0x65, 2}) || h264IsKey([]byte{0, 0, 1, 0x41, 9}) {
 		t.Fatal("h264IsKey")
+	}
+}
+
+// TestH264Moves: cada fotograma decodificado es distinto (con un vídeo en movimiento).
+// Si el decodificador reutiliza la memoria de salida, sale siempre el primero.
+func TestH264Moves(t *testing.T) {
+	data, err := os.ReadFile("testdata/mov.h264")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	comInitThread()
+	d, err := newH264Decoder()
+	if err != nil {
+		t.Skipf("sin decodificador H.264 en este Windows: %v", err)
+	}
+	defer d.close()
+	seen := map[[16]byte]bool{}
+	n := 0
+	for _, au := range splitAnnexB(data) {
+		imgs, err := d.decode(au)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range imgs {
+			seen[md5.Sum(m.Y)] = true
+			n++
+		}
+	}
+	if n != 30 || len(seen) < 28 {
+		t.Fatalf("%d fotogramas, %d distintos: la imagen se queda congelada", n, len(seen))
+	}
+}
+
+func TestPublicCandidate(t *testing.T) {
+	c := publicCandidate("92.59.1.2", 47852, 47852)
+	cand, err := ice.UnmarshalCandidate(c)
+	if err != nil {
+		t.Fatalf("%s: %v", c, err)
+	}
+	if cand.Type() != ice.CandidateTypeServerReflexive || cand.Address() != "92.59.1.2" || cand.Port() != 47852 {
+		t.Fatalf("candidato raro: %s", cand)
+	}
+	if m := sdpMid("v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 102\r\na=mid:0\r\n"); m != "0" {
+		t.Fatalf("mid %q", m)
 	}
 }

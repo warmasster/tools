@@ -1,0 +1,4 @@
+LIBRARY turbocammf64
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

@@ -14,8 +14,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +32,10 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media/samplebuilder"
 )
+
+// rtcTestLoss (TURBOCAM_RTCLOSS=1, solo para pruebas): se tira la mitad de lo que
+// llega por WebRTC, como unos datos móviles malos.
+var rtcTestLoss = os.Getenv("TURBOCAM_RTCLOSS") != ""
 
 // stunServers: para que cada lado sepa su dirección pública (y abrir paso en el NAT).
 var stunServers = []string{"stun:stun.l.google.com:19302", "stun:stun.cloudflare.com:3478"}
@@ -126,7 +132,8 @@ func (e *Engine) onRTCSignal(p *phone, data []byte) {
 		peer := p.rtc
 		p.mu.Unlock()
 		if peer != nil && m.C != nil && m.C.Candidate != "" {
-			peer.pc.AddICECandidate(*m.C)
+			err := peer.pc.AddICECandidate(*m.C)
+			dumpLog(p.id, fmt.Sprintf("rtc: candidato del móvil %s (err=%v)", m.C.Candidate, err))
 		}
 	case "rtcstop":
 		e.rtcDrop(p, nil, false)
@@ -155,8 +162,23 @@ func (e *Engine) rtcOffer(p *phone, sdp string) {
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c != nil {
 			init := c.ToJSON()
+			dumpLog(p.id, "rtc: candidato del PC "+init.Candidate)
 			p.t.send(map[string]any{"t": "ice", "c": init})
 		}
+	})
+	pc.OnICEConnectionStateChange(func(s webrtc.ICEConnectionState) {
+		msg := "rtc: ICE " + s.String()
+		if s == webrtc.ICEConnectionStateConnected {
+			for _, tr := range pc.GetTransceivers() {
+				if r := tr.Receiver(); r != nil && r.Transport() != nil {
+					if pair, err := r.Transport().ICETransport().GetSelectedCandidatePair(); err == nil && pair != nil {
+						msg += " por " + pair.String()
+					}
+					break
+				}
+			}
+		}
+		dumpLog(p.id, msg)
 	})
 	pc.OnTrack(func(tr *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 		if tr.Kind() != webrtc.RTPCodecTypeVideo {
@@ -177,7 +199,13 @@ func (e *Engine) rtcOffer(p *phone, sdp string) {
 		fail()
 		return
 	}
+	for _, l := range strings.Split(sdp, "\n") {
+		if strings.HasPrefix(l, "a=candidate:") {
+			dumpLog(p.id, "rtc: candidato del móvil (oferta) "+strings.TrimSpace(l))
+		}
+	}
 	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: sdp}); err != nil {
+		dumpLog(p.id, fmt.Sprintf("rtc: oferta no válida: %v", err))
 		fail()
 		return
 	}
@@ -194,6 +222,34 @@ func (e *Engine) rtcOffer(p *phone, sdp string) {
 	start := p.bitrate
 	p.mu.Unlock()
 	p.t.send(map[string]any{"t": "rtc", "sdp": withStartBitrate(ans.SDP, start)})
+	// La IP pública con el puerto que el router tiene abierto por UPnP. pion solo
+	// anuncia la que le da STUN, que sale por otro puerto (al azar) que el router no
+	// reenvía: desde los datos del móvil no se llegaría.
+	if e.rtcPublic != nil {
+		if ip, port := e.rtcPublic(); ip != "" {
+			c := publicCandidate(ip, port, e.rtc.port)
+			mid := sdpMid(ans.SDP)
+			idx := uint16(0)
+			dumpLog(p.id, "rtc: candidato del PC (UPnP) "+c)
+			p.t.send(map[string]any{"t": "ice", "c": webrtc.ICECandidateInit{Candidate: c, SDPMid: &mid, SDPMLineIndex: &idx}})
+		}
+	}
+}
+
+// publicCandidate escribe un candidato ICE «srflx» para la IP pública y el puerto
+// externo que el router reenvía al puerto local de WebRTC.
+func publicCandidate(ip string, ext, local int) string {
+	return fmt.Sprintf("candidate:4207563210 1 udp 1694498815 %s %d typ srflx raddr 0.0.0.0 rport %d", ip, ext, local)
+}
+
+// sdpMid: el identificador de la primera pista (a=mid:) de una descripción SDP.
+func sdpMid(sdp string) string {
+	for _, l := range strings.Split(sdp, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(l), "a=mid:"); ok {
+			return v
+		}
+	}
+	return "0"
 }
 
 // withStartBitrate le dice a Chrome a qué tasa empezar (en kb/s): la que ya se había
@@ -260,6 +316,9 @@ func (e *Engine) readRTC(p *phone, peer *rtcPeer, tr *webrtc.TrackRemote) {
 		sb.Push(pkt)
 		for s := sb.Pop(); s != nil; s = sb.Pop() {
 			n++
+			if rtcTestLoss && n%2 == 0 {
+				continue // pruebas: un WebRTC que pierde la mitad
+			}
 			e.queueFrame(p, videoChunk{kind: frameKindH264, seq: n, key: h264IsKey(s.Data), gap: s.PrevDroppedPackets > 0, rtc: true, data: s.Data})
 		}
 	}
@@ -267,18 +326,60 @@ func (e *Engine) readRTC(p *phone, peer *rtcPeer, tr *webrtc.TrackRemote) {
 
 // rtcWatch: si por WebRTC deja de llegar vídeo (el móvil ha cambiado de red, por
 // ejemplo), se vuelve a la conexión de siempre. Lo llama el mantenimiento cada segundo.
+//
+// También compara: si tras unos segundos por WebRTC llegan bastantes menos
+// fotogramas que por la conexión de siempre (pasa con datos móviles que pierden
+// paquetes), se vuelve a la de siempre y el móvil no lo reintenta en un buen rato.
 func (e *Engine) rtcWatch() {
+	s := getSettings()
 	e.mu.Lock()
 	phones := e.phoneList()
 	e.mu.Unlock()
 	for _, p := range phones {
 		p.mu.Lock()
-		peer, visible := p.rtc, p.visible
+		peer, visible, live := p.rtc, p.visible, p.live
+		fps := p.fps
+		if time.Since(p.frameAt) > 2*time.Second {
+			fps = 0
+		}
 		p.mu.Unlock()
-		if peer == nil || !p.rtcLive.Load() || !visible {
+		if !visible || !live || s.FPS < 15 {
+			continue
+		}
+		avg := func(a *float64, v float64) {
+			if *a == 0 {
+				*a = v
+			} else {
+				*a = *a*0.75 + v*0.25
+			}
+		}
+		if !p.rtcLive.Load() {
+			p.mu.Lock()
+			if fps > 0 {
+				avg(&p.wsAvg, fps)
+			}
+			p.rtcSecs, p.rtcAvg = 0, 0
+			p.mu.Unlock()
+			continue
+		}
+		if peer == nil {
 			continue
 		}
 		if time.Since(time.Unix(0, peer.lastRx.Load())) > 3*time.Second {
+			e.rtcDrop(p, peer, true)
+			continue
+		}
+		p.mu.Lock()
+		p.rtcSecs++
+		if p.rtcSecs > 2 { // los primeros, mientras arranca
+			avg(&p.rtcAvg, fps)
+		}
+		worse := p.rtcSecs >= 8 && p.wsAvg >= 10 && p.rtcAvg < p.wsAvg*0.75
+		ws, rtc := p.wsAvg, p.rtcAvg
+		p.mu.Unlock()
+		if worse {
+			dumpLog(p.id, fmt.Sprintf("rtc: va peor (%.0f fps) que la conexión de siempre (%.0f fps): se deja", rtc, ws))
+			p.t.send(map[string]any{"t": "rtcworse"})
 			e.rtcDrop(p, peer, true)
 		}
 	}

@@ -119,7 +119,6 @@ func comInitThread() {
 // h264Decoder decodifica un flujo H.264. No es seguro entre hilos.
 type h264Decoder struct {
 	tr      *comObj
-	out     *comObj // muestra de salida (si el decodificador no pone la suya)
 	outSize uint32
 	own     bool // el decodificador pone sus propias muestras
 	w, h    int  // tamaño de los búferes de salida (alineado a 16)
@@ -227,16 +226,7 @@ func (d *h264Decoder) pickOutput() error {
 		return err
 	}
 	d.own = info.flags&(mftOutputProvidesSamples|mftOutputCanProvideSamples) == mftOutputProvidesSamples
-	if !d.own && (d.out == nil || info.size > d.outSize) {
-		d.out.release()
-		d.out = nil
-		// Con el tamaño justo que dice, a 1080p falla (E_FAIL): se le da el doble.
-		s, err := newSample(int(info.size) * 2)
-		if err != nil {
-			return err
-		}
-		d.out, d.outSize = s, info.size
-	}
+	d.outSize = info.size
 	return nil
 }
 
@@ -325,13 +315,30 @@ func (d *h264Decoder) drain() ([]*image.YCbCr, error) {
 	var out []*image.YCbCr
 	for i := 0; i < maxDecodeOutputsPerInput; i++ {
 		ob := outputBuffer{}
+		// Una muestra nueva para cada fotograma: si se le vuelve a dar la misma, el
+		// decodificador de Windows no escribe en ella (la imagen se queda congelada).
+		var mine *comObj
 		if !d.own {
-			ob.sample = d.out
+			s, err := newSample(int(d.outSize))
+			if err != nil {
+				return out, err
+			}
+			mine = s
+			ob.sample = s
 		}
 		var status uint32
 		hr := d.tr.call(vtblMFTProcessOutput, 0, 1, uintptr(unsafe.Pointer(&ob)), uintptr(unsafe.Pointer(&status)))
 		if ob.events != nil {
 			ob.events.release()
+		}
+		var img *image.YCbCr
+		if hr == 0 {
+			img = d.toYCbCr(ob.sample)
+		}
+		if mine != nil {
+			mine.release()
+		} else if ob.sample != nil {
+			ob.sample.release() // la puso el decodificador
 		}
 		switch {
 		case hr == hrNeedMoreInput:
@@ -346,10 +353,6 @@ func (d *h264Decoder) drain() ([]*image.YCbCr, error) {
 		}
 		if err := hrErr("ProcessOutput", hr); err != nil {
 			return out, err
-		}
-		img := d.toYCbCr(ob.sample)
-		if d.own && ob.sample != nil {
-			ob.sample.release()
 		}
 		if img != nil {
 			out = append(out, img)
@@ -408,8 +411,6 @@ func (d *h264Decoder) reset() {
 }
 
 func (d *h264Decoder) close() {
-	d.out.release()
-	d.out = nil
 	d.tr.release()
 	d.tr = nil
 }
@@ -435,4 +436,9 @@ func h264OK() bool {
 		h264Probe.ok = <-done
 	})
 	return h264Probe.ok
+}
+
+// format resume el formato de salida (para el diagnóstico).
+func (d *h264Decoder) format() string {
+	return fmt.Sprintf("%dx%d paso %d visible %dx%d", d.w, d.h, d.stride, d.cropW, d.cropH)
 }

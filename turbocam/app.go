@@ -73,6 +73,7 @@ func (a *App) startup(ctx context.Context) {
 	a.direct.recordPath = filepath.Join(dataDir(), "upnp.json")
 	if a.server.rtc != nil {
 		a.direct.udpPort = a.server.rtc.port
+		a.engine.rtcPublic = a.direct.PublicUDP
 	}
 	a.startNetwork(true, true)
 	a.hotkeys = startHotkeys(a.onHotkey)
@@ -228,7 +229,8 @@ func (a *App) State() UIState {
 		st.Settings.CFToken = "•"
 	}
 	a.camMu.Lock()
-	st.Camera = map[string]any{"registered": cameraRegistered(), "error": a.camErr}
+	st.Camera = map[string]any{"registered": cameraRegistered(), "error": a.camErr,
+		"nativeSupported": nativeCamSupported(), "native": nativeCamInstalled()}
 	a.camMu.Unlock()
 	if a.hotkeys != nil {
 		st.Hotkeys = a.hotkeys.Errors()
@@ -604,6 +606,20 @@ func (a *App) ReinstallCamera() error {
 	}
 	a.setCamErr("")
 	return nil
+}
+
+// EnableNativeCam activa la cámara nativa de Windows 11 (pide permiso de administrador).
+func (a *App) EnableNativeCam() error {
+	err := enableNativeCam()
+	a.changed()
+	return err
+}
+
+// DisableNativeCam la quita y vuelve a la cámara de siempre (también pide permiso).
+func (a *App) DisableNativeCam() error {
+	err := disableNativeCam()
+	a.changed()
+	return err
 }
 
 // ---------- ventana ----------

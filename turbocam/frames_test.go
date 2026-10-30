@@ -154,3 +154,19 @@ func BenchmarkScale1080to720(b *testing.B) {
 		drawScaled(dst, dst.Rect, src, true, 0)
 	}
 }
+
+func TestApplyFX(t *testing.T) {
+	m := solid(64, 32, 100, 128, 128)
+	m.Y[0] = 200 // esquina de arriba a la izquierda
+	applyFX(m, Adjust{Mirror: true, Brightness: 1, Contrast: 1, Saturation: 1})
+	if m.Y[63] != 200 || m.Y[0] != 100 {
+		t.Fatalf("espejo: %d %d", m.Y[0], m.Y[63])
+	}
+	applyFX(m, Adjust{Brightness: 1.5, Contrast: 1, Saturation: 0})
+	if m.Y[1] <= 100 || m.Cb[0] != 128 {
+		t.Fatalf("brillo/saturación: Y=%d Cb=%d", m.Y[1], m.Cb[0])
+	}
+	if needsFX(Adjust{}) || !needsFX(Adjust{Mirror: true}) {
+		t.Fatal("needsFX")
+	}
+}

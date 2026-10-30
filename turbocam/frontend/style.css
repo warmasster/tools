@@ -69,6 +69,9 @@ input, select { font: inherit; }
 .pill.live { color: #fecdd3; border-color: rgba(244, 63, 94, .35); background: rgba(244, 63, 94, .08); }
 .pill.live .dot { background: var(--live); box-shadow: 0 0 8px rgba(244, 63, 94, .9); animation: blink 1.6s infinite; }
 .pill.prof { color: #c7d2fe; border-color: rgba(129, 140, 248, .35); background: rgba(99, 102, 241, .1); }
+button.pill { font: inherit; cursor: pointer; }
+.pill.warn { color: #fde68a; border-color: rgba(251, 191, 36, .4); background: rgba(251, 191, 36, .08); }
+.pill.warn:hover { background: rgba(251, 191, 36, .16); }
 
 .winbtns { --wails-draggable: no-drag; display: flex; align-items: center; gap: 2px; }
 .wsep { width: 1px; height: 18px; background: var(--brd); margin: 0 6px; }

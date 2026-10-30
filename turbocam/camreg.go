@@ -68,6 +68,11 @@ func installCamera() error {
 	}
 	// Sin la de 32 bits la cámara funciona igual en casi todo: no es un error grave.
 	registerCamera(registry.WOW64_32KEY, dll32)
+	if nativeCamInstalled() {
+		// Con la cámara nativa de Windows 11, que ya sale en todas las listas (también
+		// en las de DirectShow), esta se esconde: si no, habría dos «TurboCAM».
+		hideCamera()
+	}
 	removeOldCameras(dir)
 	return nil
 }
@@ -138,6 +143,13 @@ func uninstallCamera() {
 		deleteTree(view, `Software\Classes\CLSID\`+camCLSID)
 	}
 	os.RemoveAll(camRoot())
+}
+
+// hideCamera la quita de la lista de cámaras de DirectShow (sigue registrada).
+func hideCamera() {
+	for _, view := range []uint32{registry.WOW64_64KEY, registry.WOW64_32KEY} {
+		deleteTree(view, `Software\Classes\CLSID\`+videoCategory+`\Instance\`+camCLSID)
+	}
 }
 
 // cameraRegistered dice si la cámara de 64 bits está registrada y su DLL existe.

@@ -10,6 +10,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
 	"fmt"
 	"image"
 	_ "image/jpeg"
@@ -373,6 +374,7 @@ func TestPhonePage(t *testing.T) {
 		t.Logf("móvil:\n%s", logs.String())
 	}()
 	var last PhoneInfo
+	outs := map[[16]byte]bool{}
 	for end := time.Now().Add(time.Duration(secs-1) * time.Second); time.Now().Before(end); time.Sleep(time.Second) {
 		st := r.e.State()
 		if len(st.Phones) != 1 {
@@ -393,6 +395,15 @@ func TestPhonePage(t *testing.T) {
 			t.Log("--- se corta WebRTC ---")
 			r.e.rtcDrop(ph, nil, true)
 		}
+		r.e.mu.Lock()
+		out := r.e.lastOut
+		r.e.mu.Unlock()
+		if p.FPS > 0 && out != nil {
+			outs[md5.Sum(out)] = true // la imagen tiene que ir cambiando
+			if dir := os.Getenv("TURBOCAM_SHOTS"); dir != "" {
+				os.WriteFile(filepath.Join(dir, fmt.Sprintf("pc-%02d.jpg", int(time.Until(end).Seconds()))), out, 0o644)
+			}
+		}
 		t.Logf("PC: [%s] %s %dx%d a %.0f fps (cámara %dx%d a %.0f fps), %s hw=%v %d kb/s (llegan %.0f kb/s), decodificar %.1f ms, calidad %.2f, %d ms",
 			p.Path, p.Role, p.Width, p.Height, p.FPS, p.CamW, p.CamH, p.CamFPS, p.Codec, p.HW, p.Bitrate, p.Kbps, p.DecMs, p.Quality, p.RTT)
 		last = p
@@ -402,6 +413,9 @@ func TestPhonePage(t *testing.T) {
 		out := r.e.lastOut
 		r.e.mu.Unlock()
 		os.WriteFile(filepath.Join(dir, "pc.jpg"), out, 0o644) // lo que sale por la cámara
+	}
+	if len(outs) < 4 {
+		t.Errorf("la imagen del PC está congelada: %d distintas en %d s", len(outs), secs)
 	}
 	if last.FPS < 20 || last.CamFPS < 20 {
 		t.Errorf("va lento: %.0f fps (cámara %.0f fps)", last.FPS, last.CamFPS)

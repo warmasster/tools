@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,6 +48,8 @@ func main() {
 			os.Exit(cliSetup())
 		case "uninstall":
 			os.Exit(cliUninstall())
+		case "nativecam": // nativecam install|remove [archivo de resultado]: lo lanza TurboCAM elevado
+			os.Exit(cliNativeCam(os.Args[2:]))
 		}
 	}
 	app := NewApp()
@@ -111,6 +114,15 @@ func cliSetup() int {
 	if exe, err := os.Executable(); err == nil {
 		createShortcut(startMenuLink(), exe, "El móvil como cámara del PC")
 	}
+	// En Windows 11, la cámara nativa (la única que ven algunas apps, como Discord).
+	// Pide permiso de administrador; solo se pregunta una vez: si se dice que no, se
+	// puede activar luego en Ajustes.
+	if nativeCamSupported() && !nativeCamInstalled() && !getSettings().NativeAsked {
+		updateSettings(func(s *Settings) { s.NativeAsked = true })
+		if err := enableNativeCam(); err != nil && !errors.Is(err, errUACCancelled) {
+			fmt.Fprintln(os.Stderr, "cámara nativa:", err)
+		}
+	}
 	fmt.Println("TurboCAM instalado: ya aparece como cámara en Discord, Meet, OBS…")
 	return 0
 }
@@ -119,6 +131,11 @@ func cliSetup() int {
 // Los ajustes (%APPDATA%\TurboCAM) se quedan, como en el resto de herramientas.
 func cliUninstall() int {
 	signalQuit()
+	if nativeCamInstalled() {
+		if err := nativeCamElevated("remove"); err != nil {
+			fmt.Fprintln(os.Stderr, "cámara nativa:", err)
+		}
+	}
 	uninstallCamera()
 	os.Remove(startMenuLink())
 	os.RemoveAll(cacheDir())

@@ -11,7 +11,7 @@ param([switch]$Force)
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-$sources = @("turbocam.c", "protocol.h", "turbocam.def", "build.ps1")
+$sources = @("turbocam.c", "mfcam.cpp", "shared.h", "protocol.h", "turbocam.def", "mfcam.def", "build.ps1")
 $outs = @("bin\turbocam64.dll", "bin\turbocam32.dll")
 $newest = ($sources | ForEach-Object { (Get-Item $_).LastWriteTimeUtc } | Measure-Object -Maximum).Maximum
 $fresh = -not $Force
@@ -53,5 +53,24 @@ foreach ($t in @(@{ arch = "x64"; out = "bin\turbocam64.dll" }, @{ arch = "x86";
     cmd /d /c "`"$bat`""
     if ($LASTEXITCODE) { throw "No se pudo compilar la cámara virtual ($($t.arch))" }
 }
+# Cámara nativa de Windows 11 (Media Foundation), solo de 64 bits: la carga el
+# servicio de cámaras de Windows, que siempre es de 64 bits.
+$obj = Join-Path $tmp "mf"
+New-Item -ItemType Directory -Force $obj | Out-Null
+$bat = Join-Path $obj "build.cmd"
+$cxx = "/nologo /c /O2 /GL /Gy /Gw /MT /W4 /WX /utf-8 /std:c++17 /GR- /EHs-c- /DUNICODE /D_UNICODE /DNDEBUG /guard:cf"
+$mflibs = "mfplat.lib mfuuid.lib strmiids.lib ole32.lib gdi32.lib user32.lib advapi32.lib kernel32.lib"
+$mflflags = "/nologo /DLL /DEF:mfcam.def /LTCG /OPT:REF /OPT:ICF /DYNAMICBASE /NXCOMPAT /guard:cf " +
+            "/NODEFAULTLIB:libucrt.lib ucrt.lib /MANIFEST:NO /INCREMENTAL:NO"
+$lines = @(
+    "@echo off",
+    "set `"PATH=$(Split-Path $vswhere);%PATH%`"",
+    "call `"$vcvars`" x64 >nul || exit /b 1",
+    "cl $cxx /Fo`"$obj\\`" mfcam.cpp || exit /b 1",
+    "link $mflflags /OUT:`"bin\turbocammf64.dll`" /IMPLIB:`"$obj\mfcam.lib`" `"$obj\mfcam.obj`" $mflibs || exit /b 1"
+)
+[IO.File]::WriteAllText($bat, ($lines -join "`r`n"), [Text.Encoding]::ASCII)
+cmd /d /c "`"$bat`""
+if ($LASTEXITCODE) { throw "No se pudo compilar la cámara nativa" }
 Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 Get-Item $outs | ForEach-Object { Write-Host ("Cámara virtual: {0} ({1:N0} KB)" -f $_.Name, ($_.Length / 1KB)) }

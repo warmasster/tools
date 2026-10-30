@@ -21,6 +21,7 @@ type DirectState struct {
 	LocalIP  string `json:"localIP"`
 	Lease    int    `json:"lease"`
 	Message  string `json:"message"`
+	UDP      bool   `json:"udp"` // el puerto UDP de WebRTC también está abierto en el router
 }
 
 // Direct gestiona el modo directo: UPnP + detección de CG-NAT.
@@ -100,6 +101,19 @@ func (d *Direct) set(f func(s *DirectState)) {
 	if d.onChange != nil {
 		d.onChange()
 	}
+}
+
+// PublicUDP devuelve la IP pública y el puerto externo por los que se llega por UDP
+// a WebRTC, si el router los ha abierto (si no, "" y 0).
+func (d *Direct) PublicUDP() (string, int) {
+	s := d.State()
+	switch s.Status {
+	case "ok", "verified":
+		if s.UDP && s.PublicIP != "" && s.ExtPort > 0 {
+			return s.PublicIP, s.ExtPort
+		}
+	}
+	return "", 0
 }
 
 // Base devuelve https://IP:puerto si el modo directo es utilizable. Es HTTPS con
@@ -216,7 +230,9 @@ func (d *Direct) attempt(ctx context.Context, port int, useUPnP, force bool) (*i
 		return nil, 0
 	}
 	if d.udpPort > 0 {
-		g.addMappingProto("UDP", ext, d.udpPort, lease) // si no puede, WebRTC lo intenta igual
+		// Si no puede, WebRTC lo intenta igual (con STUN).
+		udpOK := g.addMappingProto("UDP", ext, d.udpPort, lease) == nil
+		defer d.set(func(s *DirectState) { s.UDP = udpOK && s.ExtPort == ext })
 	}
 	d.dropStale(g, ext)
 	d.saveRecord(upnpRecord{Ext: ext, Internal: port, Local: g.localIP})

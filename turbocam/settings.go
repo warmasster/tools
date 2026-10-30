@@ -219,24 +219,25 @@ type Hotkeys struct {
 }
 
 type Settings struct {
-	Token      string             `json:"token"` // secreto del enlace del móvil
-	Port       int                `json:"port"`
-	Resolution string             `json:"resolution"` // auto | 1080 | 720 | 540 | 480 | 360
-	FPS        int                `json:"fps"`        // 15 | 24 | 30
-	UPnP       bool               `json:"upnp"`
-	CFToken    string             `json:"cfToken"` // túnel con dominio propio (opcional)
-	CFHost     string             `json:"cfHost"`
-	Link       string             `json:"link"` // internet | direct | lan: qué QR se enseña
-	Scene      Scene              `json:"scene"`
-	Profiles   []Profile          `json:"profiles"`
-	Devices    map[string]*Device `json:"devices"`
-	Hotkeys    Hotkeys            `json:"hotkeys"`
-	PhotoDir   string             `json:"photoDir"`
-	Idle       bool               `json:"idle"`     // pedir menos fotogramas al móvil si nadie mira
-	OnTop      bool               `json:"onTop"`    // modo ventana: siempre encima
-	Welcomed   bool               `json:"welcomed"` // ya vio la explicación inicial
-	PhotoTimer int                `json:"photoTimer"` // cuenta atrás de la foto en segundos (0 = al momento)
-	NoAskClose bool               `json:"noAskClose"` // cerrar sin preguntar aunque haya móviles o apps
+	Token       string             `json:"token"` // secreto del enlace del móvil
+	Port        int                `json:"port"`
+	Resolution  string             `json:"resolution"` // auto | 1080 | 720 | 540 | 480 | 360
+	FPS         int                `json:"fps"`        // 15 | 24 | 30
+	UPnP        bool               `json:"upnp"`
+	NativeAsked bool               `json:"nativeAsked"` // ya se ofreció la cámara nativa al instalar
+	CFToken     string             `json:"cfToken"`     // túnel con dominio propio (opcional)
+	CFHost      string             `json:"cfHost"`
+	Link        string             `json:"link"` // internet | direct | lan: qué QR se enseña
+	Scene       Scene              `json:"scene"`
+	Profiles    []Profile          `json:"profiles"`
+	Devices     map[string]*Device `json:"devices"`
+	Hotkeys     Hotkeys            `json:"hotkeys"`
+	PhotoDir    string             `json:"photoDir"`
+	Idle        bool               `json:"idle"`       // pedir menos fotogramas al móvil si nadie mira
+	OnTop       bool               `json:"onTop"`      // modo ventana: siempre encima
+	Welcomed    bool               `json:"welcomed"`   // ya vio la explicación inicial
+	PhotoTimer  int                `json:"photoTimer"` // cuenta atrás de la foto en segundos (0 = al momento)
+	NoAskClose  bool               `json:"noAskClose"` // cerrar sin preguntar aunque haya móviles o apps
 }
 
 func defaultSettings() Settings {

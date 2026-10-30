@@ -76,16 +76,23 @@ type phone struct {
 	decMs    float64 // lo que tarda el PC en decodificar cada fotograma
 	thumbAt  time.Time
 	rtcState string // cómo va WebRTC según el móvil
-	frame    *image.YCbCr
-	jpeg     []byte
-	seq      uint64
-	frameAt  time.Time
-	winStart time.Time
-	winCount int
-	rxBytes  int
-	fps      float64
-	kbps     float64
-	sentCfg  string
+	encInfo  string // qué codificador usa el móvil y cómo le llegan los fotogramas
+	rtcDbg   string
+	fx       Adjust // retoques que pone el PC al H.264 (los del móvil)
+	// Para quedarse con la vía que mejor va: fotogramas por segundo medios por la
+	// conexión de siempre y por WebRTC (y cuántos segundos lleva WebRTC).
+	wsAvg, rtcAvg float64
+	rtcSecs       int
+	frame         *image.YCbCr
+	jpeg          []byte
+	seq           uint64
+	frameAt       time.Time
+	winStart      time.Time
+	winCount      int
+	rxBytes       int
+	fps           float64
+	kbps          float64
+	sentCfg       string
 }
 
 // PhoneInfo es lo que la ventana sabe de un móvil.
@@ -112,6 +119,7 @@ type PhoneInfo struct {
 	DecMs     float64         `json:"decMs"`
 	Path      string          `json:"path"`
 	RTC       string          `json:"rtc"`
+	Enc       string          `json:"enc"`
 	Width     int             `json:"width"`
 	Height    int             `json:"height"`
 	Role      string          `json:"role"`
@@ -155,6 +163,8 @@ type Engine struct {
 	onToast   func(kind, msg string)
 	pcName    string
 	rtc       *rtcHub // WebRTC (nil si no se pudo abrir el puerto UDP)
+	// rtcPublic: IP pública y puerto que el router reenvía al UDP de WebRTC (UPnP).
+	rtcPublic func() (string, int)
 }
 
 type restorePoint struct {
@@ -451,10 +461,12 @@ func (p *phone) reorderLocked(c videoChunk) {
 	}
 }
 
-// askKey pide al móvil un fotograma clave (como mucho dos veces por segundo).
+// askKey pide al móvil un fotograma clave.
 func (e *Engine) askKey(p *phone) {
 	p.dmu.Lock()
-	if time.Since(p.keyAt) < 500*time.Millisecond {
+	// Como mucho uno por segundo: cada clave pesa mucho, y pedirlos sin parar en una
+	// red que pierde paquetes la atasca más.
+	if time.Since(p.keyAt) < time.Second {
 		p.dmu.Unlock()
 		return
 	}
@@ -483,6 +495,19 @@ func (e *Engine) decoder(p *phone) {
 	anySeq, waitKey, comOK, decFailed := false, true, false, false
 	curRTC := false     // de dónde sale el H.264 que se está decodificando
 	var lastH264 uint32 // número del último H.264 de la conexión de siempre
+	// Diagnóstico (TURBOCAM_DUMP): cuentas por segundo.
+	var stIn, stOut, stEmpty, stGap, stWait, stErr, stKey int
+	stAt := time.Now()
+	stats := func() {
+		if dumpDir == "" || time.Since(stAt) < time.Second {
+			return
+		}
+		p.dmu.Lock()
+		q := len(p.vq)
+		p.dmu.Unlock()
+		dumpLog(p.id, fmt.Sprintf("PC: entran %d salen %d sin-imagen %d saltos %d esperando-clave %d errores %d claves %d cola %d rtc=%v", stIn, stOut, stEmpty, stGap, stWait, stErr, stKey, q, curRTC))
+		stIn, stOut, stEmpty, stGap, stWait, stErr, stKey, stAt = 0, 0, 0, 0, 0, 0, 0, time.Now()
+	}
 	for {
 		select {
 		case <-p.quit:
@@ -543,6 +568,11 @@ func (e *Engine) decoder(p *phone) {
 			}
 			// Por la conexión de siempre van numerados seguidos: un salto es que falta uno
 			// (o, por HTTP, que llegan desordenados).
+			stats()
+			stIn++
+			if c.key {
+				stKey++
+			}
 			if !c.rtc {
 				if c.seq != lastH264+1 {
 					c.gap = true
@@ -551,8 +581,10 @@ func (e *Engine) decoder(p *phone) {
 			}
 			if c.gap && !c.key {
 				waitKey = true
+				stGap++
 			}
 			if waitKey && !c.key {
+				stWait++
 				e.askKey(p)
 				continue
 			}
@@ -570,9 +602,15 @@ func (e *Engine) decoder(p *phone) {
 				}
 				dec = d
 			}
+			dumpH264(p.id, c.rtc, c.data)
 			t0 := time.Now()
+			fmtBefore := dec.format()
 			imgs, err := dec.decode(c.data)
+			if f := dec.format(); f != fmtBefore || err != nil {
+				dumpLog(p.id, fmt.Sprintf("PC: decodificador %s (rtc=%v clave=%v err=%v)", f, c.rtc, c.key, err))
+			}
 			if err != nil {
+				stErr++
 				// Se ha roto la cadena (o el flujo no era válido): de nuevo desde un clave.
 				dec.reset()
 				waitKey = true
@@ -580,8 +618,19 @@ func (e *Engine) decoder(p *phone) {
 				continue
 			}
 			waitKey = false
+			stOut += len(imgs)
+			if len(imgs) == 0 {
+				stEmpty++
+			}
 			if len(imgs) > 0 {
-				e.onFrame(p, imgs[len(imgs)-1], nil, "h264", float64(time.Since(t0).Microseconds())/1000)
+				img := imgs[len(imgs)-1]
+				p.mu.Lock()
+				fx := p.fx
+				p.mu.Unlock()
+				if needsFX(fx) {
+					applyFX(img, fx) // el móvil lo manda sin retocar
+				}
+				e.onFrame(p, img, nil, "h264", float64(time.Since(t0).Microseconds())/1000)
 			}
 		}
 	}
@@ -666,6 +715,8 @@ type phoneMsg struct {
 	HW       *bool           `json:"hw"`
 	Bitrate  *int            `json:"kbps"`
 	RTC      *string         `json:"rtc"`
+	Enc      *string         `json:"enc"`
+	RTCDbg   *string         `json:"rtcDbg"`
 	CamW     *int            `json:"camW"`
 	CamH     *int            `json:"camH"`
 	Caps     json.RawMessage `json:"caps"`
@@ -712,6 +763,14 @@ func (e *Engine) onMessage(p *phone, m phoneMsg) {
 		}
 		if m.RTC != nil {
 			p.rtcState = truncate(*m.RTC, 120)
+		}
+		if m.RTCDbg != nil && *m.RTCDbg != "" && *m.RTCDbg != p.rtcDbg {
+			p.rtcDbg = *m.RTCDbg
+			dumpLog(p.id, "móvil rtc: "+truncate(p.rtcDbg, 300))
+		}
+		if m.Enc != nil && *m.Enc != p.encInfo {
+			p.encInfo = truncate(*m.Enc, 300)
+			dumpLog(p.id, "móvil: "+p.encInfo)
 		}
 		if len(m.Caps) > 0 && len(m.Caps) < 16<<10 {
 			p.caps = m.Caps
@@ -829,6 +888,9 @@ func (e *Engine) sendConfigs(force bool) {
 				w, h = (w*adj.Res/h+1)&^1, adj.Res
 			}
 		}
+		p.mu.Lock()
+		p.fx = adj
+		p.mu.Unlock()
 		jobs = append(jobs, job{p, map[string]any{
 			"t": "config", "role": role, "w": w, "h": h, "fps": fps, "adjust": adj,
 			"name": name, "pc": e.pcName, "frozen": e.frozen, "covered": e.covered,
@@ -1184,6 +1246,13 @@ func (e *Engine) housekeeping() {
 
 // refreshStats manda a la ventana los números de los móviles cada segundo.
 func (e *Engine) refreshStats() {
+	if dumpDir != "" {
+		st := e.State()
+		for _, p := range st.Phones {
+			dumpLog(p.ID, fmt.Sprintf("estado: %s %s visible=%v live=%v %dx%d %.0f fps cámara %.0f fps, %s, salida %dx%d %.0f fps, %s",
+				p.Role, p.Path, p.Visible, p.Live, p.Width, p.Height, p.FPS, p.CamFPS, p.Codec, st.OutW, st.OutH, st.OutFPS, st.Status))
+		}
+	}
 	e.mu.Lock()
 	n := len(e.phones)
 	e.mu.Unlock()
@@ -1403,7 +1472,7 @@ func (e *Engine) State() EngineState {
 			ID: p.id, Name: p.name, Model: p.model, Via: p.via, Visible: p.visible, Live: p.live, Error: p.errMsg,
 			Battery: p.battery, Charging: p.charging, FPS: p.fps, Kbps: p.kbps, Quality: p.quality, RTT: p.rtt,
 			CamFPS: p.camFPS, CamW: p.camW, CamH: p.camH,
-			Codec: p.codec, HW: p.hw, Bitrate: p.bitrate, DecMs: p.decMs, Path: p.path, RTC: p.rtcState,
+			Codec: p.codec, HW: p.hw, Bitrate: p.bitrate, DecMs: p.decMs, Path: p.path, RTC: p.rtcState, Enc: p.encInfo,
 			Role: role, Caps: p.caps, Connected: p.connected.UnixMilli(),
 		}
 		if time.Since(p.frameAt) > 2*time.Second {

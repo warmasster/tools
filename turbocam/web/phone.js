@@ -45,7 +45,7 @@
     seq: 0, inflight: 0, nextAt: 0, q: 0.65, sent: new Map(), rtt: 0, rttN: 0,
     frames: 0, fpsNow: 0, bytes: 0, kbps: 0, sentCount: 0, netBusy: 0, cpuBusy: 0,
     encMs: 0, avgSize: 0, scaleStep: 0, up: 0, down: 0, sentW: 0, sentH: 0,
-    camFrames: 0, camFps: 0, capKey: "", lastAck: 0, lastPong: 0, rttMin: 0, rttMinAt: 0,
+    camFrames: 0, camFps: 0, capKey: "", connAt: 0, startAt: 0, lastAck: 0, lastPong: 0, rttMin: 0, rttMinAt: 0,
     black: false, wake: null, stopped: false, bye: "", filterOK: false,
     hidden: document.visibilityState === "hidden",
   };
@@ -106,7 +106,7 @@
     retryDelay = 1000;
     S.inflight = 0;
     S.sent.clear();
-    S.lastAck = S.lastPong = performance.now();
+    S.lastAck = S.lastPong = S.connAt = performance.now();
     H.forceKey = true; // el PC empieza a decodificar de cero
     sendState(true);
     render();
@@ -196,9 +196,19 @@
       case "pong": S.lastPong = performance.now(); if (m.ts) addRTT(performance.now() - m.ts); break;
       case "key": H.forceKey = true; break;
       case "rtc": rtcAnswer(m.sdp); break;
-      case "ice": if (R.pc && m.c && m.c.candidate) R.pc.addIceCandidate(m.c).catch(() => {}); break;
+      case "ice": if (R.pc && m.c && m.c.candidate) {
+        R.remote++;
+        R.pc.addIceCandidate(m.c).catch((e) => { R.remoteBad++; R.badWhy = String(e && e.message || e).slice(0, 60); });
+      } break;
       case "rtcok": R.live = true; sendState(true); render(); break;
       case "rtcoff": rtcStop(true); break;
+      case "rtcworse": // por la conexión de siempre iba mejor: no se insiste en un rato
+        R.worse = performance.now();
+        R.why = "por la conexión de siempre va mejor";
+        rtcStop(true);
+        R.failAt = performance.now() + 10 * 60000;
+        sendState(true);
+        break;
       case "codec": if (m.h264 === false) h264Fail("el PC no decodifica H.264"); break;
       case "photo": takePhoto(); break;
       case "bye": onBye(m.reason); break;
@@ -271,6 +281,7 @@
     video.srcObject = S.stream;
     try { await video.play(); } catch { }
     S.started = true;
+    S.startAt = performance.now();
     S.stopped = false;
     $("#start-err").hidden = true;
     app.dataset.screen = "live";
@@ -367,9 +378,12 @@
   S.filterOK = (() => { try { probe.filter = "blur(1px)"; return probe.filter === "blur(1px)"; } catch { return false; } })();
 
   // geometry calcula cómo poner el vídeo en un lienzo de w x h con los retoques.
-  function geometry(w, h, vw = video.videoWidth, vh = video.videoHeight) {
+  // pcFx: el espejo y el color los pone el PC (vídeo H.264): aquí se calcula el recorte
+  // sin espejo (con el encuadre al revés, que después del espejo del PC queda igual).
+  function geometry(w, h, vw = video.videoWidth, vh = video.videoHeight, pcFx = false) {
     if (!vw || !vh) return null;
-    const a = S.cfg.adjust;
+    let a = S.cfg.adjust;
+    if (pcFx) a = { ...a, mirror: false, panX: a.mirror ? -(a.panX || 0) : a.panX, brightness: 1, contrast: 1, saturation: 1 };
     const rot = ((a.rotate || 0) % 360 + 360) % 360;
     const rw = rot % 180 ? vh : vw, rh = rot % 180 ? vw : vh;
     const contain = a.fit === "contain";
@@ -573,6 +587,7 @@
     failed: "", enc: null, cfg: null, key: "", configuring: null, hw: false,
     br: 0, minBr: 0, maxBr: 0, cfgBr: 0, cfgAt: 0, up: 0,
     forceKey: true, lastKey: 0, canvas: null, ctx: null, crop: null, lastOut: 0, resets: [],
+    info: "", infoAt: -1e9, path: "",
   };
 
   // Si el codificador deja de dar fotogramas (algunos móviles se cuelgan al volver de
@@ -590,6 +605,9 @@
 
   // ?jpeg en el enlace: sin H.264 (para comparar).
   if (new URLSearchParams(location.search).has("jpeg")) H.failed = "desactivado en el enlace";
+
+  // ?canvas en el enlace: siempre por el lienzo (sin el recorte directo).
+  if (new URLSearchParams(location.search).has("canvas")) H.crop = false;
 
   function useH264() { return H.ok && !H.failed && S.cfg.h264 === true; }
   function h264Idle() { return !H.enc || H.enc.state !== "configured" || H.enc.encodeQueueSize < 2; }
@@ -669,11 +687,19 @@
   // si no, se pinta en un lienzo. Devuelve un VideoFrame (hay que cerrarlo) o null.
   function makeFrame(now, frame, w, h) {
     const vw = video.videoWidth, vh = video.videoHeight;
+    if (frame && now - H.infoAt > 3000) {
+      // Cómo llegan los fotogramas de la cámara (para diagnosticar codificadores raros).
+      H.infoAt = now;
+      const vr = frame.visibleRect || {};
+      H.info = `${frame.format} cod ${frame.codedWidth}x${frame.codedHeight} vis ${vr.x},${vr.y},${vr.width}x${vr.height} ` +
+        `disp ${frame.displayWidth}x${frame.displayHeight} rot ${frame.rotation || 0} vídeo ${vw}x${vh}`;
+    }
     if (frame && (frame.displayWidth !== vw || frame.displayHeight !== vh || frame.rotation)) frame = null;
-    const g = geometry(w, h, vw, vh);
+    const g = geometry(w, h, vw, vh, true); // espejo y color, en el PC
     if (!g) return null;
     try {
-      if (frame && !g.rot && !g.mirror && !g.filter && !g.fill && H.crop !== false) {
+      if (frame && !g.rot && !g.fill && H.crop !== false) {
+        H.path = "recorte";
         const vr = frame.visibleRect || { x: 0, y: 0 };
         return new VideoFrame(frame, {
           visibleRect: { x: (vr.x + g.cx) & ~1, y: (vr.y + g.cy) & ~1, width: g.cw & ~1, height: g.ch & ~1 },
@@ -684,6 +710,7 @@
         H.canvas = new OffscreenCanvas(w, h);
         H.ctx = H.canvas.getContext("2d", { alpha: false });
       }
+      H.path = "lienzo";
       paintFrame(H.ctx, frame || video, g, false);
       return new VideoFrame(H.canvas, { timestamp: Math.round(now * 1000) });
     } catch {
@@ -767,21 +794,38 @@
   if (new URLSearchParams(location.search).has("nortc")) R.ok = false;
 
   function rtcWanted() {
+    const now = performance.now();
     return R.ok && S.cfg.rtc === true && S.cfg.h264 === true && S.connected && S.started && !S.hidden &&
-      !R.pc && performance.now() >= R.failAt;
+      !R.pc && now >= R.failAt && now - S.connAt > 8000 && now - S.startAt > 8000;
   }
 
+  // Si algo falla al preparar WebRTC, se dice por qué (en la hoja y en el PC) y se
+  // vuelve a probar más tarde; el vídeo sigue por la conexión de siempre.
   async function rtcStart() {
+    try { await rtcStart2(); } catch (e) {
+      R.why = "no arranca: " + String(e && e.message || e).slice(0, 80);
+      rtcStop(true);
+      R.fails++;
+      R.failAt = performance.now() + Math.min(120000, 5000 * 2 ** Math.min(R.fails, 5));
+      sendState(true);
+    }
+  }
+
+  async function rtcStart2() {
     const caps = RTCRtpSender.getCapabilities ? RTCRtpSender.getCapabilities("video") : null;
     const h264 = caps ? caps.codecs.filter((c) => /h264/i.test(c.mimeType)) : [];
     if (caps && !h264.length) { R.ok = false; R.why = "este navegador no manda H.264 por WebRTC"; sendState(true); return; }
-    let track;
-    if (typeof MediaStreamTrackGenerator === "function") {
-      R.gen = new MediaStreamTrackGenerator({ kind: "video" });
-      R.writer = R.gen.writable.getWriter();
-      track = R.gen;
-    } else {
+    let track = null;
+    if (typeof MediaStreamTrackGenerator === "function" && !R.noGen) {
+      try {
+        R.gen = new MediaStreamTrackGenerator({ kind: "video" });
+        R.writer = R.gen.writable.getWriter();
+        track = R.gen;
+      } catch { R.noGen = true; R.gen = R.writer = null; } // este Chrome no lo deja: con un lienzo
+    }
+    if (!track) {
       R.cv = document.createElement("canvas");
+      R.cv.width = 1280; R.cv.height = 720;
       R.cvTrack = R.cv.captureStream(0).getVideoTracks()[0];
       track = R.cvTrack;
     }
@@ -798,7 +842,13 @@
       try { tr.setCodecPreferences(h264.sort((a, b) => rank(a) - rank(b)).concat(rtx)); } catch { }
     }
     R.sender = tr.sender;
-    pc.onicecandidate = (e) => { if (e.candidate && R.pc === pc) send({ t: "ice", c: e.candidate.toJSON() }); };
+    R.remote = R.remoteBad = 0; R.badWhy = ""; R.local = {};
+    pc.onicecandidate = (e) => {
+      if (!e.candidate || R.pc !== pc) return;
+      const ty = e.candidate.type || (/ typ (\w+)/.exec(e.candidate.candidate) || [])[1] || "?";
+      R.local[ty] = (R.local[ty] || 0) + 1;
+      send({ t: "ice", c: e.candidate.toJSON() });
+    };
     pc.onconnectionstatechange = () => {
       const st = pc.connectionState;
       if (st === "failed" || st === "closed") { if (R.pc === pc) rtcStop(true); }
@@ -843,7 +893,7 @@
       if (vf) R.writer.write(vf).catch(() => {}); // el generador se queda con él y lo cierra
     } else if (R.cv) {
       const vw = video.videoWidth, vh = video.videoHeight;
-      const g = geometry(w, h, vw, vh);
+      const g = geometry(w, h, vw, vh, true);
       if (!g) return;
       if (R.cv.width !== w || R.cv.height !== h) { R.cv.width = w; R.cv.height = h; }
       paintFrame(R.cv.getContext("2d", { alpha: false }), video, g, false);
@@ -855,6 +905,14 @@
 
   // fail: no ha salido o se ha caído; se vuelve a probar más tarde (cada vez más tarde).
   // rtcState: cómo va WebRTC, en pocas palabras.
+  // rtcDetail: para el diagnóstico (lo apunta el PC con TURBOCAM_DUMP).
+  function rtcDetail() {
+    if (!R.pc) return "";
+    const loc = Object.entries(R.local || {}).map(([k, v]) => k + ":" + v).join(",");
+    return `ice ${R.pc.iceConnectionState} reunir ${R.pc.iceGatheringState} míos ${loc || "0"} suyos ${R.remote}` +
+      (R.remoteBad ? ` rechazados ${R.remoteBad} (${R.badWhy})` : "");
+  }
+
   function rtcState() {
     if (R.live) return "directa";
     if (!R.ok) return R.why || "este navegador no tiene WebRTC";
@@ -942,6 +1000,7 @@
     checkCapture(); // por si el cambio de tamaño llegó mientras se abría la cámara
     if (rtcWanted()) rtcStart();
     else if (R.pc && !R.live && performance.now() - R.startAt > 12000) { // no conecta
+      send({ t: "state", rtcDbg: "al rendirse: " + rtcDetail() });
       const st = R.pc.iceConnectionState;
       R.why = st === "checking" || st === "new" ? "la red no deja conexión directa" : "no conecta (" + st + ")";
       rtcStop(true);
@@ -1012,7 +1071,8 @@
       rtt: Math.round(S.rtt),
       caps: { ...S.caps, cameras: S.cameras, filters: S.filterOK, model },
       camW: video.videoWidth, camH: video.videoHeight,
-      rtc: rtcState(), codec: R.live || useH264() ? "h264" : "jpeg", hw: R.live ? R.hw : useH264() && H.hw,
+      rtc: rtcState(), rtcDbg: rtcDetail(), codec: R.live || useH264() ? "h264" : "jpeg",
+      enc: H.cfg ? `${H.cfg.codec} ${H.cfg.width}x${H.cfg.height} ${H.hw ? "hw" : "sw"} ${H.path} · ${H.info}` : H.info, hw: R.live ? R.hw : useH264() && H.hw,
       kbps: R.live ? R.kbps : useH264() ? Math.round(H.cfgBr / 1000) : 0,
     };
     if (R.live && R.rtt) st.rtt = R.rtt;
