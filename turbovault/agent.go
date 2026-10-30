@@ -95,6 +95,13 @@ type State struct {
 	ExtBad     string    `json:"extBad,omitempty"`     // la extensión cargada no es la original
 	ExtVersion string    `json:"extVersion,omitempty"` // versión de la extensión que trae este TurboVAULT
 	Pair       *PairInfo `json:"pair,omitempty"`
+	CardReq    *CardInfo `json:"cardReq,omitempty"` // tarjeta esperando la contraseña maestra (solo la ventana)
+	// Ajustes de las tarjetas que necesita la extensión (no son secretos). Sin
+	// omitempty: la extensión mezcla cada estado con el anterior, y un «false»
+	// que no llega no apagaría nada.
+	Cards    bool `json:"cards"`
+	CardAsk  bool `json:"cardAsk"`
+	CardMask bool `json:"cardMask"`
 }
 
 // apiError es un error con un código que entienden la ventana y la extensión.
@@ -133,6 +140,8 @@ type Agent struct {
 	clipTimer *time.Timer
 	breached  map[string]int // id → veces que aparece en filtraciones (solo en memoria)
 	breachAt  int64
+	masterAt  time.Time    // última vez que se escribió bien la contraseña maestra
+	cardReq   *cardRequest // tarjeta esperando a que se confirme con la contraseña maestra
 
 	winMu   sync.Mutex
 	windows map[uint32]bool // ventanas lanzadas por el agente y aún vivas
@@ -271,7 +280,7 @@ func (a *Agent) checkClient(pid uint32) (any, error) {
 	// La ventana: solo la que lanzó este agente (protegida desde que nació).
 	if len(args) >= 2 && args[1] == "--window" {
 		for _, x := range args[2:] {
-			if x != "--unlock" && x != "--pair" {
+			if x != "--unlock" && x != "--pair" && x != "--card" {
 				return nil, errors.New("ventana con argumentos raros")
 			}
 		}
@@ -382,6 +391,7 @@ func (a *Agent) stateFor(cs *connState) State {
 	if pend != nil && time.Since(pend.Created) > 5*time.Minute {
 		a.pending, pend = nil, nil
 	}
+	creq := a.cardReq
 	a.mu.Unlock()
 	if st.Unlocked {
 		if items, err := a.v.Items(false); err == nil {
@@ -400,8 +410,15 @@ func (a *Agent) stateFor(cs *connState) State {
 		if !st.Paired {
 			st.Count = 0 // un navegador sin vincular no sabe ni cuántas hay
 		}
-	} else if pend != nil {
-		st.Pair = &PairInfo{Code: pend.Code, Browser: pend.Browser}
+		st.Cards, st.CardAsk, st.CardMask = s.Cards, s.CardAsk, s.CardMask
+	} else {
+		if pend != nil {
+			st.Pair = &PairInfo{Code: pend.Code, Browser: pend.Browser}
+		}
+		if creq != nil && st.Unlocked {
+			info := creq.info
+			st.CardReq = &info
+		}
 	}
 	return st
 }
@@ -501,6 +518,7 @@ func (a *Agent) unlockGen(master string, gen uint64) error {
 	s := updateSettings(func(s *Settings) { s.Fails, s.WaitUntil = 0, 0 })
 	a.secrets.reset()
 	a.mu.Lock()
+	a.masterAt = time.Now()
 	a.expires = time.Now().Add(time.Duration(s.SessionMin) * time.Minute)
 	if a.timer != nil {
 		a.timer.Stop()
@@ -552,9 +570,15 @@ func (a *Agent) lockNow(reason string) {
 	}
 	a.expires = time.Time{}
 	a.breached, a.breachAt = nil, 0
+	a.masterAt = time.Time{}
+	creq := a.cardReq
+	a.cardReq = nil
 	seq := a.clipSeq
 	a.clipSeq = 0
 	a.mu.Unlock()
+	if creq != nil {
+		creq.done <- false // la tarjeta que esperaba ya no se rellena
+	}
 	clipClear(seq)
 	if wasOpen {
 		logf("bóveda cerrada: %s", reason)

@@ -44,7 +44,7 @@ func runLauncher(mode string) int {
 // su proceso como ventana legítima mientras viva.
 func (a *Agent) openWindow(mode string) error {
 	args := []string{"--window"}
-	if mode == "unlock" || mode == "pair" {
+	if mode == "unlock" || mode == "pair" || mode == "card" {
 		args = append(args, "--"+mode)
 	}
 	pa, _ := winsec.ProcessAttributes()

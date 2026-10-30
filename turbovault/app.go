@@ -79,6 +79,8 @@ func runUI(mode string) {
 						m = "unlock"
 					case "--pair":
 						m = "pair"
+					case "--card":
+						m = "card"
 					}
 				}
 				app.prompt(m)
@@ -191,7 +193,8 @@ func (a *App) Call(cmd string, args json.RawMessage) Resp {
 	return Resp{OK: true, Data: out}
 }
 
-// Mode dice si la ventana se abrió solo para desbloquear o vincular.
+// Mode dice si la ventana se abrió solo para desbloquear, vincular o
+// confirmar una tarjeta.
 func (a *App) Mode() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()

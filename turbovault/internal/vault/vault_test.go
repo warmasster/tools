@@ -310,3 +310,44 @@ func TestDefaultParamsCost(t *testing.T) {
 	derive("prueba-de-tiempo", k)
 	t.Logf("Argon2id %+v: %v", DefaultParams, time.Since(t0))
 }
+
+func TestCardItem(t *testing.T) {
+	v := newVault(t)
+	c := &Card{Holder: "FERNANDO GARCIA", Number: "4242424242424242", ExpMonth: "08", ExpYear: "2028", CVC: "123", PIN: "1234"}
+	it, err := v.Put(Item{Type: TypeCard, Title: "Visa del banco"}, &Secret{Card: c})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it.Type != TypeCard || it.Brand != "visa" || it.Last4 != "4242" || it.Exp != "2028-08" || it.HasPassword || it.Score != -1 {
+		t.Fatalf("tarjeta mal guardada: %+v", it)
+	}
+	// La lista no lleva el número ni el CVC.
+	items, _ := v.Items(false)
+	raw, _ := json.Marshal(items)
+	if strings.Contains(string(raw), "424242424242") || strings.Contains(string(raw), "123") && strings.Contains(string(raw), "cvc") {
+		t.Fatalf("la lista enseña datos de la tarjeta: %s", raw)
+	}
+	// Ni el archivo.
+	b, _ := os.ReadFile(v.Path())
+	if bytes.Contains(b, []byte("4242424242424242")) || bytes.Contains(b, []byte("FERNANDO")) {
+		t.Fatal("datos de la tarjeta sin cifrar en el disco")
+	}
+	// Cambiar solo el título conserva los datos.
+	it.Title = "Visa"
+	if _, err := v.Put(it, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, sec, err := v.Get(it.ID)
+	if err != nil || got.Last4 != "4242" || got.Brand != "visa" || sec.Card == nil || sec.Card.CVC != "123" || sec.Card.PIN != "1234" {
+		t.Fatalf("tras editar: %+v %+v %v", got, sec.Card, err)
+	}
+	// Al pasarla a inicio de sesión se quitan los datos de la tarjeta.
+	got.Type = TypeLogin
+	if _, err := v.Put(got, &Secret{Password: "x", Card: c}); err != nil {
+		t.Fatal(err)
+	}
+	got, sec, _ = v.Get(it.ID)
+	if sec.Card != nil || got.Brand != "" || got.Last4 != "" {
+		t.Fatalf("una entrada que no es tarjeta guarda datos de tarjeta: %+v %+v", got, sec.Card)
+	}
+}

@@ -1,5 +1,5 @@
-// Package vault es la bóveda de TurboVAULT: contraseñas, notas y códigos 2FA
-// cifrados en un archivo local con una contraseña maestra.
+// Package vault es la bóveda de TurboVAULT: contraseñas, notas, tarjetas y
+// códigos 2FA cifrados en un archivo local con una contraseña maestra.
 //
 // Cómo se protege:
 //
@@ -10,9 +10,10 @@
 //     va cifrada con la KEK. Todo con AES-256-GCM, que además detecta cualquier
 //     cambio en el archivo.
 //   - Dentro, la parte secreta de cada entrada (contraseña, notas, 2FA, campos
-//     ocultos, historial) va cifrada otra vez por separado: en memoria solo hay
-//     títulos, webs y usuarios, y cada secreto se descifra en el momento en que
-//     se pide.
+//     ocultos, historial, datos de la tarjeta) va cifrada otra vez por separado:
+//     en memoria solo hay títulos, webs, usuarios y, de las tarjetas, la marca,
+//     las cuatro últimas cifras y la caducidad. Cada secreto se descifra en el
+//     momento en que se pide.
 //   - La DEK vive en memoria bloqueada y cifrada por Windows (paquete secmem) y
 //     se borra al cerrar la bóveda. La contraseña maestra no se guarda nunca.
 //   - Al cambiar la contraseña maestra se cambia también la DEK, así que una
@@ -38,6 +39,7 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
+	"turbovault/internal/card"
 	"turbovault/internal/secmem"
 )
 
@@ -103,6 +105,7 @@ type fileData struct {
 const (
 	TypeLogin = "login"
 	TypeNote  = "note"
+	TypeCard  = "card"
 )
 
 // Item es la parte de una entrada que se puede enseñar en listas: no lleva
@@ -126,6 +129,10 @@ type Item struct {
 	HasNotes    bool     `json:"hasNotes,omitempty"`
 	Fields      int      `json:"fields,omitempty"`
 	Score       int      `json:"score"` // fuerza de la contraseña 0-4, -1 si no hay
+	// De las tarjetas, solo lo que se enseña en las listas (como hace el banco).
+	Brand string `json:"brand,omitempty"` // visa, mastercard…
+	Last4 string `json:"last4,omitempty"` // cuatro últimas cifras
+	Exp   string `json:"exp,omitempty"`   // caducidad, "2028-08"
 }
 
 // Field es un campo extra (por ejemplo un PIN o una pregunta de seguridad).
@@ -141,6 +148,16 @@ type OldPassword struct {
 	Until    int64  `json:"until"`
 }
 
+// Card son los datos de una tarjeta de pago.
+type Card struct {
+	Holder   string `json:"holder,omitempty"`   // titular, como va impreso
+	Number   string `json:"number,omitempty"`   // solo cifras
+	ExpMonth string `json:"expMonth,omitempty"` // "08"
+	ExpYear  string `json:"expYear,omitempty"`  // "2028"
+	CVC      string `json:"cvc,omitempty"`
+	PIN      string `json:"pin,omitempty"` // nunca se rellena en una web
+}
+
 // Secret es la parte secreta de una entrada.
 type Secret struct {
 	Password string        `json:"password,omitempty"`
@@ -148,6 +165,7 @@ type Secret struct {
 	TOTP     string        `json:"totp,omitempty"`
 	Fields   []Field       `json:"fields,omitempty"`
 	History  []OldPassword `json:"history,omitempty"`
+	Card     *Card         `json:"card,omitempty"`
 }
 
 func (s *Secret) wipe() {
@@ -707,7 +725,7 @@ func (v *Vault) PutMany(entries []Entry) ([]Item, error) {
 	out := make([]Item, 0, len(entries))
 	for _, e := range entries {
 		it := cloneItem(e.Item)
-		if it.Type != TypeNote {
+		if it.Type != TypeNote && it.Type != TypeCard {
 			it.Type = TypeLogin
 		}
 		it.Title = strings.TrimSpace(it.Title)
@@ -734,8 +752,20 @@ func (v *Vault) PutMany(entries []Entry) ([]Item, error) {
 			secBox = old.Secret
 			it.HasPassword, it.HasTOTP, it.HasNotes, it.Fields = old.HasPassword, old.HasTOTP, old.HasNotes, old.Fields
 			it.Score = old.Score
+			it.Brand, it.Last4, it.Exp = old.Brand, old.Last4, old.Exp
 		} else {
 			s := *e.Secret
+			it.Brand, it.Last4, it.Exp = "", "", ""
+			if it.Type != TypeCard {
+				s.Card = nil
+			} else if s.Card != nil {
+				c := *s.Card
+				s.Card = &c
+				it.Brand, it.Last4 = card.Brand(c.Number), card.Last4(c.Number)
+				if c.ExpYear != "" && c.ExpMonth != "" {
+					it.Exp = c.ExpYear + "-" + c.ExpMonth
+				}
+			}
 			if old != nil {
 				prev, err := v.decryptSecret(old)
 				if err != nil {

@@ -6,15 +6,27 @@ window.__tvMock = function () {
   const emit = (n, d) => (handlers[n] || []).forEach((f) => f(d));
   const now = () => Math.floor(Date.now() / 1000);
   let unlocked = false, exists = !new URLSearchParams(location.search).has('nueva'), expires = 0, fails = 0;
-  let pending = null;
-  const settings = { sessionMin: 10, clipSeconds: 20, revealSec: 30, lockOnClose: false, lockOnMin: false, autoBreach: false, notifyFill: false, autostart: true, hideCapture: true, gen: { mode: 'random', length: 20, lower: true, upper: true, digits: true, symbols: true, noAmbiguous: false, words: 5, sep: '-', capitalize: true, number: true }, backups: [] };
+  let pending = null, cardReq = null;
+  const settings = { cards: true, cardAsk: true, cardMask: true, sessionMin: 10, clipSeconds: 20, revealSec: 30, lockOnClose: false, lockOnMin: false, autoBreach: false, notifyFill: false, autostart: true, hideCapture: true, gen: { mode: 'random', length: 20, lower: true, upper: true, digits: true, symbols: true, noAmbiguous: false, words: 5, sep: '-', capitalize: true, number: true }, backups: [] };
   let n = 0;
   const id = () => 'm' + (++n);
   const items = [];
   const secrets = {};
+  const brandOf = (n) => (/^4/.test(n) ? 'visa' : /^(5[1-5]|2[2-7])/.test(n) ? 'mastercard' : /^3[47]/.test(n) ? 'amex' : '');
+  const cardInfo = (x, sec) => {
+    if (x.type !== 'card' || !sec.card) return;
+    const n = String(sec.card.number || '').replace(/\D/g, '');
+    sec.card.number = n;
+    let y = String(sec.card.expYear || ''); if (y.length === 2) y = '20' + y;
+    sec.card.expYear = y; sec.card.expMonth = String(sec.card.expMonth || '').padStart(2, '0');
+    x.brand = brandOf(n); x.last4 = n.slice(-4); x.exp = y ? `${y}-${sec.card.expMonth}` : '';
+    if (!x.title) x.title = `${x.brand ? x.brand[0].toUpperCase() + x.brand.slice(1) : 'Tarjeta'} •••• ${x.last4}`;
+  };
   const add = (it, sec) => {
     const x = Object.assign({ id: id(), type: 'login', urls: [], username: '', fav: false, created: now() - 86400 * 400, updated: now() - 86400 * 20, used: now() - 3600, uses: 3, score: 4 }, it);
+    if (!x.id) x.id = id();
     x.hasPassword = !!sec.password; x.hasTotp = !!sec.totp; x.hasNotes = !!sec.notes;
+    cardInfo(x, sec);
     if (!x.hasPassword) x.score = -1;
     x.pwChanged = x.updated;
     items.push(x);
@@ -28,13 +40,15 @@ window.__tvMock = function () {
   add({ title: 'GitHub', urls: ['https://github.com'], username: 'warmasster' }, { password: 'kX9#mQ2$vL7&pR4!zN5^', totp: 'otpauth://totp/GitHub:warmasster?secret=JBSWY3DPEHPK3PXP&issuer=GitHub' });
   add({ title: 'Wifi de casa', type: 'note' }, { notes: 'Red: MiCasa_5G\nClave: alcachofa-Tambor-92' });
   add({ title: 'Amazon', urls: ['https://amazon.es'], username: 'fernando@gmail.com', score: 3 }, { password: 'Pelicano.Vereda.Lince.4' });
+  add({ title: 'Visa del banco', type: 'card', fav: true }, { card: { holder: 'FERNANDO GARCIA', number: '4242424242424242', expMonth: '08', expYear: '2028', cvc: '123', pin: '1234' } });
+  add({ title: 'Mastercard antigua', type: 'card' }, { card: { holder: 'FERNANDO GARCIA', number: '5555555555554444', expMonth: '03', expYear: '2024', cvc: '987' } });
   const events = [
     { t: now() - 60, kind: 'fill', title: 'GitHub', origin: 'https://github.com', src: 'Chrome' },
     { t: now() - 300, kind: 'unlock', src: 'agente' },
     { t: now() - 86400, kind: 'lock', title: 'Se acabó el tiempo de la sesión', src: 'agente' },
     { t: now() - 86400 - 600, kind: 'add', title: 'Amazon', src: 'app' },
   ];
-  const state = () => ({ exists, unlocked, expires: unlocked ? expires : 0, now: Date.now(), sessionMin: settings.sessionMin, count: items.filter((i) => !i.deleted).length, version: 'muestra', fails, pair: unlocked ? pending : null });
+  const state = () => ({ exists, unlocked, expires: unlocked ? expires : 0, now: Date.now(), sessionMin: settings.sessionMin, count: items.filter((i) => !i.deleted).length, version: 'muestra', fails, pair: unlocked ? pending : null, cardReq: unlocked ? cardReq : null });
   const push = () => setTimeout(() => emit('state', state()), 10);
   const ok = (data) => ({ ok: true, data });
   const err = (error, code = 'error') => ({ ok: false, error, code });
@@ -94,8 +108,9 @@ window.__tvMock = function () {
         case 'totp': return ok(totp());
         case 'save': {
           let it = items.find((i) => i.id === a.item.id);
-          if (!it) { add(Object.assign({}, a.item, { id: undefined, created: now(), updated: now(), uses: 0, used: 0 }), a.secret); it = items[items.length - 1]; } else { Object.assign(it, a.item, { updated: now() }); secrets[it.id] = Object.assign(secrets[it.id], a.secret); it.hasPassword = !!a.secret.password; it.hasTotp = !!a.secret.totp; }
-          it.score = strength(a.secret.password).score;
+          if (a.item.type === 'card' && a.secret.card && String(a.secret.card.number || '').replace(/\D/g, '').length < 12) return err('El número de la tarjeta debe tener entre 12 y 19 cifras.', 'invalid');
+          if (!it) { add(Object.assign({}, a.item, { id: undefined, created: now(), updated: now(), uses: 0, used: 0 }), a.secret); it = items[items.length - 1]; } else { Object.assign(it, a.item, { updated: now() }); secrets[it.id] = Object.assign(secrets[it.id], a.secret); it.hasPassword = !!a.secret.password; it.hasTotp = !!a.secret.totp; cardInfo(it, secrets[it.id]); }
+          it.score = it.hasPassword ? strength(a.secret.password).score : -1;
           push(); return ok(it);
         }
         case 'delete': items.find((i) => i.id === a.id).deleted = now(); push(); return ok(null);
@@ -121,6 +136,11 @@ window.__tvMock = function () {
         case 'pairs': return ok(new URLSearchParams(location.search).has('vacia') ? null : [{ hash: 'h', name: 'Chrome', created: now() - 86400 * 3 }]);
         case 'unpair': return ok(null);
         case 'approvePair': case 'rejectPair': pending = null; push(); return ok(null);
+        case 'approveCard':
+          if (!cardReq || a.nonce !== cardReq.nonce) return err('Ya no hay ninguna tarjeta esperando confirmación.', 'notfound');
+          if (a.master !== 'maestra-de-prueba') return err('contraseña maestra incorrecta', 'wrong');
+          cardReq = null; push(); return ok(null);
+        case 'rejectCard': cardReq = null; push(); return ok(null);
         case 'settings': return ok(settings);
         case 'setSettings': Object.assign(settings, a); if (a.sessionMin && unlocked) { expires = Date.now() + a.sessionMin * 60000; push(); } return ok(settings);
         case 'verifyMaster': return a.master === 'maestra-de-prueba' ? ok(null) : err('Contraseña maestra incorrecta.', 'wrong');
@@ -138,6 +158,7 @@ window.__tvMock = function () {
     },
   };
   window.__mockPair = () => { pending = { code: '482 913', browser: 'Chrome' }; push(); };
+  window.__mockCard = () => { unlocked = true; expires = Date.now() + settings.sessionMin * 60000; cardReq = { nonce: 'n' + Date.now(), title: 'Visa del banco', card: 'Visa •••• 4242', brand: 'visa', host: 'tienda.es', browser: 'Chrome' }; push(); };
   setTimeout(() => emit('agent', { ok: true }), 0);
   return api;
 };

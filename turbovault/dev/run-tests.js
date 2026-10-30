@@ -4,14 +4,15 @@
 // durante la prueba y abre Chrome con un perfil temporal y la extensión. Es
 // Chrome quien arranca TurboVAULT (como al encender el PC con Chrome abierto),
 // con una carpeta y una tubería de prueba: no toca tu bóveda. Comprueba abrir la
-// ventana, vincular, los iconos en los campos, rellenar, guardar y que una web
-// falsa no reciba nada.
+// ventana, vincular, los iconos en los campos, rellenar, guardar, que una web
+// falsa no reciba nada y rellenar una tarjeta (confirmando en la ventana).
 //
 //   node dev/run-tests.js [--headed] [--keep] [--nobuild] [--shots carpeta]
 
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,6 +54,7 @@ Object.assign(process.env, {
   TURBOVAULT_BROWSERS: '',
   TURBOVAULT_E2E_PORT: String(CTRL_PORT),
   TURBOVAULT_E2E_TOKEN: E2E_TOKEN,
+  TURBOVAULT_CARD_GRACE: '0s', // que pida siempre la contraseña maestra para las tarjetas
 });
 
 let prevReg = null;
@@ -83,11 +85,49 @@ const server = createServer((req, res) => {
     return res.end(page(`<h1>${host}</h1><p>Fondo</p><dialog id="dlg" style="padding:30px">${loginForm('d')}</dialog>
       <script>document.getElementById('dlg').showModal()</script>`));
   }
+  if (req.url.startsWith('/pago')) {
+    // Pago con tarjeta: titular con autocomplete, número y CVC sin él (por su nombre), la
+    // caducidad en desplegables y un campo escondido que nunca debe rellenarse.
+    const months = Array.from({ length: 12 }, (_, i) => `<option value="${String(i + 1).padStart(2, '0')}">${String(i + 1).padStart(2, '0')}</option>`).join('');
+    const y0 = new Date().getFullYear();
+    const years = Array.from({ length: 10 }, (_, i) => `<option value="${y0 + i}">${y0 + i}</option>`).join('');
+    return res.end(page(`<h1>Pagar</h1><form id="pay" action="/ok" method="post">
+      <label>Titular <input id="cname" autocomplete="cc-name" style="width:300px;height:36px"></label><br><br>
+      <label>Número de tarjeta <input id="cnum" name="cardnumber" inputmode="numeric" style="width:300px;height:36px"></label><br><br>
+      <select id="cmon" name="exp_month"><option value="">Mes</option>${months}</select>
+      <select id="cyear" name="exp_year"><option value="">Año</option>${years}</select><br><br>
+      <input id="ccvc" name="cvc" placeholder="CVC" style="width:120px;height:36px"><br><br>
+      <input id="chid" autocomplete="cc-number" style="position:absolute;left:-9999px;width:300px;height:36px">
+      <button id="paygo" type="submit">Pagar</button></form>`));
+  }
+  if (req.url.startsWith('/tienda')) {
+    // Tienda con el titular en su página y el número y el CVC en el recuadro de la pasarela.
+    return res.end(page(`<h1>Tienda</h1><label>Titular <input id="tname" autocomplete="cc-name" style="width:300px;height:36px"></label><br><br>
+      <iframe id="pf" src="https://js.stripe.com:${PAY_PORT}/campos" style="width:340px;height:100px;border:0"></iframe>`));
+  }
   if (req.url.startsWith('/ok')) return res.end(page('<h1>Dentro</h1>'));
   res.end(page('hola'));
 });
 await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 const url = (host, path) => `http://${host}:${PORT}${path}`;
+
+// Recuadro de pago de otra web, como el de Stripe: https en js.stripe.com, que Chrome
+// resuelve a este PC, con un certificado de usar y tirar. Sin openssl se salta.
+let PAY_PORT = 0;
+let payServer = null;
+try {
+  const key = join(tmp, 'pago.key'), crt = join(tmp, 'pago.crt');
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', crt, '-days', '1', '-subj', '/CN=js.stripe.com', '-addext', 'subjectAltName=DNS:js.stripe.com'], { stdio: 'ignore' });
+  payServer = createHttpsServer({ key: readFileSync(key), cert: readFileSync(crt) }, (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<!doctype html><meta charset="utf-8"><body style="margin:0;font:14px sans-serif">'
+      + '<input id="pnum" autocomplete="cc-number" placeholder="1234 1234 1234 1234" style="display:block;width:300px;height:36px;box-sizing:border-box">'
+      + '<input id="pcvc" autocomplete="cc-csc" placeholder="CVC" style="display:block;width:120px;height:36px;margin-top:8px;box-sizing:border-box"></body>');
+  });
+  const port = 48000 + Math.floor(Math.random() * 1000);
+  await new Promise((r, j) => { payServer.once('error', j); payServer.listen(port, '127.0.0.1', r); });
+  PAY_PORT = port;
+} catch { payServer = null; }
 
 // ---------- manejar la ventana de TurboVAULT (servidor de pruebas de la compilación e2e) ----------
 const uiCall = async (cmd, a) => {
@@ -141,6 +181,7 @@ async function cleanup() {
   try { if (chrome) await chrome.close(); } catch { /* nada */ }
   try { if (ui) await uiCall('quit'); } catch { /* nada */ }
   server.close();
+  if (payServer) payServer.close();
   await sleep(300);
   killAll();
   restoreReg();
@@ -150,8 +191,9 @@ async function cleanup() {
 
 try {
   log('Chrome con la extensión (arranca TurboVAULT él solo)');
-  chrome = new Browser(join(tmp, 'perfil'), { headed: flag('--headed'), args: ['--host-resolver-rules=MAP *.test 127.0.0.1'] });
+  chrome = new Browser(join(tmp, 'perfil'), { headed: flag('--headed'), args: ['--host-resolver-rules=MAP *.test 127.0.0.1,MAP js.stripe.com 127.0.0.1', '--ignore-certificate-errors'] });
   await chrome.launch();
+  await chrome.send('Security.setIgnoreCertificateErrors', { ignore: true }).catch(() => {});
   const id = await chrome.loadExtension(EXT);
   check(id === EXT_ID, `ID de la extensión fijo (${id})`);
   // TurboVAULT solo da contraseñas a la extensión si la encuentra en el perfil, y Chrome
@@ -369,6 +411,108 @@ try {
   check(Array.isArray(evil) && evil.length === 0, 'una web parecida no ve nada');
   const evilFill = await sw(`call('fill', { id: '${saved.id}', url: '${url('evil.test', '/login')}' }).then(() => 'relleno', (e) => e.code)`);
   check(evilFill === 'denied', 'ni pidiéndola por su ID');
+
+  log('Tarjetas');
+  const card = await uiCall('save', { item: { type: 'card', title: 'Visa de prueba' }, secret: { card: { holder: 'FERNANDO PRUEBA', number: '4242 4242 4242 4242', expMonth: '8', expYear: '29', cvc: '123', pin: '9999' } } });
+  check(card.brand === 'visa' && card.last4 === '4242' && card.exp === '2029-08', 'tarjeta guardada (marca, cuatro cifras y caducidad)');
+  await chrome.send('Page.navigate', { url: url('login.test', '/pago') }, sessionId);
+  for (let i = 0; i < 50; i++) { if (await ev(`location.pathname === '/pago' && document.readyState === 'complete' && !!document.querySelector('#cnum')`).catch(() => false)) break; await sleep(100); }
+  const cIcons = await waitIcons('.ic:not(.off)', 3);
+  check(cIcons.length === 3, `los campos de pago llevan icono: titular, número y CVC (${cIcons.length})`);
+  const payVals = () => ev(`['#cname', '#cnum', '#cmon', '#cyear', '#ccvc', '#chid'].map((s) => document.querySelector(s).value)`);
+  // Elige la tarjeta en el menú del icono del número (y confirma el aviso de «sin https»).
+  async function pickCard() {
+    const ic = await iconIn('#cnum');
+    if (!ic) return false;
+    await sleep(400);
+    await clickModel(ic);
+    const it = await shadowQuery('.menu [data-card]', 10);
+    if (!it) return false;
+    await shot('5-tarjetas');
+    await sleep(500);
+    await clickModel(it);
+    await sleep(500);
+    const sure = await shadowQuery('.menu [data-sure]', 6);
+    if (!sure) return 'sin aviso';
+    await sleep(500);
+    await clickModel(sure);
+    return true;
+  }
+  async function cardReq() {
+    for (let i = 0; i < 40; i++) { const r = (await uiCall('state')).cardReq; if (r) return r; await sleep(150); }
+    return null;
+  }
+  const picked = await pickCard();
+  check(picked === true, 'un clic en el icono del número enseña tus tarjetas y, en una web sin https, avisa antes de rellenar');
+  if (picked === true) {
+    const req = await cardReq();
+    check(!!req && req.card === 'Visa •••• 4242', 'TurboVAULT pide la contraseña maestra en su ventana');
+    let v = await payVals();
+    check(!v[1] && !v[4], 'y hasta escribirla no rellena nada');
+    const dlg = await uiUntil(`(document.querySelector('.modal') || {}).innerText || ''`, /quiere rellenar/);
+    check(/quiere rellenar/.test(dlg) && /login\.test/.test(dlg), 'la ventana enseña qué tarjeta y en qué web');
+    await uiJS(`(async () => { document.querySelector('#cq-pw').value = 'no-es-la-maestra-1'; document.querySelector('#cq-go').click(); await new Promise((r) => setTimeout(r, 1500)); return document.querySelector('#cq-err').textContent; })()`);
+    v = await payVals();
+    check(!v[1], 'con una contraseña maestra mala no rellena');
+    await uiJS(`(async () => { document.querySelector('#cq-pw').value = ${JSON.stringify(MASTER)}; document.querySelector('#cq-go').click(); return true; })()`);
+    for (let i = 0; i < 40; i++) { v = await payVals(); if (v[1]) break; await sleep(150); }
+    check(v[0] === 'FERNANDO PRUEBA' && v[1] === '4242424242424242' && v[2] === '08' && v[3] === '2029' && v[4] === '123', `con la buena, rellena titular, número, caducidad y CVC (${v.slice(0, 5).join(' · ')})`);
+    check(v[5] === '', 'el campo de tarjeta escondido se queda vacío');
+    const tapado = await ev(`['#cnum', '#ccvc'].map((s) => getComputedStyle(document.querySelector(s)).webkitTextSecurity)`);
+    check(tapado[0] === 'disc' && tapado[1] === 'disc', 'lo rellenado se ve tapado (••••)');
+    await shot('6-tarjeta-rellenada');
+    const evs = await uiCall('events');
+    check(evs.some((e) => e.kind === 'fillCard' && e.src === 'Chrome'), 'la actividad apunta la tarjeta rellenada');
+
+    // «No rellenar» en la ventana.
+    await ev(`['#cname', '#cnum', '#ccvc'].forEach((s) => { document.querySelector(s).value = ''; })`);
+    await sleep(300);
+    if (await pickCard() === true) {
+      const r2 = await cardReq();
+      if (r2) await uiCall('rejectCard', { nonce: r2.nonce });
+      await sleep(800);
+      v = await payVals();
+      check(!!r2 && !v[1], 'si dices «No rellenar» en la ventana, no rellena');
+    } else check(false, 'se puede volver a elegir la tarjeta');
+  }
+  await uiCall('setSettings', { cards: false });
+  check((await waitIcons('.ic', 0)).length === 0, 'con las tarjetas desactivadas, los campos de pago no llevan icono');
+  await uiCall('setSettings', { cards: true });
+  check((await waitIcons('.ic', 3)).length === 3, 'al activarlas vuelven');
+
+  if (PAY_PORT) {
+    log('Tarjeta en un recuadro de pago de otra web (como el de Stripe)');
+    await chrome.send('Page.navigate', { url: url('login.test', '/tienda') }, sessionId);
+    for (let i = 0; i < 50; i++) { if (await ev(`location.pathname === '/tienda' && document.readyState === 'complete' && !!document.querySelector('#pf')`).catch(() => false)) break; await sleep(100); }
+    // Cada marco de la pestaña, visto desde la extensión (el recuadro es de otra web).
+    const frames = () => sw(`chrome.tabs.query({}).then((ts) => ts.find((t) => (t.url || '').includes('/tienda'))).then((t) => chrome.scripting.executeScript({ target: { tabId: t.id, allFrames: true },
+      func: () => ({ host: location.hostname, ui: document.querySelectorAll('turbovault-ui').length, vals: [...document.querySelectorAll('input')].map((i) => i.value), sec: [...document.querySelectorAll('input')].map((i) => getComputedStyle(i).webkitTextSecurity) }) })).then((rs) => rs.map((r) => r.result))`);
+    let fr = [];
+    const pay = () => fr.find((f) => f && f.host === 'js.stripe.com');
+    for (let i = 0; i < 40; i++) { fr = await frames().catch(() => []); if (pay() && pay().ui) break; await sleep(200); }
+    check(!!pay() && pay().ui === 1, 'TurboVAULT pone su icono también dentro del recuadro de pago (otra web, por https)');
+    // Clic de verdad en el icono del número, dentro del recuadro.
+    const pf = await boxOf('#pf');
+    await sleep(900);
+    for (const type of ['mousePressed', 'mouseReleased']) await chrome.send('Input.dispatchMouseEvent', { type, x: pf.content[0] + 282, y: pf.content[1] + 18, button: 'left', clickCount: 1 }, sessionId);
+    const pItem = await shadowQuery('.menu [data-card]', 15);
+    check(!!pItem, 'su icono abre el menú de tarjetas en la página de la tienda (en el recuadro no cabe)');
+    if (pItem) {
+      await shot('7-recuadro-de-pago');
+      await sleep(500);
+      await clickModel(pItem);
+      await sleep(500);
+      const ps = await shadowQuery('.menu [data-sure]', 6);
+      if (ps) { await sleep(500); await clickModel(ps); }
+      const r3 = await cardReq();
+      if (r3) await uiCall('approveCard', { nonce: r3.nonce, master: MASTER });
+      for (let i = 0; i < 40; i++) { fr = await frames(); if (pay() && pay().vals[0]) break; await sleep(150); }
+      const top = fr.find((f) => f && f.host === 'login.test');
+      check(!!r3 && pay() && pay().vals[0] === '4242424242424242' && pay().vals[1] === '123', `tras confirmar en la ventana, rellena el número y el CVC dentro del recuadro (${pay() && pay().vals.join(' · ')})`);
+      check(top && top.vals[0] === 'FERNANDO PRUEBA', 'y el titular en la página de la tienda');
+      check(pay() && pay().sec[0] === 'disc' && pay().sec[1] === 'disc', 'también tapados dentro del recuadro');
+    }
+  } else log('  (sin openssl: se salta la prueba del recuadro de pago)');
 
   log('Guardar al iniciar sesión');
   await chrome.send('Page.navigate', { url: url('nueva.test', '/login') }, sessionId);

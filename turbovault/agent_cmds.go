@@ -24,13 +24,14 @@ import (
 var extCmds = map[string]bool{
 	"hello": true, "state": true, "matches": true, "fill": true, "totp": true, "check": true,
 	"save": true, "never": true, "generate": true, "copy": true, "search": true, "pairRequest": true,
-	"lock": true, "strength": true, "copyText": true,
+	"lock": true, "strength": true, "copyText": true, "cards": true, "fillCard": true,
 }
 
 // Órdenes del navegador que tocan datos de la bóveda: solo si la extensión
 // cargada es la original.
 var needsSecretOK = map[string]bool{
 	"matches": true, "fill": true, "totp": true, "check": true, "save": true, "copy": true, "search": true, "pairRequest": true,
+	"cards": true, "fillCard": true,
 }
 
 // Órdenes que funcionan con la bóveda cerrada.
@@ -153,6 +154,7 @@ func (a *Agent) appCmd(cmd string, raw json.RawMessage) (any, error) {
 			return nil, errCode("interrupted", "Se bloqueó el equipo mientras se creaba. La bóveda está creada: ábrela con tu contraseña maestra.")
 		}
 		a.mu.Lock()
+		a.masterAt = time.Now()
 		if a.timer != nil {
 			a.timer.Stop()
 		}
@@ -375,6 +377,9 @@ func (a *Agent) appCmd(cmd string, raw json.RawMessage) (any, error) {
 			LockOnClose *bool
 			LockOnMin   *bool
 			RevealSec   *int
+			Cards       *bool
+			CardAsk     *bool
+			CardMask    *bool
 		}
 		if err := decode(raw, &p); err != nil {
 			return nil, err
@@ -410,7 +415,19 @@ func (a *Agent) appCmd(cmd string, raw json.RawMessage) (any, error) {
 			if p.RevealSec != nil {
 				s.RevealSec = *p.RevealSec
 			}
+			if p.Cards != nil {
+				s.Cards = *p.Cards
+			}
+			if p.CardAsk != nil {
+				s.CardAsk = *p.CardAsk
+			}
+			if p.CardMask != nil {
+				s.CardMask = *p.CardMask
+			}
 		})
+		if p.Cards != nil && !s.Cards {
+			a.cancelCard() // si había una tarjeta esperando, ya no se rellena
+		}
 		if p.Autostart != nil {
 			setAutostart(*p.Autostart)
 		}
@@ -423,7 +440,18 @@ func (a *Agent) appCmd(cmd string, raw json.RawMessage) (any, error) {
 	case "verifyMaster":
 		var p struct{ Master string }
 		decode(raw, &p)
-		return nil, a.masterTry(func() error { return a.v.VerifyMaster(p.Master) })
+		if err := a.masterTry(func() error { return a.v.VerifyMaster(p.Master) }); err != nil {
+			return nil, err
+		}
+		a.mu.Lock()
+		a.masterAt = time.Now()
+		a.mu.Unlock()
+		return nil, nil
+
+	case "approveCard", "rejectCard":
+		var p struct{ Nonce, Master string }
+		decode(raw, &p)
+		return nil, a.answerCard(p.Nonce, cmd == "approveCard", p.Master)
 
 	case "changeMaster":
 		var p struct{ Old, New string }
@@ -578,6 +606,11 @@ func (a *Agent) saveItem(it vault.Item, sec *vault.Secret, src string) (vault.It
 	it.URLs = normalizeURLs(it.URLs)
 	it.Title = strings.TrimSpace(it.Title)
 	it.Username = strings.TrimSpace(it.Username)
+	if it.Type == vault.TypeCard {
+		if err := cleanCard(&it, sec); err != nil {
+			return vault.Item{}, err
+		}
+	}
 	if it.Title == "" {
 		if len(it.URLs) > 0 {
 			it.Title = match.Host(it.URLs[0])
@@ -658,6 +691,28 @@ func (a *Agent) copyField(id, field, origin, src string) (any, error) {
 			return nil, errCode("notfound", "No existe.")
 		}
 		text = sec.History[i].Password
+	case strings.HasPrefix(field, "card:"):
+		c := sec.Card
+		if it.Type != vault.TypeCard || c == nil {
+			return nil, errCode("invalid", "Esta entrada no es una tarjeta.")
+		}
+		switch field {
+		case "card:number":
+			text = c.Number
+		case "card:holder":
+			text, secret = c.Holder, false
+		case "card:exp":
+			if c.ExpMonth != "" {
+				text = c.ExpMonth + "/" + c.ExpYear[len(c.ExpYear)-2:]
+			}
+			secret = false
+		case "card:cvc":
+			text = c.CVC
+		case "card:pin":
+			text = c.PIN
+		default:
+			return nil, errCode("invalid", "Campo desconocido.")
+		}
 	default:
 		return nil, errCode("invalid", "Campo desconocido.")
 	}
@@ -672,7 +727,7 @@ func (a *Agent) copyField(id, field, origin, src string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if field == "password" || field == "totp" {
+	if field == "password" || field == "totp" || field == "card:number" || field == "card:cvc" {
 		a.v.Touch(id)
 		a.event(vault.Event{Kind: "copy", Item: id, Title: it.Title, Origin: origin, Src: src})
 	}
@@ -704,6 +759,9 @@ func (a *Agent) importCSV(path string, wipe bool) (*ImportResult, error) {
 		return strings.ToLower(match.Host(url)) + "\x00" + strings.ToLower(user) + "\x00" + pw
 	}
 	if err := a.v.Each(func(it vault.Item, s vault.Secret) {
+		if it.Type == vault.TypeCard {
+			return
+		}
 		u := ""
 		if len(it.URLs) > 0 {
 			u = it.URLs[0]
@@ -797,6 +855,9 @@ func (a *Agent) exportCSV(path, master string) (any, error) {
 	}
 	var recs []csvio.Record
 	err := a.v.Each(func(it vault.Item, s vault.Secret) {
+		if it.Type == vault.TypeCard {
+			return // el CSV de contraseñas no tiene sitio para tarjetas (y mejor que no viajen sin cifrar)
+		}
 		u := ""
 		if len(it.URLs) > 0 {
 			u = it.URLs[0]
@@ -828,6 +889,7 @@ func (a *Agent) exportCSV(path, master string) (any, error) {
 type extArgs struct {
 	Token    string      `json:"token"`
 	URL      string      `json:"url"`
+	Frame    string      `json:"frame"` // marco que pide (el recuadro de pago de Stripe, Adyen…)
 	ID       string      `json:"id"`
 	Field    string      `json:"field"`
 	Q        string      `json:"q"`
@@ -1117,6 +1179,15 @@ func (a *Agent) extCmd(cs *connState, cmd string, raw json.RawMessage) (any, err
 			return nil, errCode("invalid", "Web no válida.")
 		}
 		return nil, a.v.SetNever(host, true)
+
+	case "cards":
+		if !a.lookups.allow(120, 2000) {
+			return nil, errCode("ratelimit", "Demasiadas peticiones.")
+		}
+		return a.cardList()
+
+	case "fillCard":
+		return a.fillCard(cs, p)
 	}
 	return nil, errDenied
 }

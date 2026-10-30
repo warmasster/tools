@@ -70,10 +70,14 @@ type Settings struct {
 	LockOnClose  bool           `json:"lockOnClose"`  // cerrar la bóveda al cerrar la ventana
 	LockOnMin    bool           `json:"lockOnMin"`    // cerrar la bóveda al minimizar la ventana
 	RevealSec    int            `json:"revealSec"`    // segundos que se ve una contraseña mostrada
+	Cards        bool           `json:"cards"`        // rellenar tarjetas en el navegador
+	CardAsk      bool           `json:"cardAsk"`      // pedir la contraseña maestra para rellenar una tarjeta
+	CardMask     bool           `json:"cardMask"`     // tapar en la página los datos de la tarjeta rellenados
 }
 
 func defaultSettings() Settings {
-	return Settings{SessionMin: 10, ClipSeconds: 20, Autostart: true, HideCapture: true, RevealSec: 30, Gen: gen.Default()}
+	return Settings{SessionMin: 10, ClipSeconds: 20, Autostart: true, HideCapture: true, RevealSec: 30, Gen: gen.Default(),
+		Cards: true, CardAsk: true, CardMask: true}
 }
 
 // Minutos que puede durar la sesión (hasta 8 h). Se cierra antes igualmente al

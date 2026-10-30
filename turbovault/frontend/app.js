@@ -54,6 +54,7 @@
     cpu: '<rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/>',
     wand: '<path d="m15 4-1 1"/><path d="M19.5 8.5 21 7"/><path d="m3 21 12-12"/><path d="M16 3v2M20 7h2M19 3l-1 1M14.5 9.5 17 12"/>',
     zap: '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
+    card: '<rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/><path d="M6 15h4"/>',
   };
   const ic = (n) => `<svg viewBox="0 0 24 24">${I[n] || ''}</svg>`;
 
@@ -194,14 +195,55 @@
     items: [], trash: [], view: 'items', filter: 'all', q: '', sort: 'name',
     sel: null, detail: null, reveal: false, revealTimer: 0,
     health: null, healthTab: 'weak', settings: null, gen: null, genOpts: null,
-    lockStep: 'welcome', pairShown: false,
+    lockStep: 'welcome', pairShown: false, cardModal: null, cardNonce: '',
   };
 
   const AV_COLORS = ['#7c3aed', '#4f46e5', '#0891b2', '#059669', '#d97706', '#db2777', '#2563eb', '#9333ea', '#0d9488', '#dc2626', '#65a30d', '#c026d3'];
   function hostOf(u) {
     try { return new URL(u.includes('://') ? u : 'https://' + u).hostname.replace(/^www\./, ''); } catch { return ''; }
   }
+  // Tarjetas: marca, color y caducidad.
+  const BRANDS = {
+    visa: ['Visa', 'linear-gradient(135deg,#1e3a8a,#2563eb 55%,#38bdf8)'],
+    mastercard: ['Mastercard', 'linear-gradient(135deg,#7c2d12,#ea580c 55%,#f59e0b)'],
+    amex: ['American Express', 'linear-gradient(135deg,#0e7490,#0891b2 55%,#67e8f9)'],
+    diners: ['Diners Club', 'linear-gradient(135deg,#1e293b,#475569 60%,#94a3b8)'],
+    jcb: ['JCB', 'linear-gradient(135deg,#065f46,#059669 55%,#34d399)'],
+    discover: ['Discover', 'linear-gradient(135deg,#7c2d12,#f97316)'],
+    unionpay: ['UnionPay', 'linear-gradient(135deg,#7f1d1d,#dc2626 55%,#0e7490)'],
+    maestro: ['Maestro', 'linear-gradient(135deg,#1e3a8a,#7c3aed 55%,#dc2626)'],
+  };
+  const brandName = (b) => (BRANDS[b] ? BRANDS[b][0] : 'Tarjeta');
+  const brandBg = (b) => (BRANDS[b] ? BRANDS[b][1] : 'linear-gradient(135deg,#4c1d95,#6366f1 55%,#06b6d4)');
+  const cardLine = (it) => `${brandName(it.brand)}${it.last4 ? ' •••• ' + it.last4 : ''}`;
+  const expParts = (exp) => /^(\d{4})-(\d{2})$/.exec(exp || '');
+  const expShort = (exp) => { const m = expParts(exp); return m ? `${m[2]}/${m[1].slice(2)}` : ''; };
+  const isExpired = (exp) => { const m = expParts(exp); if (!m) return false; const d = new Date(); return d.getFullYear() > +m[1] || (d.getFullYear() === +m[1] && d.getMonth() + 1 > +m[2]); };
+  const digits = (s) => String(s || '').replace(/\D/g, '');
+  const groupNum = (n) => (n.length === 15 ? n.replace(/^(\d{4})(\d{6})(\d{5})$/, '$1 $2 $3') : n.replace(/(\d{4})(?=\d)/g, '$1 '));
+  // Las mismas reglas que TurboVAULT (internal/card), para avisar mientras escribes.
+  function detectBrand(n) {
+    const p = (k) => (n.length >= k ? +n.slice(0, k) : -1);
+    const b = (v, lo, hi) => v >= lo && v <= hi;
+    if (p(2) === 34 || p(2) === 37) return 'amex';
+    if (p(1) === 4) return 'visa';
+    if (b(p(2), 51, 55) || b(p(4), 2221, 2720)) return 'mastercard';
+    if (b(p(3), 300, 305) || [36, 38, 39].includes(p(2))) return 'diners';
+    if (b(p(4), 3528, 3589)) return 'jcb';
+    if (p(4) === 6011 || p(2) === 65 || b(p(3), 644, 649) || b(p(6), 622126, 622925)) return 'discover';
+    if (p(2) === 62) return 'unionpay';
+    if (p(2) === 50 || b(p(2), 56, 69)) return 'maestro';
+    return '';
+  }
+  function luhn(n) {
+    if (n.length < 12) return false;
+    let sum = 0;
+    for (let i = n.length - 1, dbl = false; i >= 0; i--, dbl = !dbl) { let d = +n[i]; if (dbl) { d *= 2; if (d > 9) d -= 9; } sum += d; }
+    return sum % 10 === 0;
+  }
+
   function avatar(it, cls = '') {
+    if (it.type === 'card') return `<div class="av ${cls}" style="--avc:${brandBg(it.brand)}">${ic('card')}</div>`;
     const host = (it.urls && it.urls[0] && hostOf(it.urls[0])) || '';
     const base = host || it.title || '?';
     let h = 0;
@@ -258,6 +300,8 @@
     const wasOpen = prev && prev.unlocked;
     document.body.classList.toggle('locked', !st.unlocked);
     if (!st.unlocked) {
+      // La ventanita de la tarjeta no tiene nada que hacer con la bóveda cerrada.
+      if (S.mode === 'card') { rt.Quit(); return; }
       if (wasOpen || !prev) wipe();
       renderLock();
     } else {
@@ -271,9 +315,15 @@
     tickSession();
     if (st.unlocked && st.pair && !S.pairShown) showPair(st.pair);
     if (!st.pair && S.pairModal) { S.pairModal.close(); S.pairModal = null; }
+    if (st.unlocked) syncCardReq();
   }
 
   function onPrompt(m) {
+    if (m === 'card') {
+      if (S.mode === '') { syncCardReq(); return; } // la ventana grande ya está abierta: un aviso encima
+      setMode('card');
+      return;
+    }
     if (m === 'unlock' || m === 'pair') {
       if (S.mode === '' && S.state && S.state.unlocked) {
         if (m === 'pair' && S.state.pair) showPair(S.state.pair);
@@ -319,6 +369,7 @@
       if (S.state.pair) showPair(S.state.pair);
       return;
     }
+    if (S.mode === 'card') { syncCardReq(); return; }
     $('#lock').hidden = true;
     await loadItems();
     renderView();
@@ -362,6 +413,7 @@
   $('#wb-min').onclick = () => { lockIfMin(); rt.WindowMinimise(); };
   $('#wb-max').onclick = () => rt.WindowToggleMaximise();
   $('#wb-close').onclick = async () => {
+    if (S.cardNonce) { try { await call('rejectCard', { nonce: S.cardNonce }); } catch { /* nada */ } } // cerrar = no rellenar
     if (S.mode === '' && S.state && S.state.unlocked && S.settings && S.settings.lockOnClose) { try { await call('lock'); } catch { /* nada */ } }
     rt.Quit();
   };
@@ -622,6 +674,76 @@
     };
   }
 
+  // ---------- confirmar una tarjeta con la contraseña maestra ----------
+  // El navegador quiere rellenar una tarjeta: se confirma aquí, nunca en la página.
+  function syncCardReq() {
+    const req = S.state && S.state.unlocked ? S.state.cardReq : null;
+    if (req && req.nonce === S.cardNonce) return;
+    if (S.cardModal) { const m = S.cardModal; S.cardModal = null; m.close(); }
+    if (!req) {
+      const had = S.cardNonce;
+      S.cardNonce = '';
+      if (S.mode === 'card') cardDone(had ? 'Ya no hay ninguna tarjeta esperando' : 'Nada que confirmar', 'Se canceló o pasó el tiempo. Vuelve a elegirla en el navegador.', false);
+      return;
+    }
+    S.cardNonce = req.nonce;
+    const body = `<div class="ccard mini" style="--cc:${brandBg(req.brand)}"><div class="top"><i class="chipi"></i><span class="brand">${esc(brandName(req.brand))}</span></div>
+        <div class="num">${esc(req.card.replace(/^.*?(•)/, '$1'))}</div><div class="bot"><div><b>${esc(req.title)}</b></div></div></div>
+      <p class="mtext" style="text-align:center"><b>${esc(req.browser || 'El navegador')}</b> quiere rellenar <b>${esc(req.card)}</b> en <b>${esc(req.host)}</b>. Escribe tu contraseña maestra para darle los datos.</p>
+      <form id="cq-form" autocomplete="off"><label class="field big"><div class="pw"><input type="password" id="cq-pw" placeholder="Contraseña maestra" spellcheck="false" autocomplete="off"></div></label>
+        <div class="lock-err" id="cq-err"></div>
+        <div class="row-btns"><button type="button" class="btn ghost sm" id="cq-no">No rellenar</button><button type="submit" class="btn primary sm" id="cq-go">${ic('card')}Rellenar</button></div></form>`;
+    let root;
+    if (S.mode === 'card') {
+      const el = $('#lock');
+      el.hidden = false;
+      el.innerHTML = `<div class="lock-card" id="cq-card"><h1>Rellenar una <b>tarjeta</b></h1><p class="sub">Si no has sido tú, pulsa «No rellenar».</p>${body}</div>`;
+      root = el;
+    } else {
+      const m = modal({ title: 'Rellenar una tarjeta', body, onClose: () => { if (S.cardModal === m) { S.cardModal = null; answerCard(req.nonce, false); } } });
+      S.cardModal = m;
+      root = m.el;
+    }
+    const pw = $('#cq-pw', root);
+    setTimeout(() => pw.focus(), 50);
+    const shake = () => { const c = $('#cq-card', root) || $('.modal-card', root); c.classList.remove('shake'); void c.offsetWidth; c.classList.add('shake'); };
+    $('#cq-no', root).onclick = () => answerCard(req.nonce, false);
+    $('#cq-form', root).onsubmit = async (e) => {
+      e.preventDefault();
+      if (!pw.value) return;
+      const b = $('#cq-go', root);
+      b.classList.add('busy');
+      $('#cq-err', root).textContent = '';
+      try {
+        await call('approveCard', { nonce: req.nonce, master: pw.value });
+        pw.value = '';
+        S.cardNonce = '';
+        if (S.cardModal) { const m = S.cardModal; S.cardModal = null; m.close(); toast('Tarjeta confirmada: el navegador ya la rellena'); }
+        if (S.mode === 'card') cardDone('Tarjeta confirmada', 'Vuelve al navegador: ya la está rellenando.', true);
+      } catch (err) {
+        $('#cq-err', root).textContent = err.code === 'wrong' ? 'Contraseña maestra incorrecta.' : err.message;
+        shake();
+        pw.select();
+      } finally { b.classList.remove('busy'); }
+    };
+  }
+
+  async function answerCard(nonce, ok) {
+    if (ok) return;
+    S.cardNonce = '';
+    try { await call('rejectCard', { nonce }); } catch { /* ya no estaba */ }
+    if (S.cardModal) { const m = S.cardModal; S.cardModal = null; m.close(); }
+    if (S.mode === 'card') rt.Quit();
+  }
+
+  function cardDone(title, sub, ok) {
+    const el = $('#lock');
+    el.hidden = false;
+    el.innerHTML = `<div class="lock-card"><div class="ok-big" ${ok ? '' : 'style="background:rgba(251,191,36,.12);color:var(--warn,#fbbf24)"'}>${ic(ok ? 'ok' : 'clock')}</div>
+      <h1>${esc(title)}</h1><p class="sub">${esc(sub)}</p></div>`;
+    setTimeout(() => { if (S.mode === 'card' && !S.cardNonce) rt.Quit(); }, ok ? 1100 : 2600); // salvo que entretanto llegue otra
+  }
+
   // =====================================================================
   // navegación
   // =====================================================================
@@ -631,6 +753,7 @@
     { id: 'fav', label: 'Favoritas', icon: 'star' },
     { id: 'login', label: 'Inicios de sesión', icon: 'key' },
     { id: 'note', label: 'Notas seguras', icon: 'note' },
+    { id: 'card', label: 'Tarjetas', icon: 'card' },
     { id: 'otp', label: 'Con 2FA', icon: 'otp' },
     { sec: 'Herramientas' },
     { id: 'gen', label: 'Generador', icon: 'dice', view: 'gen' },
@@ -642,12 +765,14 @@
     { id: 'settings', label: 'Ajustes', icon: 'gear', view: 'settings' },
   ];
 
+  const isLogin = (i) => i.type !== 'note' && i.type !== 'card';
   function renderSide() {
     const counts = {
       all: S.items.length,
       fav: S.items.filter((i) => i.fav).length,
-      login: S.items.filter((i) => i.type !== 'note').length,
+      login: S.items.filter((i) => isLogin(i)).length,
       note: S.items.filter((i) => i.type === 'note').length,
+      card: S.items.filter((i) => i.type === 'card').length,
       otp: S.items.filter((i) => i.hasTotp).length,
       trash: S.trash.length,
     };
@@ -716,15 +841,16 @@
     let list = S.filter === 'trash' ? S.trash.slice() : S.items.slice();
     switch (S.filter) {
       case 'fav': list = list.filter((i) => i.fav); break;
-      case 'login': list = list.filter((i) => i.type !== 'note'); break;
+      case 'login': list = list.filter(isLogin); break;
       case 'note': list = list.filter((i) => i.type === 'note'); break;
+      case 'card': list = list.filter((i) => i.type === 'card'); break;
       case 'otp': list = list.filter((i) => i.hasTotp); break;
     }
     const q = S.q.trim().toLowerCase();
     if (q) {
       const words = q.split(/\s+/);
       list = list.filter((i) => {
-        const hay = `${i.title} ${i.username || ''} ${(i.urls || []).join(' ')} ${(i.tags || []).join(' ')}`.toLowerCase();
+        const hay = `${i.title} ${i.username || ''} ${(i.urls || []).join(' ')} ${(i.tags || []).join(' ')} ${i.type === 'card' ? `${brandName(i.brand)} ${i.last4 || ''}` : ''}`.toLowerCase();
         return words.every((w) => hay.includes(w));
       });
     }
@@ -748,10 +874,15 @@
     if (!list.length) {
       const empty = trash ? ['trash', 'La papelera está vacía', 'Lo que borres se queda aquí 30 días por si te arrepientes.']
         : S.q ? ['all', 'Nada coincide', 'Prueba con otra palabra.']
+        : S.filter === 'card' ? ['card', 'Sin tarjetas', 'Guárdalas aquí y la extensión las rellenará al pagar en una web (pidiéndote antes la contraseña maestra).']
         : S.items.length ? ['all', 'Nada por aquí', 'Esta lista está vacía.']
         : ['key', 'Tu bóveda está vacía', 'Añade tu primera contraseña, impórtalas de Chrome o deja que la extensión las guarde al iniciar sesión.'];
       $('#list').innerHTML = `<div class="empty">${ic(empty[0])}<b>${esc(empty[1])}</b><p>${esc(empty[2])}</p>
         ${!S.items.length && !trash && !S.q ? `<div class="row-btns"><button class="btn primary sm" id="em-add">${ic('plus')}Nueva entrada</button><button class="btn ghost sm" id="em-imp">${ic('download')}Importar de Chrome</button></div>` : ''}</div>`;
+      if (S.filter === 'card' && !S.q) {
+        $('#list .empty').insertAdjacentHTML('beforeend', `<div class="row-btns"><button class="btn primary sm" id="em-card">${ic('plus')}Nueva tarjeta</button></div>`);
+        $('#em-card').onclick = () => openEditor(null, { type: 'card' });
+      }
       const a = $('#em-add'), b = $('#em-imp');
       if (a) a.onclick = () => openEditor(null);
       if (b) b.onclick = () => { go('backup'); importFlow(); };
@@ -760,13 +891,17 @@
     let h = '';
     if (trash) h += `<div style="display:flex;justify-content:flex-end;padding:0 0 8px"><button class="btn ghost xs danger-txt" id="empty-trash">${ic('trash')}Vaciar papelera</button></div>`;
     for (const it of list) {
-      const sub = it.type === 'note' ? 'Nota segura' : (it.username || (it.urls && it.urls[0] ? hostOf(it.urls[0]) : '') || '—');
+      const exp = it.type === 'card' ? expShort(it.exp) : '';
+      const sub = it.type === 'note' ? 'Nota segura'
+        : it.type === 'card' ? `${cardLine(it)}${exp ? ` · ${isExpired(it.exp) ? 'caducada' : 'caduca'} ${exp}` : ''}`
+        : (it.username || (it.urls && it.urls[0] ? hostOf(it.urls[0]) : '') || '—');
       const dots = [];
+      if (it.type === 'card' && isExpired(it.exp)) dots.push('<i class="weak" title="Caducada"></i>');
       if (it.hasPassword && it.score <= 1) dots.push('<i class="weak" title="Contraseña débil"></i>');
       if (it.hasTotp) dots.push('<i class="otp" title="Con 2FA"></i>');
       const acts = trash
         ? `<button class="ibtn" data-act="untrash" title="Restaurar">${ic('undo')}</button>`
-        : it.type === 'note' ? '' : `${it.username ? `<button class="ibtn" data-act="cuser" title="Copiar usuario">${ic('user')}</button>` : ''}${it.hasPassword ? `<button class="ibtn" data-act="cpass" title="Copiar contraseña">${ic('key')}</button>` : ''}`;
+        : it.type === 'note' ? '' : it.type === 'card' ? `<button class="ibtn" data-act="cnum" title="Copiar el número">${ic('card')}</button>` : `${it.username ? `<button class="ibtn" data-act="cuser" title="Copiar usuario">${ic('user')}</button>` : ''}${it.hasPassword ? `<button class="ibtn" data-act="cpass" title="Copiar contraseña">${ic('key')}</button>` : ''}`;
       h += `<div class="row-i ${S.sel === it.id ? 'sel' : ''}" data-id="${esc(it.id)}" tabindex="0">
         ${avatar(it)}
         <div class="t"><b><span>${esc(it.title)}</span>${it.fav ? ic('star') : ''}</b><small>${esc(sub)}</small></div>
@@ -805,6 +940,7 @@
       const id = row.dataset.id;
       if (act.dataset.act === 'cuser') copyField(id, 'username');
       if (act.dataset.act === 'cpass') copyField(id, 'password');
+      if (act.dataset.act === 'cnum') copyField(id, 'card:number');
       if (act.dataset.act === 'untrash') untrash(id);
       return;
     }
@@ -812,7 +948,7 @@
   });
   $('#list').addEventListener('dblclick', (e) => {
     const row = e.target.closest('.row-i');
-    if (row && S.filter !== 'trash') { const it = findItem(row.dataset.id); if (it && it.hasPassword) copyField(it.id, 'password'); }
+    if (row && S.filter !== 'trash') { const it = findItem(row.dataset.id); if (it && it.hasPassword) copyField(it.id, 'password'); else if (it && it.type === 'card') copyField(it.id, 'card:number'); }
   });
   $('#list').addEventListener('contextmenu', (e) => {
     const row = e.target.closest('.row-i');
@@ -831,6 +967,10 @@
     if (it.username) items.push({ icon: 'user', label: 'Copiar usuario (Ctrl+B)', run: () => copyField(it.id, 'username') });
     if (it.hasPassword) items.push({ icon: 'key', label: 'Copiar contraseña (Ctrl+C)', run: () => copyField(it.id, 'password') });
     if (it.hasTotp) items.push({ icon: 'otp', label: 'Copiar código 2FA (Ctrl+Mayús+C)', run: () => copyField(it.id, 'totp') });
+    if (it.type === 'card') {
+      items.push({ icon: 'card', label: 'Copiar el número (Ctrl+C)', run: () => copyField(it.id, 'card:number') });
+      items.push({ icon: 'shield', label: 'Copiar el CVC', run: () => copyField(it.id, 'card:cvc') });
+    }
     if (items.length) items.push('-');
     items.push({ icon: 'edit', label: 'Editar', run: () => editSelected() });
     items.push({ icon: 'star', label: it.fav ? 'Quitar de favoritas' : 'Marcar como favorita', run: () => toggleFav(it) });
@@ -875,12 +1015,13 @@
     const trash = !!it.deleted;
     const host = it.urls && it.urls[0] ? hostOf(it.urls[0]) : '';
     let h = `<div class="d-hero"><div class="d-id">${avatar(it, 'lg')}
-      <div class="txt"><h2>${esc(it.title)}</h2><div class="sub">${esc(it.type === 'note' ? 'Nota segura' : host || 'Sin web')}</div></div>
+      <div class="txt"><h2>${esc(it.title)}</h2><div class="sub">${esc(it.type === 'note' ? 'Nota segura' : it.type === 'card' ? cardLine(it) : host || 'Sin web')}</div></div>
       ${trash ? '' : `<button class="ibtn star ${it.fav ? 'on' : ''}" id="d-fav" title="Favorita">${ic('star')}</button>`}
       <button class="ibtn" id="d-more" title="Más">${ic('more')}</button></div>`;
     const chips = [];
     if (it.hasPassword) chips.push(`<span class="chip s${it.score}">${ic('shield')}${SCORE_LABEL[it.score] || ''}</span>`);
     if (it.hasTotp) chips.push(`<span class="chip cy">${ic('otp')}2FA</span>`);
+    if (it.type === 'card' && it.exp) chips.push(isExpired(it.exp) ? `<span class="chip s1">${ic('clock')}Caducada (${esc(expShort(it.exp))})</span>` : `<span class="chip">${ic('clock')}Caduca ${esc(expShort(it.exp))}</span>`);
     if (it.uses) chips.push(`<span class="chip">${ic('zap')}Usada ${it.uses} ${it.uses === 1 ? 'vez' : 'veces'}</span>`);
     if (trash) chips.push(`<span class="chip s1">${ic('trash')}En la papelera</span>`);
     if (chips.length) h += `<div class="d-chips">${chips.join('')}</div>`;
@@ -895,7 +1036,9 @@
       return;
     }
     // campos
-    if (it.type !== 'note') {
+    if (it.type === 'card') {
+      h += cardSection(it, sec.card || {});
+    } else if (it.type !== 'note') {
       h += '<div class="d-sec">';
       h += `<div class="frow"><div><div class="k">Usuario</div><div class="v ${it.username ? '' : 'none'}">${esc(it.username || 'Sin usuario')}</div></div>
         <div class="acts">${it.username ? `<button class="ibtn" data-copy="username" title="Copiar">${ic('copy')}</button>` : ''}</div></div>`;
@@ -942,11 +1085,30 @@
     h += `<div class="d-sec"><div class="facts">
       <div class="fact"><b>${esc(fmtDate(it.created))}</b><span>Creada</span></div>
       <div class="fact"><b>${esc(fmtDate(it.updated))}</b><span>Modificada</span></div>
-      ${it.pwChanged ? `<div class="fact"><b>${esc(fmtDate(it.pwChanged))}</b><span>Contraseña cambiada</span></div>` : ''}
+      ${it.pwChanged && it.type !== 'card' ? `<div class="fact"><b>${esc(fmtDate(it.pwChanged))}</b><span>Contraseña cambiada</span></div>` : ''}
       <div class="fact"><b>${esc(it.used ? fmtDate(it.used) : 'Nunca')}</b><span>Último uso</span></div></div></div>`;
     el.innerHTML = h;
     bindDetail(it);
     if (d.totp) startOtp(it.id, d.totp);
+  }
+
+  // La tarjeta dibujada y sus datos (el número y el CVC tapados hasta pulsar el ojo).
+  function cardSection(it, c) {
+    const num = digits(c.number);
+    const shown = S.reveal ? groupNum(num) : `•••• •••• •••• ${num.slice(-4)}`;
+    const exp = c.expMonth ? `${c.expMonth}/${(c.expYear || '').slice(-2)}` : '';
+    let h = `<div class="d-sec"><div class="ccard" style="--cc:${brandBg(it.brand)}">
+      <div class="top"><i class="chipi"></i><span class="brand">${esc(brandName(it.brand))}</span></div>
+      <div class="num">${esc(shown)}</div>
+      <div class="bot"><div><span>Titular</span><b>${esc(c.holder || '—')}</b></div><div><span>Caduca</span><b>${esc(exp || '—')}</b></div></div></div>`;
+    const row = (k, v, copy, opts = {}) => `<div class="frow"><div style="min-width:0"><div class="k">${k}</div><div class="v ${opts.cls || ''}">${v}</div></div>
+      <div class="acts">${opts.eye ? `<button class="ibtn" id="d-eye" title="${S.reveal ? 'Ocultar' : 'Ver'}">${ic(S.reveal ? 'eyeOff' : 'eye')}</button>` : ''}${copy ? `<button class="ibtn" data-copy="${copy}" title="Copiar">${ic('copy')}</button>` : ''}</div></div>`;
+    h += row('Número', esc(shown), num ? 'card:number' : '', { cls: 'mono ' + (S.reveal ? 'reveal' : 'secret'), eye: !!num });
+    h += row('Titular', c.holder ? esc(c.holder) : 'Sin titular', c.holder ? 'card:holder' : '', { cls: c.holder ? '' : 'none' });
+    h += row('Caducidad', exp ? esc(exp) : 'Sin caducidad', exp ? 'card:exp' : '', { cls: exp ? 'mono' : 'none' });
+    if (c.cvc) h += row('Código de seguridad (CVC)', S.reveal ? esc(c.cvc) : '•••', 'card:cvc', { cls: 'mono ' + (S.reveal ? 'reveal' : 'secret') });
+    if (c.pin) h += row('PIN · nunca se rellena en una web', S.reveal ? esc(c.pin) : '••••', 'card:pin', { cls: 'mono ' + (S.reveal ? 'reveal' : 'secret') });
+    return h + '</div>';
   }
 
   const fmtOtp = (c) => (c.length === 6 ? c.slice(0, 3) + ' ' + c.slice(3) : c);
@@ -1009,7 +1171,8 @@
     try {
       const r = await call('copy', { id, field });
       if (btn) { btn.classList.add('done'); setTimeout(() => btn.classList.remove('done'), 1200); }
-      const what = { username: 'Usuario copiado', password: 'Contraseña copiada', totp: 'Código 2FA copiado', notes: 'Notas copiadas' }[field] || 'Copiado';
+      const what = { username: 'Usuario copiado', password: 'Contraseña copiada', totp: 'Código 2FA copiado', notes: 'Notas copiadas',
+        'card:number': 'Número copiado', 'card:cvc': 'CVC copiado', 'card:holder': 'Titular copiado', 'card:exp': 'Caducidad copiada', 'card:pin': 'PIN copiado' }[field] || 'Copiado';
       if (r && r.clearIn) toast(`${what} · se borra del portapapeles en ${r.clearIn} s`, 'secret', { bar: r.clearIn });
       else toast(what);
     } catch (e) { fail(e); }
@@ -1051,15 +1214,28 @@
   // =====================================================================
   function openEditor(d, preset = {}) {
     const isNew = !d || !d.item.id;
-    const it = d ? d.item : { type: preset.type || (S.filter === 'note' ? 'note' : 'login'), title: '', urls: [], username: '', fav: false };
+    const it = d ? d.item : { type: preset.type || (S.filter === 'note' ? 'note' : S.filter === 'card' ? 'card' : 'login'), title: '', urls: [], username: '', fav: false };
     const sec = d ? d.secret : { password: preset.password || '', notes: '', totp: '', fields: [] };
+    const cd = sec.card || {};
     const urls = it.urls && it.urls.length ? it.urls.slice() : [''];
     const fields = (sec.fields || []).map((f) => ({ ...f }));
     const m = modal({
       title: isNew ? 'Nueva entrada' : 'Editar entrada',
       narrow: false,
-      body: `<div class="seg" id="ed-type" style="margin-bottom:14px"><button data-t="login">${ic('key')} Inicio de sesión</button><button data-t="note">${ic('note')} Nota segura</button></div>
+      body: `<div class="seg" id="ed-type" style="margin-bottom:14px"><button data-t="login">${ic('key')} Inicio de sesión</button><button data-t="note">${ic('note')} Nota segura</button><button data-t="card">${ic('card')} Tarjeta</button></div>
         <label class="field"><span>Nombre</span><input id="ed-title" value="${esc(it.title)}" placeholder="Ej.: Gmail, Banco, Steam…" spellcheck="false"></label>
+        <div class="ed-card">
+          <label class="field"><span>Número de la tarjeta</span><input id="ed-cnum" class="mono" inputmode="numeric" value="${esc(groupNum(digits(cd.number)))}" placeholder="1234 5678 9012 3456" spellcheck="false" autocomplete="off">
+            <div class="hint" id="ed-cnum-h"></div></label>
+          <label class="field"><span>Titular <em>· como va impreso en la tarjeta</em></span><input id="ed-chold" value="${esc(cd.holder || '')}" placeholder="NOMBRE APELLIDO" spellcheck="false" autocomplete="off"></label>
+          <div class="grid3">
+            <label class="field"><span>Caduca: mes</span><input id="ed-cmon" class="mono" inputmode="numeric" maxlength="2" value="${esc(cd.expMonth || '')}" placeholder="MM" autocomplete="off"></label>
+            <label class="field"><span>Año</span><input id="ed-cyear" class="mono" inputmode="numeric" maxlength="4" value="${esc((cd.expYear || '').slice(-2))}" placeholder="AA" autocomplete="off"></label>
+            <label class="field"><span>CVC</span><div class="pw"><input id="ed-ccvc" type="password" class="mono" inputmode="numeric" maxlength="4" value="${esc(cd.cvc || '')}" placeholder="123" autocomplete="off">
+              <button type="button" class="ibtn in-btn" id="ed-ceye" title="Ver">${ic('eye')}</button></div></label>
+          </div>
+          <label class="field"><span>PIN <em>· opcional; nunca se rellena en ninguna web</em></span><input id="ed-cpin" type="password" class="mono" inputmode="numeric" value="${esc(cd.pin || '')}" autocomplete="off"></label>
+        </div>
         <div class="ed-login">
           <div class="field"><span>Webs <em>· solo la web exacta; escribe *.dominio.com para incluir sus subdominios</em></span><div class="multi" id="ed-urls"></div>
             <button class="btn ghost xs" id="ed-addurl" style="margin-top:6px">${ic('plus')}Otra web</button></div>
@@ -1086,7 +1262,9 @@
     const setType = (t) => {
       type = t;
       $$('#ed-type button', el).forEach((b) => b.classList.toggle('on', b.dataset.t === t));
-      $('.ed-login', el).hidden = t === 'note';
+      $('.ed-login', el).hidden = t !== 'login';
+      $('.ed-card', el).hidden = t !== 'card';
+      $('#ed-title', el).placeholder = t === 'card' ? 'Ej.: Visa del banco (vacío: «Visa •••• 4242»)' : t === 'note' ? 'Ej.: Wifi de casa, licencias…' : 'Ej.: Gmail, Banco, Steam…';
     };
     $$('#ed-type button', el).forEach((b) => (b.onclick = () => setType(b.dataset.t)));
     setType(type);
@@ -1129,19 +1307,42 @@
       try { const g = await call('generate'); pw.value = g.password; pw.type = 'text'; strength(); } catch (e) { fail(e); }
     };
     if (preset.password) { pw.type = 'text'; }
+    // tarjeta: la marca y la cifra de control mientras escribes
+    const cnum = $('#ed-cnum', el);
+    const cardHint = () => {
+      const n = digits(cnum.value);
+      const h = $('#ed-cnum-h', el);
+      if (!n) { h.textContent = ''; h.className = 'hint'; return; }
+      const b = brandName(detectBrand(n));
+      const ok = n.length >= 12 && n.length <= 19 && luhn(n);
+      h.textContent = ok ? `${b} · número correcto` : n.length < 12 ? `${b} · faltan cifras` : `${b} · revisa el número: la cifra de control no cuadra`;
+      h.className = 'hint' + (ok ? '' : ' warn');
+    };
+    cnum.addEventListener('input', cardHint);
+    cnum.addEventListener('blur', () => { cnum.value = groupNum(digits(cnum.value)); });
+    cardHint();
+    $('#ed-ceye', el).onclick = () => { const c = $('#ed-ccvc', el), p2 = $('#ed-cpin', el); const t = c.type === 'password' ? 'text' : 'password'; c.type = t; p2.type = t; };
     if (isNew && !it.title) setTimeout(() => $('#ed-title', el).focus(), 40);
 
     const save = async () => {
+      const login = type === 'login';
       const item = { ...it, type, title: $('#ed-title', el).value.trim(), fav: $('#ed-fav', el).checked };
-      item.urls = type === 'note' ? [] : urls.map((u) => u.trim()).filter(Boolean);
-      item.username = type === 'note' ? '' : $('#ed-user', el).value.trim();
+      item.urls = login ? urls.map((u) => u.trim()).filter(Boolean) : [];
+      item.username = login ? $('#ed-user', el).value.trim() : '';
       const secret = {
-        password: type === 'note' ? '' : pw.value,
-        totp: type === 'note' ? '' : $('#ed-totp', el).value.trim(),
+        password: login ? pw.value : '',
+        totp: login ? $('#ed-totp', el).value.trim() : '',
         notes: $('#ed-notes', el).value,
         fields: fields.filter((f) => f.name.trim() || f.value),
       };
-      if (!item.title && !item.urls.length) { $('#ed-err', el).textContent = 'Ponle un nombre.'; m.shake(); return; }
+      if (type === 'card') {
+        secret.card = {
+          number: digits(cnum.value), holder: $('#ed-chold', el).value.trim(),
+          expMonth: $('#ed-cmon', el).value.trim(), expYear: $('#ed-cyear', el).value.trim(),
+          cvc: $('#ed-ccvc', el).value.trim(), pin: $('#ed-cpin', el).value.trim(),
+        };
+        if (!secret.card.number) { $('#ed-err', el).textContent = 'Falta el número de la tarjeta.'; m.shake(); cnum.focus(); return; }
+      } else if (!item.title && !item.urls.length) { $('#ed-err', el).textContent = 'Ponle un nombre.'; m.shake(); return; }
       const b = $('#ed-save', el);
       b.classList.add('busy');
       try {
@@ -1304,6 +1505,7 @@
     lock: ['lock', 'lock', 'Bóveda cerrada'],
     fails: ['warn', 'bad', 'Intentos fallidos'],
     fill: ['browser', 'fill', 'Rellenada en el navegador'],
+    fillCard: ['card', 'fill', 'Tarjeta rellenada en el navegador'],
     totp: ['otp', 'fill', 'Código 2FA usado'],
     copy: ['copy', '', 'Copiada'],
     add: ['plus', '', 'Añadida'],
@@ -1336,7 +1538,7 @@
       if (dk !== day) { day = dk; h += `<div class="day-h">${esc(dk)}</div>`; }
       const [icon, cls, label] = EV[e.kind] || ['act', '', e.kind];
       let title = label, sub = '';
-      if (['fill', 'totp', 'copy', 'add', 'edit'].includes(e.kind)) { title = `${label}: ${e.title || ''}`; }
+      if (['fill', 'fillCard', 'totp', 'copy', 'add', 'edit'].includes(e.kind)) { title = `${label}: ${e.title || ''}`; }
       if (['lock', 'fails', 'import', 'abuse', 'pair', 'breach', 'backup', 'restore', 'export', 'rollback', 'tampered'].includes(e.kind) && e.title) sub = e.title;
       const from = e.src === 'app' ? 'Esta ventana' : e.src === 'agente' ? 'TurboVAULT' : e.src || '';
       if (e.origin) sub = [hostOf(e.origin), from].filter(Boolean).join(' · ');
@@ -1465,7 +1667,7 @@
   }
 
   async function exportFlow() {
-    const master = await askMaster('Exportar sin cifrar', 'El archivo llevará <b>todas tus contraseñas en texto normal</b>. Escribe tu contraseña maestra para confirmar.', 'Continuar', async (pw) => { await call('verifyMaster', { master: pw }); return pw; });
+    const master = await askMaster('Exportar sin cifrar', 'El archivo llevará <b>todas tus contraseñas en texto normal</b> (las tarjetas no se exportan). Escribe tu contraseña maestra para confirmar.', 'Continuar', async (pw) => { await call('verifyMaster', { master: pw }); return pw; });
     if (!master) return;
     const path = await api.PickSaveFile('Guardar exportación', 'turbovault-exportacion.csv', 'CSV', '*.csv');
     if (!path) return;
@@ -1505,6 +1707,10 @@
         <div class="srow"><div><b>Avisar al rellenar</b><span>Un aviso junto al reloj cada vez que el navegador usa una contraseña.</span></div>${tog('st-notify', st.notifyFill)}</div>
         <div class="srow"><div><b>Buscar filtraciones al abrir la bóveda</b><span>Comprueba en segundo plano si alguna contraseña sale en filtraciones conocidas (Have I Been Pwned). Solo se mandan los 5 primeros caracteres de su huella, nunca la contraseña.</span></div>${tog('st-breach', st.autoBreach)}</div>
         <div class="srow"><div><b>Arrancar con Windows</b><span>Deja TurboVAULT en la bandeja (junto a la flechita) para que la extensión funcione siempre.</span></div>${tog('st-auto', st.autostart)}</div></div>
+      <div class="card"><h3>${ic('card')}Tarjetas</h3>
+        <div class="srow"><div><b>Rellenar tarjetas en el navegador</b><span>El icono de TurboVAULT sale también en los campos de pago (número, titular, caducidad, CVC) y rellena la tarjeta que elijas, también en los recuadros de pago de Stripe, Adyen, Redsys, PayPal… El PIN nunca se rellena.</span></div>${tog('st-cards', st.cards)}</div>
+        <div class="srow"><div><b>Pedir la contraseña maestra al rellenar</b><span>Antes de dar una tarjeta al navegador, TurboVAULT abre su ventana para que escribas la contraseña maestra (nunca en la página). Si la acabas de escribir, durante un minuto no la vuelve a pedir.</span></div>${tog('st-cardask', st.cardAsk)}</div>
+        <div class="srow"><div><b>Tapar los datos en la página</b><span>Lo que rellena se ve como puntos (••••): no sale si compartes pantalla, grabas o alguien mira. La web lo recibe igual. Si escribes en el campo, se vuelve a ver.</span></div>${tog('st-cardmask', st.cardMask)}</div></div>
       <div class="card"><h3>${ic('key')}Contraseña maestra</h3>
         <div class="srow"><div><b>Cambiar la contraseña maestra</b><span>También cambia la clave interna de cifrado: las copias viejas siguen abriéndose solo con la contraseña de entonces.</span></div>
           <button class="btn ghost sm" id="st-master">Cambiar…</button></div></div>
@@ -1536,6 +1742,14 @@
     $('#st-lockclose').onchange = (e) => set({ lockOnClose: e.target.checked });
     $('#st-lockmin').onchange = (e) => set({ lockOnMin: e.target.checked });
     $('#st-breach').onchange = (e) => set({ autoBreach: e.target.checked });
+    $('#st-cards').onchange = (e) => set({ cards: e.target.checked });
+    $('#st-cardmask').onchange = (e) => set({ cardMask: e.target.checked });
+    $('#st-cardask').onchange = async (e) => {
+      if (e.target.checked) { set({ cardAsk: true }); return; }
+      // Quitar esta protección pide la propia contraseña maestra.
+      const ok = await askMaster('Dejar de pedir la contraseña maestra', 'El navegador podrá rellenar tus tarjetas con la bóveda abierta sin que la escribas. Escribe tu contraseña maestra para confirmarlo.', 'Dejar de pedirla', async (pw) => { await call('verifyMaster', { master: pw }); return true; });
+      if (ok) set({ cardAsk: false }); else e.target.checked = true;
+    };
     $('#st-master').onclick = changeMaster;
     $('#st-ext').onclick = setupExtension;
     $('#st-folder').onclick = async () => api.ShowInFolder(await api.DataFolder());
@@ -1628,7 +1842,7 @@
       return;
     }
     if (S.sel && e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c') { const it = findItem(S.sel); if (it && it.hasTotp) copyField(it.id, 'totp'); return; }
-    if (S.sel && e.ctrlKey && e.key.toLowerCase() === 'c') { const it = findItem(S.sel); if (it && it.hasPassword) copyField(it.id, 'password'); return; }
+    if (S.sel && e.ctrlKey && e.key.toLowerCase() === 'c') { const it = findItem(S.sel); if (it && it.hasPassword) copyField(it.id, 'password'); else if (it && it.type === 'card') copyField(it.id, 'card:number'); return; }
     if (S.sel && e.ctrlKey && e.key.toLowerCase() === 'b') { const it = findItem(S.sel); if (it && it.username) copyField(it.id, 'username'); return; }
     if (S.sel && e.key === 'Enter') { editSelected(); return; }
     if (S.sel && e.key === 'Delete') { del(S.sel); }

@@ -1,8 +1,8 @@
 // TurboVAULT en las páginas: un botón dentro de cada campo de inicio de sesión
-// (de color con la bóveda abierta y gris si está cerrada), un menú con lo
-// guardado para esta web y la oferta de guardar al enviar. Nada se rellena sin
-// que lo pidas, y todo lo que se dibuja va en un shadow DOM cerrado, fuera del
-// alcance de los scripts de la página.
+// y de pago (de color con la bóveda abierta y gris si está cerrada), un menú
+// con lo guardado para esta web (o tus tarjetas) y la oferta de guardar al
+// enviar. Nada se rellena sin que lo pidas, y todo lo que se dibuja va en un
+// shadow DOM cerrado, fuera del alcance de los scripts de la página.
 (() => {
   // Si ya había una copia en esta página (de antes de recargar la extensión),
   // se retira y se queda esta.
@@ -13,7 +13,12 @@
   if (!isTop) {
     try { sameOriginFrame = window.top.location.origin === location.origin; } catch { sameOriginFrame = false; }
   }
-  if (!sameOriginFrame) return; // marcos de otras webs: ni se tocan
+  // Los recuadros de pago de las pasarelas (Stripe, Adyen, Redsys…) van en un marco
+  // de otra web dentro de la tienda: ahí solo se rellenan tarjetas (payhosts.js).
+  const payFrame = !sameOriginFrame && location.protocol === 'https:' && !!(self.TV_PAY && self.TV_PAY.isPayHost(location.hostname));
+  if (!sameOriginFrame && !payFrame) return; // marcos de otras webs: ni se tocan
+  // Web de la página principal (para no rellenar en otra si cambia mientras confirmas).
+  const topOrigin = isTop ? location.origin : (location.ancestorOrigins && location.ancestorOrigins.length ? location.ancestorOrigins[location.ancestorOrigins.length - 1] : '');
   window.__turbovault = teardown;
 
   // Al recargar o quitar la extensión, esta copia se queda sin conexión: se
@@ -116,10 +121,73 @@
     return SIGNUP_RE.test(text) && !/iniciar sesi[oó]n|log ?in|sign ?in/i.test(text.slice(0, 200));
   }
 
+  // ---------- campos de tarjeta ----------
+  // Primero lo que dice la web (autocomplete="cc-…"); si no, por su nombre o su
+  // etiqueta, y solo cerca de un número de tarjeta (o en un recuadro de pago).
+  const CC_AC = { 'cc-number': 'cc-number', 'cc-name': 'cc-name', 'cc-given-name': 'cc-given', 'cc-family-name': 'cc-family', 'cc-exp': 'cc-exp', 'cc-exp-month': 'cc-month', 'cc-exp-year': 'cc-year', 'cc-csc': 'cc-csc' };
+  const CC_NUM_RE = /card.?num|cc.?num|cardno|card.?no([^a-z]|$)|credit.?card|debit.?card|n[uú]m(ero)?.{0,6}tarjeta|tarjeta.{0,4}n[uú]m|(^|[^a-z])pan([^a-z]|$)/i;
+  const CC_NUM_PH = /^\s*(\d{4}|[x•*0]{4})([\s-]?(\d{4}|[x•*0]{4})){2,3}\s*$/i;
+  const CC_CSC_RE = /cvc|cvv|csc|cvn|cvd|(^|[^a-z])cid([^a-z]|$)|security.?code|c[oó]d(igo)?.{0,6}seguridad|card.?code|card.?verif|verification.?(code|value|number)/i;
+  const CC_EXP_RE = /expir|exp.?(date|month|year|mm|yy|aa)|cc.?exp|card.?exp|caduc|vencim|vence|valid.?(thru|until|hasta)|fecha.{0,8}(cad|venc|exp)|(^|[^a-z])mm\s*\/\s*(aa|yy)/i;
+  const CC_MONTH_RE = /month|(^|[^a-z])mes([^a-z]|$)|(^|[^a-z])mm([^a-z]|$)/i;
+  const CC_YEAR_RE = /year|a[nñ]o([^a-z]|$)|(^|[^a-z])(yy|aa)(yy|aa)?([^a-z]|$)/i;
+  const CC_NAME_RE = /card.?holder|holder.?name|name.?on.?(the.?)?card|nameoncard|titular|nombre.{0,15}tarjeta|cc.?name|card.?name/i;
+  const isCard = (k) => !!k && k.startsWith('cc-');
+  const cardsOn = () => !!(pageState && pageState.cards);
+  let cardSeen = false; // hay campos de tarjeta pero aún no se sabe si están activadas
+
+  const labelText = (el) => { try { return [...(el.labels || [])].map((l) => l.textContent).join(' ').slice(0, 120); } catch { return ''; } };
+  const cardAttrs = (el) => `${attrs(el)} ${labelText(el)}`;
+  const numberish = (x) => {
+    if (/(^|\s)cc-number(\s|$)/.test(acOf(x))) return true;
+    const a = cardAttrs(x);
+    return (CC_NUM_RE.test(a) || CC_NUM_PH.test(x.getAttribute('placeholder') || '')) && !CC_CSC_RE.test(a) && !CC_EXP_RE.test(a) && !CC_NAME_RE.test(a);
+  };
+  function payIframeOnPage() {
+    if (!self.TV_PAY) return false;
+    for (const f of document.querySelectorAll('iframe[src]')) {
+      try { if (self.TV_PAY.isPayHost(new URL(f.src, location.href).hostname)) return true; } catch { /* nada */ }
+    }
+    return false;
+  }
+  function nearCardNumber(el) {
+    if (payFrame) return true;
+    for (const x of scopeOf(el).querySelectorAll('input')) if (x !== el && numberish(x)) return true;
+    return payIframeOnPage(); // el número va en el recuadro de la pasarela
+  }
+  // Un desplegable sin nombre claro: por sus opciones.
+  function selectKind(sel) {
+    const y = new Date().getFullYear();
+    if ([...sel.options].some((o) => `${o.value} ${o.text}`.includes(String(y + 1)))) return 'cc-year';
+    return sel.options.length >= 12 && sel.options.length <= 14 ? 'cc-month' : null;
+  }
+  function cardKind(el, type, ac) {
+    for (const tok of ac.split(/\s+/)) if (CC_AC[tok]) return type === 'password' && tok !== 'cc-csc' ? null : CC_AC[tok];
+    const sel = el.tagName === 'SELECT';
+    if (!sel && !textTypes.has(type) && type !== 'number' && type !== 'password') return null;
+    const a = cardAttrs(el);
+    let k = null;
+    if (CC_CSC_RE.test(a)) k = 'cc-csc';
+    else if (CC_EXP_RE.test(a) || (sel && (CC_MONTH_RE.test(a) || CC_YEAR_RE.test(a)))) {
+      const m = CC_MONTH_RE.test(a), y = CC_YEAR_RE.test(a);
+      k = m && !y ? 'cc-month' : y && !m ? 'cc-year' : sel ? selectKind(el) : 'cc-exp';
+    } else if (CC_NAME_RE.test(a)) k = 'cc-name';
+    else if (!sel && type !== 'password' && (CC_NUM_RE.test(a) || CC_NUM_PH.test(el.getAttribute('placeholder') || ''))) return 'cc-number';
+    if (!k || (type === 'password' && k !== 'cc-csc')) return null;
+    return nearCardNumber(el) ? k : null;
+  }
+
   function kindOf(el) {
     if (!el || el.tagName !== 'INPUT' || el.readOnly) return null;
     const type = (el.getAttribute('type') || 'text').toLowerCase();
     const ac = acOf(el);
+    const cc = cardKind(el, type, ac);
+    if (cc) {
+      if (cardsOn()) return cc;
+      cardSeen = true; // se mirará otra vez cuando se sepa si las tarjetas están activadas
+      return null;
+    }
+    if (payFrame) return null; // en un recuadro de pago, solo tarjetas
     if (type === 'password') {
       if (ac.includes('new-password') || isSignup(el)) return 'newpassword';
       return 'password';
@@ -153,14 +221,18 @@
   }
 
   let filling = false; // rellenando: los cambios de foco no abren el menú
-  function setValue(el, value) {
+  function setValue(el, value, focus = true) {
     if (!el) return;
-    el.focus({ preventScroll: true });
-    const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-    proto.set.call(el, value);
+    if (el.tagName === 'SELECT') {
+      el.value = value;
+    } else {
+      if (focus) el.focus({ preventScroll: true });
+      const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+      proto.set.call(el, value);
+    }
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Unidentified' }));
+    if (el.tagName !== 'SELECT') el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Unidentified' }));
   }
 
   function quietAutocomplete(el) {
@@ -226,11 +298,18 @@
     .bar .x:hover { color: #fff; background: #232634; }
     .bar .acts { display: flex; gap: 6px; margin-top: 12px; justify-content: flex-end; }
     .ok { color: #34d399; }
+    .hd .x { margin-left: auto; border: 0; background: transparent; color: #9196ae; cursor: pointer; font-size: 17px; line-height: 1; padding: 2px 5px; border-radius: 6px; }
+    .hd .x:hover { color: #fff; background: #232634; }
+    .av svg.cc { width: 18px; height: 18px; }
+    .tx span.old { color: #fca5a5; }
   `;
   const COLORS = ['#7c3aed', '#4f46e5', '#0891b2', '#059669', '#d97706', '#db2777', '#2563eb', '#9333ea', '#0d9488', '#dc2626', '#65a30d', '#c026d3'];
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const colorOf = (s) => { let h = 0; for (const c of s || '?') h = (h * 31 + c.charCodeAt(0)) >>> 0; return COLORS[h % COLORS.length]; };
   const pageHost = () => location.hostname.replace(/^www\./, '');
+  const CARD_SVG = '<svg class="cc" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20M6 15h4"/></svg>';
+  const BRANDS = { visa: ['Visa', 'linear-gradient(135deg,#1e3a8a,#38bdf8)'], mastercard: ['Mastercard', 'linear-gradient(135deg,#9a3412,#f59e0b)'], amex: ['American Express', 'linear-gradient(135deg,#0e7490,#67e8f9)'], diners: ['Diners Club', 'linear-gradient(135deg,#1e293b,#94a3b8)'], jcb: ['JCB', 'linear-gradient(135deg,#065f46,#34d399)'], discover: ['Discover', 'linear-gradient(135deg,#7c2d12,#f97316)'], unionpay: ['UnionPay', 'linear-gradient(135deg,#7f1d1d,#0e7490)'], maestro: ['Maestro', 'linear-gradient(135deg,#1e3a8a,#dc2626)'] };
+  const brandName = (b) => (BRANDS[b] ? BRANDS[b][0] : 'Tarjeta');
 
   let root = null, hostEl = null, menuEl, barEl;
   function ui() {
@@ -281,7 +360,7 @@
     icon.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
     onRealClick(icon, () => iconClicked(el));
     root.appendChild(icon);
-    fields.set(el, { icon, shown: false });
+    fields.set(el, { icon, shown: false, card: isCard(kindOf(el)) });
     if (ro) ro.observe(el);
   }
   function untrack(el) {
@@ -322,7 +401,16 @@
       if (!fields.has(el) && kindOf(el)) track(el);
     }
     for (const el of [...fields.keys()]) if (!el.isConnected) untrack(el);
-    if (fields.size) { ensureState(); startTick(); layoutSoon(); }
+    if (fields.size || cardSeen) ensureState();
+    if (fields.size) { startTick(); layoutSoon(); }
+  }
+  // Se han activado o desactivado las tarjetas en TurboVAULT.
+  function refreshCards() {
+    if (!cardsOn()) {
+      for (const [el, f] of [...fields]) if (f.card) untrack(el);
+      if (menuOpen() && (panel || isCard(currentKind))) closeMenu();
+    }
+    scanSoon();
   }
 
   let tickTimer = 0, ticks = 0;
@@ -432,7 +520,7 @@
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
       const a = document.activeElement;
-      if (a === current || (hostEl && a === hostEl)) return;
+      if (panel || a === current || (hostEl && a === hostEl)) return;
       closeMenu();
     }, 180);
   }, true);
@@ -449,9 +537,13 @@
     if (!path.includes(hostEl) && e.target !== current) closeMenu();
   }, true);
 
-  // Un clic en el icono abre el menú (y otro lo cierra).
+  // Un clic en el icono abre el menú (y otro lo cierra). En un recuadro de pago
+  // no cabe: lo abre la página principal.
+  const askPanel = () => bg({ type: 'cardPanel' }).catch(() => {});
   function iconClicked(el) {
-    if (menuOpen() && current === el && performance.now() - menuShownAt > 300) { closeMenu(); return; }
+    if (payFrame) { askPanel(); return; }
+    if (menuOpen() && current === el && !panel && performance.now() - menuShownAt > 300) { closeMenu(); return; }
+    panel = false;
     current = el;
     currentKind = kindOf(el);
     if (document.activeElement !== el) {
@@ -470,13 +562,19 @@
   }
   function applyQuery(res) {
     if (!res || res.blocked) return;
+    const wasCards = cardsOn();
     if (res.state) pageState = res.state;
-    matches = isOpen(pageState) ? (res.matches || []) : null;
+    if (res.cards) cardsCache = isOpen(pageState) ? res.cards : null;
+    else matches = isOpen(pageState) ? (res.matches || []) : null;
+    if (!isOpen(pageState)) { matches = null; cardsCache = null; }
     paintIcons();
+    if (cardsOn() !== wasCards) refreshCards();
   }
 
   // ---------- menú ----------
   let menuSeq = 0, menuShownAt = 0, menuHTML = '';
+  let panel = false; // menú de tarjetas que pidió un recuadro de pago (sin campo debajo)
+  let cardsCache = null; // las tarjetas (marca y cuatro cifras) de la última vez
   function showMenu() {
     if (!menuOpen()) { menuEl.style.display = 'block'; menuShownAt = performance.now(); }
     placeHost();
@@ -484,10 +582,17 @@
   }
   function closeMenu() {
     menuSeq++;
+    panel = false;
     if (menuEl) menuEl.style.display = 'none';
   }
   function placeMenu(o) {
-    if (!menuOpen() || !current) return;
+    if (!menuOpen()) return;
+    if (panel) { // arriba a la derecha, como la barra de guardar
+      menuEl.style.top = `${Math.round(16 - o.top)}px`;
+      menuEl.style.left = `${Math.round(Math.max(8, innerWidth - 336) - o.left)}px`;
+      return;
+    }
+    if (!current) return;
     if (!current.isConnected) { closeMenu(); return; }
     const r = current.getBoundingClientRect();
     const mh = menuEl.offsetHeight || 200;
@@ -499,17 +604,18 @@
 
   async function openMenu() {
     ui();
-    const el = current, kind = currentKind;
-    if (!el) return;
+    const el = current, kind = currentKind, wasPanel = panel;
+    if (!el && !wasPanel) return;
     const seq = ++menuSeq;
+    const cards = isCard(kind);
     // Al instante con lo que ya se sabe; luego se confirma con TurboVAULT.
-    if (pageState && (!isOpen(pageState) || matches)) {
-      const cached = { state: pageState, matches: matches || [], host: pageHost() };
+    if (pageState && (!isOpen(pageState) || (cards ? cardsCache : matches))) {
+      const cached = { state: pageState, matches: matches || [], cards: cardsCache || [], host: pageHost() };
       renderMenu(cached); showMenu();
     }
     let res;
-    try { res = await bg({ type: 'query', user: true }); } catch { return; }
-    if (!res || res.blocked || el !== current || kind !== currentKind || seq !== menuSeq) return;
+    try { res = await bg({ type: 'query', user: true, cards }); } catch { return; }
+    if (!res || res.blocked || el !== current || kind !== currentKind || panel !== wasPanel || seq !== menuSeq) return;
     applyQuery(res);
     renderMenu(res);
     showMenu();
@@ -519,7 +625,8 @@
     const st = res.state || {};
     const list = (res.matches || []).filter((m) => currentKind !== 'otp' || m.hasTotp);
     const host = res.host || pageHost();
-    let h = `<div class="hd">${LOGO}<span><b>TurboVAULT</b> · ${esc(host)}${insecure ? ' · <b style="color:#fbbf24">sin https</b>' : ''}</span></div>`;
+    const cards = isCard(currentKind);
+    let h = `<div class="hd">${LOGO}<span><b>TurboVAULT</b>${cards ? ' · Tarjetas' : ''} · ${esc(host)}${insecure ? ' · <b style="color:#fbbf24">sin https</b>' : ''}</span>${panel ? '<button class="x" data-a="close" title="Cerrar">×</button>' : ''}</div>`;
     if (!st.agent) {
       h += `<div class="msg"><b>TurboVAULT no responde</b>${esc(st.error || 'Comprueba que está instalado.')}</div>`;
     } else if (!st.exists) {
@@ -528,6 +635,13 @@
       h += '<div class="msg"><b>La bóveda está cerrada</b>Se abrirá TurboVAULT para que escribas tu contraseña maestra (nunca en esta página).</div><div class="row"><button class="btn" data-a="unlock">Abrir la bóveda</button></div>';
     } else if (!st.paired) {
       h += '<div class="msg"><b>Vincula este navegador</b>TurboVAULT te pedirá confirmarlo con un código.</div><div class="row"><button class="btn" data-a="pair">Vincular</button></div>';
+    } else if (cards) {
+      for (const c of res.cards || []) {
+        const sub = `${brandName(c.brand)} •••• ${c.last4}${c.exp ? ` · ${c.expired ? 'caducada' : 'caduca'} ${c.exp}` : ''}`;
+        h += `<button class="it" data-card="${esc(c.id)}"><div class="av" style="--c:${BRANDS[c.brand] ? BRANDS[c.brand][1] : '#4f46e5'}">${CARD_SVG}</div>
+          <div class="tx"><b>${esc(c.title)}</b><span class="${c.expired ? 'old' : ''}">${esc(sub)}</span></div></button>`;
+      }
+      if (!(res.cards || []).length) h += '<div class="msg"><b>No tienes tarjetas guardadas</b>Añádelas en TurboVAULT (Tarjetas → Nueva) y saldrán aquí.</div>';
     } else {
       if (currentKind === 'newpassword') {
         h += '<button class="it gen" data-a="gen"><div class="av">★</div><div class="tx"><b>Usar una contraseña segura</b><span>Generada al azar; al enviar te ofrece guardarla</span></div></button>';
@@ -548,7 +662,8 @@
     menuHTML = h;
     menuEl.innerHTML = h;
     menuEl.querySelectorAll('[data-id]').forEach((b) => onRealClick(b, () => fill(b.dataset.id)));
-    menuEl.querySelectorAll('[data-a]').forEach((b) => onRealClick(b, () => action(b.dataset.a)));
+    menuEl.querySelectorAll('[data-card]').forEach((b) => onRealClick(b, () => fillCard(b.dataset.card)));
+    menuEl.querySelectorAll('[data-a]').forEach((b) => (b.dataset.a === 'close' ? b.addEventListener('click', (e) => { if (e.isTrusted) closeMenu(); }) : onRealClick(b, () => action(b.dataset.a))));
   }
 
   async function action(a) {
@@ -605,6 +720,115 @@
     (pw || user || target)?.focus({ preventScroll: true });
   }
 
+  // ---------- rellenar tarjetas ----------
+  let lastRid = '';
+  async function fillCard(id, sure = false) {
+    if (insecure && !sure) {
+      setMenu(`<div class="hd">${LOGO}<span><b>TurboVAULT</b></span></div><div class="msg"><b>Esta web no usa https</b>Los datos de la tarjeta viajarían sin cifrar: cualquiera en tu misma red (un wifi público, por ejemplo) podría verlos.</div><div class="row"><button class="btn" data-sure="1">Rellenar igualmente</button></div>`);
+      const b = menuEl.querySelector('[data-sure]');
+      if (b) onRealClick(b, () => fillCard(id, true));
+      return;
+    }
+    const rid = Math.random().toString(36).slice(2);
+    lastRid = rid;
+    const target = panel ? null : current;
+    // Si TurboVAULT pide la contraseña maestra, se escribe en su ventana, nunca aquí.
+    const waitT = pageState && pageState.cardAsk ? setTimeout(() => setMenu(`<div class="hd">${LOGO}<span><b>TurboVAULT</b></span></div><div class="msg"><b>Confirma en TurboVAULT</b>Escribe tu contraseña maestra en su ventana (nunca en esta página) para rellenar la tarjeta.</div>`), 400) : 0;
+    let data;
+    try { data = await bg({ type: 'fillCard', id, rid }); } catch (e) { clearTimeout(waitT); menuMsg(e.message); return; }
+    clearTimeout(waitT);
+    closeMenu();
+    filling = true;
+    try { applyCard(data, target, true); } finally { filling = false; }
+    if (isTop) cardToast(data);
+    data = null;
+  }
+
+  function cardToast(d) {
+    if (!d) return;
+    toast(`${brandName(d.brand)} •••• ${d.last4} rellenada.${pageState && pageState.cardMask ? ' Se ve tapada (••••) para que no salga en pantalla; la web la recibe igual.' : ''}`);
+  }
+
+  // Los campos de tarjeta visibles de un formulario (o de la página).
+  function cardFields(scope) {
+    const out = [];
+    for (const el of scope.querySelectorAll('input, select')) {
+      if (el.readOnly || el.disabled || !visible(el)) continue; // nunca campos escondidos
+      const k = cardKind(el, (el.getAttribute('type') || 'text').toLowerCase(), acOf(el));
+      if (k) out.push({ el, k });
+    }
+    return out;
+  }
+
+  const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const MONTHS_EN = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const hintOf = (el) => `${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${labelText(el)}`.toLowerCase();
+  function pickOption(sel, test) {
+    const o = [...sel.options].find((x) => !x.disabled && x.value !== '' && test(x.value.trim(), x.text.trim().toLowerCase()));
+    if (!o) return false;
+    setValue(sel, o.value, false);
+    return true;
+  }
+  // La caducidad en un solo campo, como lo espera: MM/AA, MM / AA, MM/AAAA o MMAA.
+  function expFor(el, d) {
+    const hint = hintOf(el);
+    const ml = el.maxLength > 0 ? el.maxLength : 0;
+    const yy = /yyyy|aaaa/.test(hint) ? d.expYear : d.expYear.slice(-2);
+    const opts = [d.expMonth + (/\s\/\s/.test(hint) ? ' / ' : '/') + yy, `${d.expMonth}/${yy}`, d.expMonth + yy];
+    return opts.find((v) => !ml || v.length <= ml) || opts[opts.length - 1];
+  }
+
+  // Pone la tarjeta en los campos de pago de scope. Devuelve cuántos ha rellenado.
+  function applyCard(d, target, focus) {
+    if (!d) return 0;
+    let list = cardFields(target ? scopeOf(target) : document);
+    if (!list.length && target) list = cardFields(document);
+    const filled = [];
+    const put = (el, v) => { if (!v) return; setValue(el, v, focus); filled.push(el); };
+    const nums = list.filter((f) => f.k === 'cc-number');
+    if (nums.length === 1) put(nums[0].el, d.number);
+    else if (nums.length > 1) { // el número en varios recuadros de 4 cifras
+      let pos = 0;
+      for (const f of nums) { const ml = f.el.maxLength > 0 ? f.el.maxLength : 4; put(f.el, d.number.slice(pos, pos + ml)); pos += ml; }
+    }
+    const [given, ...family] = (d.holder || '').split(' ');
+    const m = +d.expMonth, yyyy = d.expYear || '', yy = yyyy.slice(-2);
+    for (const { el, k } of list) {
+      const sel = el.tagName === 'SELECT';
+      if (k === 'cc-name') put(el, d.holder);
+      else if (k === 'cc-given') put(el, given);
+      else if (k === 'cc-family') put(el, family.join(' '));
+      else if (k === 'cc-csc') put(el, d.cvc);
+      else if (!m) continue;
+      else if (k === 'cc-exp') put(el, expFor(el, d));
+      else if (k === 'cc-month') {
+        if (!sel) put(el, d.expMonth);
+        else if (pickOption(el, (v, t) => +v === m || parseInt(t, 10) === m || t.startsWith(MONTHS[m - 1]) || t.startsWith(MONTHS_EN[m - 1]))) filled.push(el);
+      } else if (k === 'cc-year') {
+        if (!sel) put(el, el.maxLength === 2 || /(^|[^a-z])(yy|aa)([^a-z]|$)/.test(hintOf(el)) ? yy : yyyy);
+        else if (pickOption(el, (v, t) => v === yyyy || v === yy || t === yyyy || t === yy)) filled.push(el);
+      }
+    }
+    if (pageState && pageState.cardMask) for (const el of filled) mask(el);
+    if (focus && target && target.isConnected) target.focus({ preventScroll: true });
+    return filled.length;
+  }
+
+  // «Tapar los datos»: lo rellenado se ve como puntos (no sale al compartir
+  // pantalla ni en grabaciones), pero la web recibe el valor de verdad. Si
+  // escribes en el campo, se vuelve a ver.
+  const masked = new WeakSet();
+  function mask(el) {
+    if (el.tagName !== 'INPUT') return;
+    el.style.setProperty('-webkit-text-security', 'disc', 'important');
+    masked.add(el);
+  }
+  on(document, 'input', (e) => {
+    if (!e.isTrusted) return;
+    const el = e.composedPath ? e.composedPath()[0] : e.target;
+    if (el && masked.has(el)) { masked.delete(el); el.style.removeProperty('-webkit-text-security'); }
+  }, true);
+
   async function generateInto(target) {
     if (!target) return;
     const g = await bg({ type: 'generate' });
@@ -623,6 +847,7 @@
   // ---------- guardar al enviar ----------
   let lastCapture = { key: '', t: 0 };
   function captureFrom(el) {
+    if (payFrame) return; // en los recuadros de pago no hay contraseñas
     const scope = el ? scopeOf(el) : document;
     const pws = pwFields(scope, false).filter((x) => x.value);
     if (!pws.length) {
@@ -728,18 +953,21 @@
     if (msg.type === 'state') {
       if (!msg.state) return;
       const was = isOpen(pageState);
+      const wasCards = cardsOn();
       pageState = msg.state;
-      if (!isOpen(pageState)) matches = null;
+      if (!isOpen(pageState)) { matches = null; cardsCache = null; }
+      if (cardsOn() !== wasCards) refreshCards();
       if (!fields.size && !menuOpen()) return;
       paintIcons();
       if (isOpen(pageState) && !was) {
         // Se acaba de abrir (o vincular): se pide lo guardado para esta web.
-        bg({ type: 'query' }).then((r) => {
+        const cardMenu = menuOpen() && isCard(currentKind);
+        bg({ type: 'query', cards: cardMenu }).then((r) => {
           applyQuery(r);
-          if (menuOpen() && current && r && !r.blocked) renderMenu(r);
+          if (menuOpen() && (current || panel) && r && !r.blocked && cardMenu === isCard(currentKind)) renderMenu(r);
         }).catch(() => {});
-      } else if (menuOpen() && current) {
-        renderMenu({ state: pageState, matches: matches || [], host: pageHost() });
+      } else if (menuOpen() && (current || panel)) {
+        renderMenu({ state: pageState, matches: matches || [], cards: cardsCache || [], host: pageHost() });
       }
     } else if (msg.type === 'fillNow') {
       if (!isTop || msg.origin !== location.origin) return;
@@ -753,7 +981,9 @@
       if (!document.hasFocus()) return;
       let el = document.activeElement && kindOf(document.activeElement) ? document.activeElement : null;
       if (!el) el = pwFields(document)[0] || [...document.querySelectorAll('input')].find((x) => visible(x) && kindOf(x));
-      if (!el) return;
+      if (!el || !kindOf(el)) return;
+      if (payFrame) { askPanel(); return; }
+      panel = false;
       iconFocusing = true;
       try { el.focus(); } finally { iconFocusing = false; }
       current = el;
@@ -762,11 +992,25 @@
       layoutSoon();
       openMenu();
     } else if (msg.type === 'generateHere') {
-      if (!document.hasFocus()) return;
+      if (payFrame || !document.hasFocus()) return;
       const el = document.activeElement;
       if (el && el.tagName === 'INPUT') { current = el; currentKind = 'newpassword'; generateInto(el).catch((e) => toast(e.message)); }
     } else if (msg.type === 'saveUpdate') {
       if (isTop) showBar(msg);
+    } else if (msg.type === 'cardPanel') {
+      // Un recuadro de pago de esta página pide el menú de tarjetas.
+      if (!isTop) return;
+      current = null;
+      currentKind = 'cc-number';
+      panel = true;
+      openMenu();
+    } else if (msg.type === 'cardFill') {
+      // Una tarjeta elegida en esta pestaña: cada marco rellena sus campos de pago.
+      if (msg.rid && msg.rid === lastRid) return; // la pidió esta misma parte y ya la ha puesto
+      if (!msg.top || msg.top !== topOrigin) return; // la pestaña ya está en otra web
+      filling = true;
+      try { applyCard(msg.data, null, false); } finally { filling = false; }
+      if (isTop && !msg.fromTop) cardToast(msg.data);
     }
   };
   chrome.runtime.onMessage.addListener(onBgMessage);

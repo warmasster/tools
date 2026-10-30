@@ -1,13 +1,14 @@
 # TurboVAULT
 
-Gestor de contraseñas que guarda todo **cifrado en tu PC**, con extensión para Chrome que rellena usuario y contraseña al iniciar sesión y te ofrece guardar las nuevas. Nada se sube a ninguna nube.
+Gestor de contraseñas que guarda todo **cifrado en tu PC**, con extensión para Chrome que rellena usuario y contraseña al iniciar sesión, te ofrece guardar las nuevas y rellena tus **tarjetas** al pagar. Nada se sube a ninguna nube.
 
 - **`TurboVAULT.exe`**: un único ejecutable con la extensión dentro. Se instala con [TurboSETUP](../installer/).
 - Queda en la **bandeja** (junto a la flechita de la barra de tareas) para que la extensión funcione siempre. El icono es de colores con la bóveda abierta y gris con la bóveda cerrada.
 
 ## Lo que hace
 
-- **Entradas**: inicios de sesión (varias webs por entrada, usuario, contraseña, clave 2FA, notas, campos extra como PIN o preguntas de seguridad) y **notas seguras**. Favoritas, búsqueda, orden por nombre, uso, cambios o fuerza.
+- **Entradas**: inicios de sesión (varias webs por entrada, usuario, contraseña, clave 2FA, notas, campos extra como PIN o preguntas de seguridad), **notas seguras** y **tarjetas** (titular, número, caducidad, CVC y PIN). Favoritas, búsqueda, orden por nombre, uso, cambios o fuerza.
+- **Tarjetas**: se dibujan como la tarjeta de verdad, con el número y el CVC tapados hasta pulsar el ojo. Al escribirla, reconoce la marca (Visa, Mastercard, American Express…) y avisa si el número no cuadra (cifra de control). Las caducadas se marcan en rojo.
 - **Códigos 2FA** (TOTP, los de Google Authenticator): pegas la clave o el enlace `otpauth://` y TurboVAULT da el código con su cuenta atrás. La extensión lo rellena en el campo del código.
 - **Historial**: las 12 contraseñas anteriores de cada entrada, por si cambias una y la web no la acepta.
 - **Papelera**: lo borrado se queda 30 días.
@@ -16,7 +17,7 @@ Gestor de contraseñas que guarda todo **cifrado en tu PC**, con extensión para
 - **Salud**: puntuación de 0 a 100 y listas de contraseñas débiles, repetidas en varias webs, sin cambiar desde hace más de un año y de webs sin https. Con un botón, comprueba si alguna aparece en **filtraciones conocidas** (Have I Been Pwned): de cada contraseña solo se envían los 5 primeros caracteres de su huella SHA-1 (de 40), así que ni la contraseña ni su huella salen del PC.
 - **Actividad**: qué se ha hecho y desde dónde (abrir, cerrar, rellenar en qué web y desde qué navegador, copiar, importar, exportar, intentos fallidos…). Va cifrada dentro de la bóveda.
 - **Importar** desde Chrome, Edge, Firefox, Bitwarden, KeePass/KeePassXC, 1Password, LastPass o Proton Pass (su CSV). Salta las que ya tienes y, si quieres, **borra el CSV** al terminar (lleva tus contraseñas sin cifrar). Después explica cómo quitarlas de Chrome.
-- **Exportar** a CSV sin cifrar, solo pidiendo la contraseña maestra y con aviso.
+- **Exportar** a CSV sin cifrar, solo pidiendo la contraseña maestra y con aviso. Las tarjetas no se exportan.
 
 ## Copias de seguridad
 
@@ -30,6 +31,10 @@ Gestor de contraseñas que guarda todo **cifrado en tu PC**, con extensión para
 - Cada campo de usuario o contraseña lleva el icono de TurboVAULT dentro, sin tener que pulsar nada: **de color** con la bóveda abierta y **gris** con la bóveda cerrada. Un clic en el icono abre el menú (entrar en el campo no lo abre: así no molesta) con lo guardado **para esa web**; otro clic y rellena. También con **Ctrl+Mayús+L**, o con clic derecho → «Rellenar con TurboVAULT».
 - Mientras escribes en un campo de usuario, Chrome no saca sus sugerencias de lo que escribiste otras veces, para que no tapen el menú (al salir del campo queda como estaba). El menú va por encima de la página, también en las ventanas de inicio de sesión que abren algunas webs. Si algo de la página tapa un campo (un aviso, un menú), su icono no se ve.
 - En formularios de **registro** o de **cambio de contraseña** ofrece una contraseña segura y la pone en los dos campos.
+- **Tarjetas** (se puede desactivar en Ajustes): el icono sale también en los campos de pago (número, titular, caducidad, CVC, también en desplegables de mes y año). Un clic enseña tus tarjetas («Visa •••• 4242 · caduca 08/28», nunca el número entero) y otro la rellena entera. Funciona también en los **recuadros de pago** que las tiendas meten de otra web (Stripe, Adyen, Redsys, PayPal, Braintree, Checkout.com, Shopify…): como ahí no cabe el menú, se abre arriba a la derecha de la página, y cada dato va a su sitio aunque el número esté en el recuadro y el titular en la tienda.
+  - Antes de dar la tarjeta, TurboVAULT **pide la contraseña maestra** en su ventana (nunca en la página). Si la acabas de escribir (al abrir la bóveda o con otra tarjeta, hace menos de un minuto), no la vuelve a pedir. «No rellenar» o cerrar la ventana la cancela.
+  - **Tapar los datos**: lo que rellena se ve como puntos (••••) en la página, así no sale si compartes pantalla, grabas o alguien mira. La web recibe los datos igual; si escribes en el campo, se vuelve a ver.
+  - El **PIN** nunca sale hacia el navegador.
 - Al enviar un formulario ofrece **guardar** la contraseña (o **actualizarla** si ha cambiado), también en la página siguiente si la web cambia de página al entrar. «Nunca aquí» deja de preguntarlo en esa web.
 - El menú del icono enseña lo guardado para la web abierta (rellenar, copiar usuario, contraseña o código 2FA), busca en toda la bóveda y genera contraseñas.
 - Funciona también en Edge, Brave y Vivaldi (el asistente abre la página de extensiones del navegador que uses, con sus pasos).
@@ -72,6 +77,7 @@ Gestor de contraseñas que guarda todo **cifrado en tu PC**, con extensión para
 - **Nada se rellena solo**: siempre hace falta un clic o el atajo. Solo cuentan clics y teclas **de verdad**: una página no puede pulsar por ti, y si tapa, vuelve transparente o deforma el menú de TurboVAULT para engañarte (*clickjacking*), el clic no hace nada. El menú tampoco se abre solo al entrar en un campo: solo con el icono o el atajo.
 - Solo se ofrecen las entradas de **la web exacta** (con o sin `www.`) y del mismo puerto: lo guardado para `github.com` no vale en `gist.github.com`, ni en `github.com.otra-web.net`, ni en `g1thub.com`. Para que una entrada valga en todos los subdominios hay que pedirlo escribiendo la web como `*.google.com` (no vale sobre sufijos públicos como `*.github.io` o `*.co.uk`). Lo guardado con `https` no se da a una página `http`. Los `iframe` de otras webs no reciben nada.
 - La extensión **nunca ve la bóveda entera** ni la contraseña maestra: pide a TurboVAULT la contraseña de una entrada concreta para la web en la que está, y TurboVAULT comprueba él mismo que esa entrada es de esa web.
+- De las **tarjetas**, la extensión solo ve la marca, las cuatro últimas cifras y la caducidad. El número, el titular y el CVC llegan solo al rellenar, después de escribir la contraseña maestra en la ventana de TurboVAULT (si está activado), y solo a la pestaña donde lo pediste: si mientras tanto la pestaña se va a otra web, no se rellena nada. En los marcos de otras webs solo entra en los de pasarelas de pago conocidas, por https, y ahí solo rellena tarjetas. Nunca rellena campos de pago escondidos. Quitar el aviso de la contraseña maestra pide la propia contraseña maestra.
 - La contraseña maestra **nunca se escribe en el navegador**: si la bóveda está cerrada, la extensión abre una ventanita de TurboVAULT para escribirla allí.
 - **Vinculación**: un navegador nuevo no recibe nada hasta que lo apruebas en TurboVAULT comprobando un código de 6 cifras que enseñan los dos. La aprobación se guarda cifrada dentro de la bóveda, y se puede desvincular en Ajustes.
 - TurboVAULT comprueba que quien le habla es **su propio programa** (el mismo archivo, no solo la misma ruta) lanzado por un navegador **firmado por su fabricante** (Google, Microsoft, Brave…), con el identificador fijo de su extensión. Además, el puente comprueba que **su entrada y su salida son del propio navegador**: un programa que lo lance haciéndose pasar por Chrome (falsificando el proceso padre) tendría él esas tuberías. Si algo de eso no cuadra, rechaza la conexión.
@@ -92,7 +98,7 @@ Al desinstalar se quita todo menos la bóveda, que sigue en `%APPDATA%\TurboVAUL
 
 ## Ajustes
 
-Duración de la sesión (de 1 minuto a 8 horas; al cambiarla, la sesión abierta vuelve a contar desde cero con el tiempo nuevo, y un clic en el contador de arriba lleva a este ajuste), segundos hasta borrar el portapapeles, cuánto se ve lo que destapas con el ojo (10, 30 o 60 s), cerrar la bóveda al cerrar la ventana o al minimizarla, ocultar la ventana en capturas, aviso junto al reloj al rellenar, buscar filtraciones cada vez que se abre la bóveda, arrancar con Windows, cambiar la contraseña maestra, navegadores vinculados, webs donde no ofrecer guardar y la carpeta de datos. Se guardan en `%APPDATA%\TurboVAULT\ajustes.json` (nada secreto).
+Duración de la sesión (de 1 minuto a 8 horas; al cambiarla, la sesión abierta vuelve a contar desde cero con el tiempo nuevo, y un clic en el contador de arriba lleva a este ajuste), segundos hasta borrar el portapapeles, cuánto se ve lo que destapas con el ojo (10, 30 o 60 s), cerrar la bóveda al cerrar la ventana o al minimizarla, ocultar la ventana en capturas, aviso junto al reloj al rellenar, tarjetas (rellenarlas en el navegador, pedir la contraseña maestra al rellenarlas y tapar los datos en la página), buscar filtraciones cada vez que se abre la bóveda, arrancar con Windows, cambiar la contraseña maestra, navegadores vinculados, webs donde no ofrecer guardar y la carpeta de datos. Se guardan en `%APPDATA%\TurboVAULT\ajustes.json` (nada secreto).
 
 ## Teclado
 
@@ -104,7 +110,7 @@ Ctrl+F buscar (Esc borra la búsqueda) · Ctrl+N nueva · Ctrl+L cerrar la bóve
 |---|---|
 | `TurboVAULT.exe --agent` | El agente de la bandeja. Es el único que abre la bóveda. Atiende por una tubería con nombre que solo puede abrir tu usuario. |
 | `TurboVAULT.exe` | Pide al agente que abra la ventana (y lo arranca si no está). |
-| `TurboVAULT.exe --window` | La ventana (Wails). Solo la abre el agente; le pide todo a él y al cerrarla no queda nada en memoria. |
+| `TurboVAULT.exe --window` | La ventana (Wails). Solo la abre el agente; le pide todo a él y al cerrarla no queda nada en memoria. Con `--card`, la ventanita para confirmar una tarjeta con la contraseña maestra. |
 | `TurboVAULT.exe chrome-extension://…` | Puente que lanza Chrome (Native Messaging, `com.turbovault.native`). Pasa los mensajes de la extensión al agente. |
 
 Archivos: `%APPDATA%\TurboVAULT\boveda.tvault` (la bóveda; y `.bak`, la versión anterior por si el disco falla a mitad de guardar), `ajustes.json`, y en `%LOCALAPPDATA%\TurboVAULT` la extensión y un registro técnico sin datos personales.
@@ -117,6 +123,6 @@ go run dev/icons/genicons.go       # rehace los iconos a partir de los SVG
 node dev/run-tests.js              # prueba completa con Chrome de verdad
 ```
 
-`dev/run-tests.js` compila una versión de pruebas, registra el puente solo durante la prueba y abre un perfil temporal de Chrome, que es quien arranca TurboVAULT con una carpeta y una tubería propias (no toca tu bóveda ni mira los navegadores del PC). Comprueba: que la ventana se abre, vincular, los iconos en los campos (de color, grises, tapados, dentro de un diálogo), que un clic en el icono abre el menú, rellenar, que una web parecida no reciba nada, guardar al iniciar sesión, la cuenta atrás del menú de la extensión y que sin TurboVAULT la extensión no reintente sin parar. Con `--shots carpeta` guarda capturas de los iconos y el menú.
+`dev/run-tests.js` compila una versión de pruebas, registra el puente solo durante la prueba y abre un perfil temporal de Chrome, que es quien arranca TurboVAULT con una carpeta y una tubería propias (no toca tu bóveda ni mira los navegadores del PC). Comprueba: que la ventana se abre, vincular, los iconos en los campos (de color, grises, tapados, dentro de un diálogo), que un clic en el icono abre el menú, rellenar, que una web parecida no reciba nada, las tarjetas (el menú, la contraseña maestra en la ventana, rellenar también desplegables, tapar, «No rellenar», el campo escondido que se queda vacío, desactivarlas y un recuadro de pago de otra web como el de Stripe, que necesita `openssl`), guardar al iniciar sesión, la cuenta atrás del menú de la extensión y que sin TurboVAULT la extensión no reintente sin parar. Con `--shots carpeta` guarda capturas de los iconos y el menú.
 
 La interfaz se puede ver en un navegador normal con datos de muestra (`python -m http.server --directory frontend`); la contraseña maestra de muestra es `maestra-de-prueba`.

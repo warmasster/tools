@@ -5,6 +5,7 @@
 //	TurboVAULT.exe --agent         el agente de la bandeja (arranca con Windows)
 //	TurboVAULT.exe --unlock        ventana pequeña para abrir la bóveda
 //	TurboVAULT.exe --pair          ventana para vincular un navegador
+//	TurboVAULT.exe --window --card ventana para confirmar una tarjeta (solo la abre el agente)
 //	TurboVAULT.exe setup|uninstall lo que usa TurboSETUP
 //	TurboVAULT.exe chrome-extension://…  puente de la extensión (lo lanza Chrome)
 package main

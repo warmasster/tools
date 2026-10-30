@@ -5,6 +5,8 @@
 // las da únicamente al marco de la página que las va a usar. Lo único que
 // guarda es un código aleatorio para que TurboVAULT reconozca este navegador.
 
+importScripts('payhosts.js');
+
 const HOST = 'com.turbovault.native';
 const PENDING_TTL = 3 * 60 * 1000;
 
@@ -104,7 +106,7 @@ async function injectOpenTabs() {
   const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }).catch(() => []);
   for (const t of tabs) {
     if (t.discarded) continue;
-    chrome.scripting.executeScript({ target: { tabId: t.id, allFrames: true }, files: ['content.js'] }).catch(() => {});
+    chrome.scripting.executeScript({ target: { tabId: t.id, allFrames: true }, files: ['payhosts.js', 'content.js'] }).catch(() => {});
   }
 }
 
@@ -176,6 +178,7 @@ function publicState() {
   return {
     agent: state.agent, unlocked: !!state.unlocked, paired: !!state.paired, exists: state.exists !== false,
     expires: state.expires || 0, now: state.now || 0, error: state.error || '', sessionMin: state.sessionMin || 10,
+    cards: state.cards === true, cardAsk: state.cardAsk !== false, cardMask: !!state.cardMask,
   };
 }
 
@@ -207,6 +210,17 @@ function frameAllowed(sender) {
   if (!fo) return false;
   if (sender.frameId === 0) return true;
   return fo === originOf(sender.tab.url);
+}
+
+// Tarjetas: además de la página y sus marcos del mismo origen, los recuadros de
+// pago de las pasarelas conocidas (Stripe, Adyen, Redsys…), solo por https.
+function cardFrameAllowed(sender) {
+  if (frameAllowed(sender)) return true;
+  if (!sender.tab || !sender.url || !originOf(sender.tab.url)) return false;
+  try {
+    const u = new URL(sender.url);
+    return u.protocol === 'https:' && self.TV_PAY.isPayHost(u.hostname);
+  } catch { return false; }
 }
 
 async function pairCode() {
@@ -241,10 +255,39 @@ async function handle(msg, sender) {
     case 'query': {
       if (!port) await connect(!!msg.user);
       else if (helloDone) await helloDone;
-      if (!frameAllowed(sender)) return { state: publicState(), matches: [], blocked: true };
-      if (!state.agent || !state.unlocked || !state.paired) return { state: publicState(), matches: [] };
+      const loginOK = frameAllowed(sender);
+      if (!loginOK && !cardFrameAllowed(sender)) return { state: publicState(), matches: [], blocked: true };
+      if (!state.agent || !state.unlocked || !state.paired) return { state: publicState(), matches: [], cards: [] };
+      if (msg.cards) {
+        // La lista de tarjetas: marca, cuatro últimas cifras y caducidad (nunca el número).
+        const cards = state.cards ? await call('cards', {}) : [];
+        return { state: publicState(), matches: [], cards, host: hostOf(sender.tab.url) };
+      }
+      if (!loginOK) return { state: publicState(), matches: [] };
       const matches = await call('matches', { url: sender.url });
       return { state: publicState(), matches, host: hostOf(sender.url) };
+    }
+
+    case 'cardPanel': {
+      // Un recuadro de pago es muy pequeño para el menú: lo abre la página principal.
+      if (!cardFrameAllowed(sender)) throw new Error('No permitido');
+      await chrome.tabs.sendMessage(sender.tab.id, { type: 'cardPanel' }, { frameId: 0 }).catch(() => {});
+      return true;
+    }
+
+    case 'fillCard': {
+      if (!cardFrameAllowed(sender)) throw new Error('Este marco no puede recibir tarjetas.');
+      // Puede tardar: TurboVAULT espera a que escribas la contraseña maestra en su ventana.
+      const top = originOf(sender.tab.url);
+      const data = await call('fillCard', { id: msg.id, url: sender.tab.url, frame: sender.url }, 150000);
+      // Mientras confirmabas, la pestaña ha podido irse a otra web: entonces nada.
+      const now = await chrome.tabs.get(sender.tab.id).catch(() => null);
+      if (!now || originOf(now.url) !== top) throw new Error('La página cambió mientras confirmabas: la tarjeta no se ha rellenado.');
+      // Los campos de una misma tarjeta pueden ir en marcos distintos (el número en
+      // uno de Stripe, el titular en la tienda): se manda a todos los de la pestaña,
+      // y cada uno rellena solo sus campos de tarjeta visibles.
+      chrome.tabs.sendMessage(sender.tab.id, { type: 'cardFill', data, rid: msg.rid, top, fromTop: sender.frameId === 0 }).catch(() => {});
+      return data;
     }
 
     case 'fill': {
