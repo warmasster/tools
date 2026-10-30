@@ -504,12 +504,15 @@ func TestPhoneH264OverWebSocket(t *testing.T) {
 	r.e.mu.Lock()
 	p := r.e.phones["movilh264xx1"]
 	r.e.mu.Unlock()
+	// El último puede estar aún decodificándose (en un PC lento, como el de GitHub).
+	waitFor(t, "los 20 decodificados", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.seq == 20
+	})
 	p.mu.Lock()
-	n, y := p.seq, p.frame.Y[100*p.frame.YStride+45]
+	y := p.frame.Y[100*p.frame.YStride+45]
 	p.mu.Unlock()
-	if n != 20 {
-		t.Errorf("decodificados %d, quería los 20", n)
-	}
 	if y < 170 || y > 190 {
 		t.Errorf("Y = %d, quería ~180 (barra gris)", y)
 	}
