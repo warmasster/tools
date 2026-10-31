@@ -212,7 +212,8 @@ func (a *App) buildAccounts() ([]Account, error) {
 			if id := steam.AccountID(acc.SteamID); id != 0 {
 				var best uint32
 				var bestT int64
-				for appid, ua := range a.userApps(in, id) {
+				played := a.userApps(in, id)
+				for appid, ua := range played {
 					m, ok := meta[appid]
 					if (ok && !isPlayable(m.Type)) || isPseudoApp(appid) {
 						continue
@@ -221,6 +222,13 @@ func (a *App) buildAccounts() ([]Account, error) {
 					acc.Minutes += ua.Minutes
 					if ua.LastPlayed > bestT && ok {
 						best, bestT = appid, ua.LastPlayed
+					}
+				}
+				// más los de su biblioteca que aún no ha jugado aquí (como en Games)
+				for _, appid := range in.UserLibraryApps(id) {
+					m, ok := meta[appid]
+					if _, done := played[appid]; !done && ok && isPlayable(m.Type) && !isPseudoApp(appid) {
+						acc.Games++
 					}
 				}
 				if best != 0 {

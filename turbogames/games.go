@@ -36,6 +36,7 @@ type Game struct {
 	Owner      string       `json:"owner"` // SteamID64 de quien lo instaló
 	OwnerKey   string       `json:"ownerKey"`
 	Players    []GamePlayer `json:"players"`
+	InLibrary  []string     `json:"inLibrary"` // SteamID64 de las cuentas que lo tienen en su biblioteca sin haberlo jugado aquí
 	Running    bool         `json:"running"`
 	Released   int64        `json:"released"`
 }
@@ -135,7 +136,7 @@ func (a *App) Games() (GamesData, error) {
 		g := games[id]
 		if g == nil {
 			m := meta[id]
-			g = &Game{AppID: id, Name: m.Name, Type: m.Type, Released: m.Released, Players: []GamePlayer{}}
+			g = &Game{AppID: id, Name: m.Name, Type: m.Type, Released: m.Released, Players: []GamePlayer{}, InLibrary: []string{}}
 			games[id] = g
 		}
 		return g
@@ -177,7 +178,8 @@ func (a *App) Games() (GamesData, error) {
 	}
 
 	for id, w := range people {
-		for appid, ua := range a.userApps(in, id) {
+		played := a.userApps(in, id)
+		for appid, ua := range played {
 			m, known := meta[appid]
 			if !known || !isPlayable(m.Type) || isPseudoApp(appid) {
 				continue // sin nombre o que no es un juego (configuraciones, herramientas)
@@ -186,6 +188,15 @@ func (a *App) Games() (GamesData, error) {
 			g.Players = append(g.Players, GamePlayer{Key: w.key, Name: w.name, Persona: w.persona, SteamID: w.steamID, Minutes: ua.Minutes, LastPlayed: ua.LastPlayed})
 			g.Minutes += ua.Minutes
 			g.LastPlayed = max(g.LastPlayed, ua.LastPlayed)
+		}
+		// los que tiene en su biblioteca sin haberlos jugado aquí (recién comprados…)
+		for _, appid := range in.UserLibraryApps(id) {
+			m, known := meta[appid]
+			if _, ok := played[appid]; ok || !known || !isPlayable(m.Type) || isPseudoApp(appid) || w.steamID == "" {
+				continue
+			}
+			g := get(appid)
+			g.InLibrary = append(g.InLibrary, w.steamID)
 		}
 	}
 
@@ -200,6 +211,7 @@ func (a *App) Games() (GamesData, error) {
 			}
 			return g.Players[i].Minutes > g.Players[j].Minutes
 		})
+		sort.Strings(g.InLibrary)
 		d.Games = append(d.Games, *g)
 	}
 	sort.Slice(d.Games, func(i, j int) bool {

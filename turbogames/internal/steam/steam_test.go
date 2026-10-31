@@ -188,6 +188,26 @@ func TestLibrary(t *testing.T) {
 	if ids := in.UserDirs(); len(ids) != 1 || ids[0] != 1000 {
 		t.Fatalf("userdata: %v", ids)
 	}
+
+	// juegos de la biblioteca que no ha jugado: solo cuentan los <appid>.json
+	lc := in.Path("userdata", "1000", "config", "librarycache")
+	if got := in.UserLibraryApps(1000); len(got) != 0 {
+		t.Fatalf("sin librarycache no debe haber nada: %v", got)
+	}
+	for _, n := range []string{"1304930.json", "achievement_progress.json", "0.json", "30.txt"} {
+		if err := os.MkdirAll(lc, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(lc, n), []byte("[]"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(lc, "40.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := in.UserLibraryApps(1000); len(got) != 1 || got[0] != 1304930 {
+		t.Fatalf("biblioteca: %v", got)
+	}
 }
 
 // Contra el Steam de este PC, sin cambiar nada:

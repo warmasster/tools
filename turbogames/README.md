@@ -14,7 +14,7 @@ Todas tus cuentas de Steam a un clic, sin el límite del selector de Steam, con 
   - **Entrar sin conexión** (el botón del wifi tachado): el modo sin conexión de Steam. Solo se puede si la cuenta tiene la sesión guardada en este PC.
 - **Sesión guardada o no**: cada cuenta dice si Steam tiene su sesión guardada («Sesión guardada»: entra sin contraseña) o no («Pide contraseña»). Si Steam pide la contraseña al cambiar, la pantalla de cambio ofrece copiar el usuario y la contraseña.
 - **Ficha de cada cuenta**: apodo, etiquetas (para filtrar: `#smurf`, `#familia`…), notas, fijar arriba y ocultar. Esto no es secreto y se guarda en `cuentas.json`.
-- **Sus juegos**: a qué ha jugado cada cuenta en este PC y cuántas horas, con un botón para jugar con ella.
+- **Sus juegos**: a qué ha jugado cada cuenta en este PC y cuántas horas, y los de su biblioteca que aún no ha jugado, con un botón para jugar con ella.
 - **Añadir una cuenta**: se guarda con su usuario y, si quieres, su contraseña (en la bóveda); «Guardar y entrar» cambia a ella al momento. La primera vez Steam pide la contraseña: marcando «Recordarme» ya no vuelve a pedirla. Las cuentas con las que entres directamente en Steam salen solas. Comprueba el usuario mientras lo escribes (que no esté vacío, que no sea el correo, solo letras sin acentos, números y `_`, de 3 a 64) y que no la tengas ya; si estaba oculta, vuelve a la lista.
 - **Olvidar una cuenta**: la quita de la lista. Si además marcas «Que Steam también la olvide», TurboGAMES la quita de `loginusers.vdf` y borra su sesión guardada en este PC, también de las copias de seguridad (en los servidores de Steam no se toca nada).
 - Antes de tocar `loginusers.vdf` o `local.vdf`, TurboGAMES guarda una copia en `%APPDATA%\TurboGAMES\copias` (las 10 últimas de cada uno).
@@ -32,15 +32,15 @@ Todas tus cuentas de Steam a un clic, sin el límite del selector de Steam, con 
 
 ## Juegos
 
-- Junta los juegos instalados de todas las bibliotecas de Steam y los que ha jugado cada cuenta en este PC, con su portada. Las portadas salen de la caché de Steam; las que no estén ahí se bajan una vez y se guardan en `%APPDATA%\TurboGAMES\cache\img`.
+- Junta los juegos instalados de todas las bibliotecas de Steam, los que ha jugado cada cuenta en este PC y los que tiene en su biblioteca sin haberlos jugado ni instalado (un juego recién comprado, por ejemplo), con su portada. De estos últimos Steam solo guarda en el PC los que se han abierto alguna vez en su biblioteca: basta con entrar en su ficha en Steam para que salgan. También salen los prestados por la familia de Steam, porque están en la biblioteca de la cuenta. Las portadas salen de la caché de Steam; las que no estén ahí se bajan una vez y se guardan en `%APPDATA%\TurboGAMES\cache\img`.
 - Filtros por instalados y por cuenta, búsqueda (Ctrl+F) y orden por recientes, nombre, horas o espacio: la lista se recoloca mientras escribes sin volver a cargar las portadas.
-- **Jugar**: lo abre con la cuenta que está dentro si ya lo ha jugado; si no, con la última que lo jugó. El botón de las personas deja elegir otra. Antes de abrirlo comprueba:
+- **Jugar**: lo abre con la cuenta que está dentro si ya lo ha jugado o lo tiene; si no, con la última que lo jugó o con una que lo tenga. El botón de las personas deja elegir otra. Antes de abrirlo comprueba:
   - si ya está abierto, o si hay otro juego abierto;
-  - si no está instalado (te ofrece instalarlo, con la cuenta que lo ha jugado);
+  - si no está instalado (te ofrece instalarlo, con la cuenta que lo ha jugado o lo tiene);
   - si Steam lo da por instalado pero falta su carpeta (te ofrece verificar los archivos) o la instalación está a medias;
   - si hay que cambiar de cuenta: siempre pregunta, y te deja jugar con la cuenta abierta si lo prefieres.
 - Cada juego dice si necesita actualizarse, se está actualizando, está incompleto o le falta la carpeta.
-- Por cada juego: horas, última partida, espacio en disco, carpeta, quién lo ha jugado, verlo en Steam, la tienda y verificar archivos.
+- Por cada juego: horas, última partida, espacio en disco, carpeta, quién lo ha jugado (y qué cuentas lo tienen sin jugar), verlo en Steam, la tienda y verificar archivos.
 
 ## Ajustes
 
@@ -62,6 +62,7 @@ Ctrl+F buscar · Ctrl+1 cuentas · Ctrl+2 juegos · flechas para moverte · Intr
 | Fotos de perfil | `config\avatarcache\<SteamID64>.png` |
 | Juegos instalados | `steamapps\appmanifest_<id>.acf` de cada biblioteca (`config\libraryfolders.vdf`) |
 | Horas por cuenta | `userdata\<id>\config\localconfig.vdf` |
+| Juegos de la biblioteca sin jugar | `userdata\<id>\config\librarycache\<appid>.json` (Steam lo crea al abrir la ficha del juego; la lista completa de licencias, `licensecache`, va cifrada) |
 | Nombres y portadas | `appcache\appinfo.vdf` (binario, versiones 27 a 29) y `appcache\librarycache\<id>\` |
 
 ## Compilar

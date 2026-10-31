@@ -150,6 +150,27 @@ func (in *Install) UserApps(accountID uint32) map[uint32]UserApp {
 	return out
 }
 
+// UserLibraryApps devuelve los juegos de la biblioteca de Steam de una cuenta
+// que Steam ha guardado en este PC aunque no los haya jugado ni instalado: al
+// abrir la ficha de un juego, Steam deja userdata\<id>\config\librarycache\<appid>.json
+// (logros, noticias…). Es lo único que queda de un juego recién comprado (la
+// lista de licencias, licensecache, va cifrada). También salen los juegos
+// prestados por la familia de Steam, que están igualmente en su biblioteca.
+func (in *Install) UserLibraryApps(accountID uint32) []uint32 {
+	ents, _ := os.ReadDir(in.Path("userdata", strconv.FormatUint(uint64(accountID), 10), "config", "librarycache"))
+	var out []uint32
+	for _, e := range ents {
+		n, ok := strings.CutSuffix(e.Name(), ".json")
+		if !ok || e.IsDir() {
+			continue
+		}
+		if id, err := strconv.ParseUint(n, 10, 32); err == nil && id != 0 {
+			out = append(out, uint32(id))
+		}
+	}
+	return out
+}
+
 // UserPersona devuelve el nombre visible que guardó una cuenta en su
 // localconfig.vdf (para cuentas que Steam ya no recuerda).
 func (in *Install) UserPersona(accountID uint32) string {

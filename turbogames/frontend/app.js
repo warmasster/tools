@@ -375,11 +375,12 @@
       ensureGames().then(() => { if (S.accSel === a.key) renderAccGames(a); });
       return;
     }
-    const mine = S.games.games.map((g) => ({ g, p: g.players.find((p) => p.steamId === a.steamId) })).filter((x) => x.p)
-      .sort((x, y) => (y.p.lastPlayed - x.p.lastPlayed) || (y.p.minutes - x.p.minutes));
+    // los que ha jugado y, detrás, los de su biblioteca que aún no ha jugado aquí
+    const mine = S.games.games.map((g) => ({ g, p: g.players.find((p) => p.steamId === a.steamId) || ((g.inLibrary || []).includes(a.steamId) ? { minutes: 0, lastPlayed: 0, unplayed: true } : null) })).filter((x) => x.p)
+      .sort((x, y) => (y.p.lastPlayed - x.p.lastPlayed) || (y.p.minutes - x.p.minutes) || x.g.name.localeCompare(y.g.name, "es"));
     const top = mine.slice(0, 6);
     box.innerHTML = `<div class="sec-h"><span class="label">Juegos</span><span class="mini">${mine.length}${a.minutes ? " · " + fmtHours(a.minutes) : ""}</span></div>
-      <div class="glist">${top.map(({ g, p }) => `<div class="gitem" data-game="${g.appid}">${thumbHTML(g)}<div style="min-width:0"><div class="gn">${esc(g.name)}</div><div class="gs">${[fmtHours(p.minutes), ago(p.lastPlayed)].filter(Boolean).join(" · ") || "—"}</div></div><button class="ibtn" data-play="${g.appid}" title="Jugar con esta cuenta">${ic("play")}</button></div>`).join("")}</div>
+      <div class="glist">${top.map(({ g, p }) => `<div class="gitem" data-game="${g.appid}">${thumbHTML(g)}<div style="min-width:0"><div class="gn">${esc(g.name)}</div><div class="gs">${[fmtHours(p.minutes), ago(p.lastPlayed)].filter(Boolean).join(" · ") || (p.unplayed ? "Sin jugar" : "—")}</div></div><button class="ibtn" data-play="${g.appid}" title="Jugar con esta cuenta">${ic("play")}</button></div>`).join("")}</div>
       ${mine.length > top.length ? `<div class="sec-foot"><button class="btn ghost xs" data-act="all-games">Ver sus ${mine.length} juegos</button></div>` : ""}`;
   }
 
@@ -592,12 +593,19 @@
     return gamesLoading;
   }
 
+  // cuentas que tienen un juego en su biblioteca sin haberlo jugado en este PC
+  // (recién comprado, prestado por la familia…)
+  const inLib = (g, sid) => !!sid && (g.inLibrary || []).includes(sid);
+  const hasPlayed = (g, sid) => !!sid && g.players.some((p) => p.steamId === sid);
+  // si una cuenta tiene que ver con el juego: lo ha jugado, lo tiene o lo instaló
+  const hasGame = (g, sid) => hasPlayed(g, sid) || inLib(g, sid) || (!!sid && g.owner === sid);
+
   function visibleGames() {
     const q = norm(S.gameQ.trim());
     const acc = S.gameAcc && accByKey(S.gameAcc);
     let list = S.games.games.filter((g) => {
       if (S.gameFilter === "installed" && !g.installed) return false;
-      if (acc && !g.players.some((p) => p.steamId === acc.steamId) && g.owner !== acc.steamId) return false;
+      if (acc && !hasGame(g, acc.steamId)) return false;
       if (q && !q.split(/\s+/).every((w) => norm(g.name).includes(w) || String(g.appid) === w)) return false;
       return true;
     });
@@ -615,7 +623,7 @@
 
   function renderGameAccSelect() {
     const sel = $("#game-acc");
-    const withGames = S.accounts.filter((a) => a.steamId && (a.games || S.games && S.games.games.some((g) => g.owner === a.steamId)));
+    const withGames = S.accounts.filter((a) => a.steamId && (a.games || S.games && S.games.games.some((g) => hasGame(g, a.steamId))));
     if (S.gameAcc && !withGames.some((a) => a.key === S.gameAcc)) S.gameAcc = "";
     sel.innerHTML = `<option value="">Todas las cuentas</option>` + withGames.map((a) => `<option value="${esc(a.key)}"${a.key === S.gameAcc ? " selected" : ""}>${esc(display(a))}</option>`).join("");
     sel.classList.toggle("on", !!S.gameAcc);
@@ -633,7 +641,7 @@
     $("#game-stat").innerHTML = `<b>${list.length}</b> de ${S.games.games.length} · ${inst.length} instalados · ${fmtBytes(size)}`;
     const grid = $("#game-grid");
     if (!S.games.games.length) {
-      grid.innerHTML = `<div class="empty">${ic("game")}<b>No hay juegos todavía</b><p>Aquí salen los juegos instalados y los que ha jugado cada cuenta en este PC.</p></div>`;
+      grid.innerHTML = `<div class="empty">${ic("game")}<b>No hay juegos todavía</b><p>Aquí salen los juegos instalados y los que tiene o ha jugado cada cuenta en este PC.</p></div>`;
       renderGameDetail();
       return;
     }
@@ -650,7 +658,7 @@
       let el = gameEls.get(g.appid);
       if (!el) { el = gameCard(g, fresh++); gameEls.set(g.appid, el); }
       const m = minutesOf(g), l = lastOf(g);
-      const meta = [fmtHours(m), l ? ago(l) : (g.installed ? "Sin jugar" : "")].filter(Boolean).join(" · ") || (g.installed ? fmtBytes(g.size) : "—");
+      const meta = [fmtHours(m), l ? ago(l) : (g.installed || (g.inLibrary || []).length ? "Sin jugar" : "")].filter(Boolean).join(" · ") || (g.installed ? fmtBytes(g.size) : "—");
       el.classList.toggle("sel", g.appid === S.gameSel);
       el.classList.toggle("notinst", !g.installed);
       setHTML(el.querySelector(".badges"), (g.running ? `<span class="run">En marcha</span>` : "") + (g.type === "demo" ? "<span>Demo</span>" : "") + (STATE[g.state] ? `<span class="st-${g.state}">${STATE[g.state].short}</span>` : ""));
@@ -700,13 +708,15 @@
     renderGameDetail();
   }
 
-  // a qué cuenta jugar por defecto: la que está dentro si lo ha jugado (o lo
-  // instaló), si no la que más recientemente lo jugó
+  // a qué cuenta jugar por defecto: la que está dentro si lo ha jugado, lo
+  // tiene o lo instaló; si no, la que más recientemente lo jugó, una que lo
+  // tenga o la que lo instaló
   function bestAccountFor(g) {
     const active = activeAcc();
     const known = (sid) => S.accounts.find((a) => a.steamId === sid && !a.hidden) || S.accounts.find((a) => a.steamId === sid);
-    if (active && (g.players.some((p) => p.steamId === active.steamId) || g.owner === active.steamId)) return active;
+    if (active && hasGame(g, active.steamId)) return active;
     for (const p of g.players) { const a = known(p.steamId); if (a) return a; }
+    for (const sid of g.inLibrary || []) { const a = known(sid); if (a) return a; }
     if (g.owner) { const a = known(g.owner); if (a) return a; }
     return active || null;
   }
@@ -729,7 +739,7 @@
         if (r.ok) api.SteamURL("steam://install/" + g.appid).then(() => toast("Steam te pedirá dónde instalarlo")).catch(fail);
         return;
       }
-      switchTo(a, { appid: g.appid, forceAsk: true, note: `<b>${esc(g.name)}</b> no está instalado: al entrar con la cuenta que lo ha jugado, Steam te ofrecerá instalarlo.` });
+      switchTo(a, { appid: g.appid, forceAsk: true, note: `<b>${esc(g.name)}</b> no está instalado: al entrar con la cuenta que ${hasPlayed(g, a.steamId) ? "lo ha jugado" : "lo tiene"}, Steam te ofrecerá instalarlo.` });
       return;
     }
     if (g.state === "missing") {
@@ -755,8 +765,8 @@
 
     // hay que cambiar de cuenta: preguntar siempre y ofrecer jugar con la actual
     let note = "";
-    if (!chosen && active && !g.players.some((p) => p.steamId === active.steamId)) {
-      note = `<b>${esc(display(active))}</b>, la cuenta abierta ahora, no lo ha jugado en este PC; <b>${esc(display(a))}</b> sí.`;
+    if (!chosen && active && !hasPlayed(g, active.steamId)) {
+      note = `<b>${esc(display(active))}</b>, la cuenta abierta ahora, no lo ha jugado en este PC; <b>${esc(display(a))}</b> ${hasPlayed(g, a.steamId) ? "sí" : "lo tiene en su biblioteca"}.`;
     }
     switchTo(a, {
       appid: g.appid, forceAsk: true, note,
@@ -774,12 +784,15 @@
     }
     const best = bestAccountFor(g);
     const playLabel = best && !best.active ? `Jugar con ${esc(display(best))}` : (g.installed ? "Jugar" : "Instalar");
-    const players = g.players.map((p) => {
-      const a = S.accounts.find((x) => x.steamId === p.steamId);
-      const av = a ? avatarHTML(a, "sm", false) : `<div class="av sm" style="--avc:#475569"><span>${esc(initials(p.persona || "?"))}</span></div>`;
-      const name = a ? display(a) : (p.persona || "Cuenta sin guardar");
-      return `<div class="pitem">${av}<div style="min-width:0"><div class="pn">${esc(name)}${a && a.active ? ' <span class="chip live" style="margin-left:4px">En uso</span>' : ""}</div><div class="ps">${esc(ago(p.lastPlayed) || "—")}</div></div><span class="ph">${esc(fmtHours(p.minutes) || "—")}</span>${a ? `<button class="btn ghost xs" data-play-as="${esc(a.key)}" title="${a.active ? "Jugar" : "Cambiar a esta cuenta y jugar"}">${ic("play")}</button>` : "<span></span>"}</div>`;
-    }).join("");
+    const row = (sid, persona, sub, hours) => {
+      const a = S.accounts.find((x) => x.steamId === sid);
+      const av = a ? avatarHTML(a, "sm", false) : `<div class="av sm" style="--avc:#475569"><span>${esc(initials(persona || "?"))}</span></div>`;
+      const name = a ? display(a) : (persona || "Cuenta sin guardar");
+      return `<div class="pitem">${av}<div style="min-width:0"><div class="pn">${esc(name)}${a && a.active ? ' <span class="chip live" style="margin-left:4px">En uso</span>' : ""}</div><div class="ps">${esc(sub)}</div></div><span class="ph">${esc(hours || "—")}</span>${a ? `<button class="btn ghost xs" data-play-as="${esc(a.key)}" title="${a.active ? "Jugar" : "Cambiar a esta cuenta y jugar"}">${ic("play")}</button>` : "<span></span>"}</div>`;
+    };
+    const lib = g.inLibrary || [];
+    const players = g.players.map((p) => row(p.steamId, p.persona, ago(p.lastPlayed) || "—", fmtHours(p.minutes)))
+      .concat(lib.map((sid) => row(sid, "", "En su biblioteca · sin jugar", ""))).join("");
     box.innerHTML = `
       <div class="g-hero" style="background-image:url('/img/app/${g.appid}/hero'),url('/img/app/${g.appid}/header')"><div class="logo" style="background-image:url('/img/app/${g.appid}/logo')"></div></div>
       <div class="g-head">
@@ -797,8 +810,8 @@
         ${g.installed && g.dir ? `<div class="path"><span title="${esc(g.dir)}">&lrm;${esc(g.dir)}&lrm;</span><button class="ibtn" data-act="folder" title="Abrir la carpeta">${ic("folder")}</button></div>` : ""}
       </div>
       <div class="d-sec">
-        <div class="sec-h"><span class="label">Quién lo ha jugado</span><span class="mini">${g.players.length || ""}</span></div>
-        ${players ? `<div class="plist">${players}</div>` : `<div class="note">Ninguna cuenta lo ha jugado todavía en este PC${g.owner ? "" : ""}.</div>`}
+        <div class="sec-h"><span class="label">${lib.length ? "Cuentas con este juego" : "Quién lo ha jugado"}</span><span class="mini">${g.players.length + lib.length || ""}</span></div>
+        ${players ? `<div class="plist">${players}</div>` : `<div class="note">Ninguna cuenta lo ha jugado todavía en este PC.</div>`}
       </div>
       <div class="dfoot">
         <button class="btn ghost xs" data-act="steam-lib">${ic("open")}Ver en Steam</button>
@@ -821,10 +834,11 @@
 
   function playAsMenu(g, x, y) {
     const accs = S.accounts.filter((a) => a.steamId && !a.hidden);
-    const played = new Set(g.players.map((p) => p.steamId));
-    accs.sort((p, q) => (played.has(q.steamId) - played.has(p.steamId)) || (q.lastUsed - p.lastUsed));
+    // primero las que lo han jugado, luego las que lo tienen
+    const rank = (a) => hasPlayed(g, a.steamId) ? 2 : inLib(g, a.steamId) ? 1 : 0;
+    accs.sort((p, q) => (rank(q) - rank(p)) || (q.lastUsed - p.lastUsed));
     showMenu([{ head: "Jugar con…" }, ...accs.map((a) => ({
-      html: `${avatarHTML(a, "sm", false)}<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(display(a))}</span>${a.active ? '<span class="chip live">En uso</span>' : played.has(a.steamId) ? `<span class="chip">${esc(fmtHours((g.players.find((p) => p.steamId === a.steamId) || {}).minutes) || "jugado")}</span>` : ""}`,
+      html: `${avatarHTML(a, "sm", false)}<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(display(a))}</span>${a.active ? '<span class="chip live">En uso</span>' : hasPlayed(g, a.steamId) ? `<span class="chip">${esc(fmtHours((g.players.find((p) => p.steamId === a.steamId) || {}).minutes) || "jugado")}</span>` : inLib(g, a.steamId) ? '<span class="chip">Lo tiene</span>' : ""}`,
       fn: () => playGame(g, a),
     }))], x, y);
   }
@@ -1605,7 +1619,7 @@
     const now = Math.floor(Date.now() / 1000);
     const accounts = [
       { key: "nightowl_99", name: "nightowl_99", steamId: "76561198000000001", persona: "NightOwl", alias: "", notes: "La principal. Tiene CS2 Prime.", tags: ["principal"], pinned: true, hidden: false, inSteam: true, hasToken: true, hasSecret: true, active: true, autoLogin: true, offline: false, lastUsed: now - 600, added: now - 9e6, avatar: "", games: 14, minutes: 32140, recent: { appid: 294100, name: "RimWorld", lastPlayed: now - 3600 } },
-      { key: "smurfito", name: "smurfito", steamId: "76561198000000002", persona: "Smurfito", alias: "Smurf CS", notes: "", tags: ["smurf", "cs2"], pinned: false, hidden: false, inSteam: true, hasToken: true, hasSecret: true, active: false, autoLogin: false, offline: false, lastUsed: now - 86400 * 3, added: now - 5e6, avatar: "", games: 3, minutes: 4200, recent: { appid: 730, name: "Counter-Strike 2", lastPlayed: now - 86400 * 3 } },
+      { key: "smurfito", name: "smurfito", steamId: "76561198000000002", persona: "Smurfito", alias: "Smurf CS", notes: "", tags: ["smurf", "cs2"], pinned: false, hidden: false, inSteam: true, hasToken: true, hasSecret: true, active: false, autoLogin: false, offline: false, lastUsed: now - 86400 * 3, added: now - 5e6, avatar: "", games: 4, minutes: 4200, recent: { appid: 730, name: "Counter-Strike 2", lastPlayed: now - 86400 * 3 } },
       { key: "familia_lopez", name: "familia_lopez", steamId: "76561198000000003", persona: "Lopez Family", alias: "", notes: "Compartida con mi hermano", tags: ["familia"], pinned: false, hidden: false, inSteam: true, hasToken: false, hasSecret: false, active: false, autoLogin: false, offline: false, lastUsed: now - 86400 * 40, added: now - 4e6, avatar: "", games: 6, minutes: 900, recent: { appid: 945360, name: "Among Us", lastPlayed: now - 86400 * 40 } },
       { key: "tradebot_eu", name: "tradebot_eu", steamId: "", persona: "", alias: "Intercambios", notes: "", tags: ["trade"], pinned: false, hidden: false, inSteam: false, hasToken: false, hasSecret: true, active: false, autoLogin: false, offline: false, lastUsed: 0, added: now - 1e5, avatar: "", games: 0, minutes: 0 },
     ];
@@ -1616,6 +1630,7 @@
       { appid: 945360, name: "Among Us", type: "game", installed: true, dir: "C:\\Games\\Among Us", library: "C:\\", size: 1.1e9, updated: now - 86400 * 60, lastPlayed: now - 86400 * 40, minutes: 900, owner: "76561198000000003", players: [{ key: "familia_lopez", name: "familia_lopez", persona: "Lopez Family", steamId: "76561198000000003", minutes: 900, lastPlayed: now - 86400 * 40 }], running: false },
       { appid: 239820, name: "Game Dev Tycoon", type: "game", installed: true, state: "missing", dir: "C:\\Games\\GDT", library: "C:\\", size: 168e6, updated: now - 86400 * 200, lastPlayed: 0, minutes: 0, owner: "76561198000000001", players: [], running: false },
       { appid: 1091500, name: "Cyberpunk 2077", type: "game", installed: false, dir: "", library: "", size: 0, updated: 0, lastPlayed: now - 86400 * 120, minutes: 5400, owner: "", players: [{ key: "nightowl_99", name: "nightowl_99", persona: "NightOwl", steamId: "76561198000000001", minutes: 5400, lastPlayed: now - 86400 * 120 }], running: false },
+      { appid: 1304930, name: "The Outlast Trials", type: "game", installed: false, dir: "", library: "", size: 0, updated: 0, lastPlayed: 0, minutes: 0, owner: "", players: [], inLibrary: ["76561198000000002"], running: false },
       { appid: 4900640, name: "Shreddead Demo", type: "demo", installed: true, dir: "C:\\Games\\Shreddead", library: "C:\\", size: 420e6, updated: now - 86400 * 5, lastPlayed: now - 86400 * 6, minutes: 75, owner: "76561198000000001", players: [{ key: "nightowl_99", name: "nightowl_99", persona: "NightOwl", steamId: "76561198000000001", minutes: 75, lastPlayed: now - 86400 * 6 }], running: false },
     ];
     let vault = { exists: true, unlocked: false, lockMinutes: 5, locksIn: 0 };
