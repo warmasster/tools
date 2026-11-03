@@ -14,9 +14,10 @@ import (
 	"time"
 )
 
-// Todo se descarga de una única Release de GitHub: la de la etiqueta "apps".
-// Dentro están TurboSETUP.exe, el .exe de cada herramienta y manifest.json,
-// que genera GitHub Actions (.github/scripts/release.ps1).
+// El catálogo (manifest.json) está en la Release "apps" de GitHub, junto con la
+// última versión de cada .exe. Además, cada versión de cada herramienta tiene su
+// propia Release (turbocam-v1.0.6), que no se toca una vez publicada: de ahí se
+// baja el .exe. Todo lo genera GitHub Actions (.github/scripts/release.ps1).
 const (
 	repo       = "warmasster/tools"
 	releaseTag = "apps"
@@ -30,6 +31,15 @@ func downloadBase() string {
 	return "https://github.com/" + repo + "/releases/download/" + releaseTag
 }
 
+// releaseBase: la carpeta de descargas de la Release de una versión. Con
+// TURBOSETUP_BASE, una subcarpeta del servidor de prueba (dist\turbocam-v1.0.6\).
+func releaseBase(tag string) string {
+	if b := strings.TrimRight(os.Getenv("TURBOSETUP_BASE"), "/"); b != "" {
+		return b + "/" + tag
+	}
+	return "https://github.com/" + repo + "/releases/download/" + tag
+}
+
 type Asset struct {
 	Version string `json:"version"`
 	// Asset: nombre del .exe instalado (y en la Release, para los TurboSETUP viejos).
@@ -39,16 +49,36 @@ type Asset struct {
 	// Download: copia del mismo .exe con la versión en el nombre (TurboSEND-2.1.2.exe).
 	// Se sube antes que el catálogo y no se sustituye nunca, así que lo que anuncia el
 	// catálogo siempre está entero aunque se esté publicando otra versión.
+	// Ya no lo genera release.ps1 (lo sustituye Release), pero se sigue entendiendo.
 	Download string `json:"download,omitempty"`
+	// Release: etiqueta de la Release de esta versión (turbocam-v1.0.6), donde está
+	// el .exe con su nombre de siempre. Como esa Release no cambia nunca, lo que
+	// anuncia el catálogo siempre está entero aunque se esté publicando otra versión.
+	Release string `json:"release,omitempty"`
 }
 
-// remoteName: el archivo que se pide a la Release.
+// remoteName: el archivo que se pide.
 func (a Asset) remoteName() string {
+	if a.Release != "" {
+		return a.Release + "/" + a.Asset
+	}
 	if a.Download != "" {
 		return a.Download
 	}
 	return a.Asset
 }
+
+// remoteURL: de dónde se baja el archivo.
+func (a Asset) remoteURL() string {
+	if a.Release != "" {
+		return releaseBase(a.Release) + "/" + a.Asset
+	}
+	return downloadBase() + "/" + a.remoteName()
+}
+
+// pinned: el archivo pedido es de una versión concreta; si ya no está, es que el
+// catálogo leído es viejo.
+func (a Asset) pinned() bool { return a.Release != "" || a.Download != "" }
 
 type Tool struct {
 	Asset
@@ -150,10 +180,14 @@ func (m *Manifest) clean() {
 	m.Tools = tools
 }
 
-// cleanDownload: un nombre versionado raro se ignora y se usa el de siempre.
+// cleanDownload: un nombre versionado o una etiqueta raros se ignoran y se usa el
+// archivo de siempre de la Release "apps".
 func (a *Asset) cleanDownload() {
 	if a.Download != "" && (!safeName.MatchString(a.Download) || strings.Contains(a.Download, "..")) {
 		a.Download = ""
+	}
+	if a.Release != "" && (!safeName.MatchString(a.Release) || strings.Contains(a.Release, "..")) {
+		a.Release = ""
 	}
 }
 
@@ -192,6 +226,8 @@ type ToolView struct {
 	// Broken: está registrada pero falta su .exe (lo borraron a mano o un antivirus).
 	Broken bool   `json:"broken"`
 	URL    string `json:"url"`
+	// Notes: la Release de la versión del catálogo, con sus novedades.
+	Notes string `json:"notes,omitempty"`
 }
 
 type CatalogView struct {
@@ -219,6 +255,9 @@ func buildView(m *Manifest, fetchErr error) *CatalogView {
 				ID: t.ID, Name: t.Name, Summary: t.Summary, Kind: t.Kind, Open: t.Open,
 				Version: t.Version, Size: t.Size, Available: true,
 				URL: "https://github.com/" + repo + "/tree/main/" + t.Dir,
+			}
+			if t.Release != "" {
+				tv.Notes = "https://github.com/" + repo + "/releases/tag/" + t.Release
 			}
 			if in, ok := installed[t.ID]; ok {
 				tv.Installed, tv.InstalledVersion = true, in.Version

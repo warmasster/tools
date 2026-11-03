@@ -98,6 +98,10 @@
     } else {
       chip = `<span class="chip">${esc(t.version)}${t.size ? " · " + fmtSize(t.size) : ""}</span>`;
     }
+    // Con la Release de la versión en el catálogo, la versión lleva a sus novedades.
+    if (t.notes && !t.broken) {
+      chip = chip.replace('<span class="chip', `<span data-act="notes" title="Novedades de la ${esc(t.version)}" class="chip link`);
+    }
 
     const isApp = t.kind !== "setup";
     const canOpen = isApp || t.open; // las de extensión con ventana (TurboVAULT) también se abren
@@ -242,6 +246,7 @@
       case "cancel": api.Cancel(id); break;
       case "uninstall": askUninstall(id); break;
       case "gh": api.OpenURL(t.url); break;
+      case "notes": api.OpenURL(t.notes); break;
       case "open":
         try { await api.Open(id); } catch (err) { toast(String(err), "error"); }
         break;
@@ -271,7 +276,7 @@
   // ---------- datos de muestra para ver la interfaz en un navegador ----------
   function demoApi() {
     const tools = [
-      { id: "turbosend", name: "TurboSEND", kind: "app", version: "2.0.0", size: 13.4e6, available: true, installed: true, installedVersion: "1.9.0", update: true, summary: "Envía y recibe archivos de cualquier tamaño en chats. El otro lado solo necesita el navegador.", url: "#" },
+      { id: "turbosend", name: "TurboSEND", kind: "app", version: "2.0.0", size: 13.4e6, available: true, installed: true, installedVersion: "1.9.0", update: true, summary: "Envía y recibe archivos de cualquier tamaño en chats. El otro lado solo necesita el navegador.", url: "#", notes: "#" },
       { id: "turbocut", name: "TurboCUT", kind: "app", version: "1.0.0", size: 12.1e6, available: true, installed: true, installedVersion: "1.0.0", summary: "Analiza el disco a toda velocidad y te ayuda a liberar espacio.", url: "#" },
       { id: "turbodl", name: "TurboDL", kind: "setup", version: "1.1.0", size: 7.4e6, available: true, summary: "Gestor de descargas multiconexión para Chrome, con motor nativo de hasta 64 conexiones.", url: "#" },
       { id: "turbovault", name: "TurboVAULT", kind: "setup", open: true, version: "1.0.1", size: 12.8e6, available: true, installed: true, installedVersion: "1.0.1", summary: "Tus contraseñas cifradas en tu PC, con extensión para Chrome que rellena y guarda al iniciar sesión, códigos 2FA, generador y copias en USB.", url: "#" },

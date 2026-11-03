@@ -124,7 +124,7 @@ func download(ctx context.Context, a Asset, dst string, onProgress progressFunc)
 		}
 		return context.Canceled
 	}
-	req, err := httpNewRequest(ctx, downloadBase()+"/"+a.remoteName())
+	req, err := httpNewRequest(ctx, a.remoteURL())
 	if err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ func download(ctx context.Context, a Asset, dst string, onProgress progressFunc)
 		return fmt.Errorf("no se pudo conectar con GitHub: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == 404 && a.Download != "" {
+	if resp.StatusCode == 404 && a.pinned() {
 		return errGone
 	}
 	if resp.StatusCode != 200 {

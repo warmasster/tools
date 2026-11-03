@@ -4,7 +4,7 @@ Programas para Windows hechos a medida: rápidos, en un solo `.exe` y con una in
 
 ## Descargar
 
-**[⬇ TurboSETUP.exe](https://github.com/warmasster/tools/releases/download/apps/TurboSETUP.exe)**: ábrelo, elige qué herramientas quieres y las instala. También se encarga de las actualizaciones.
+**[⬇ TurboSETUP.exe](https://github.com/warmasster/tools/releases/download/apps/TurboSETUP.exe)**: ábrelo, elige qué herramientas quieres y las instala. También se encarga de las actualizaciones. Lo que trae cada versión está en [Releases](https://github.com/warmasster/tools/releases).
 
 > Windows puede avisar de que el programa no está firmado: *Más información → Ejecutar de todas formas*.
 

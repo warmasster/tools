@@ -95,6 +95,8 @@ a:hover { color: var(--txt); }
 .chip.ok { color: #6ee7b7; background: rgba(52,211,153,.09); border-color: rgba(52,211,153,.28); }
 .chip.up { color: #fcd34d; background: rgba(251,191,36,.1); border-color: rgba(251,191,36,.3); }
 .chip.bad { color: #fca5a5; background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.3); }
+.chip.link { cursor: pointer; transition: filter .15s, border-color .15s; }
+.chip.link:hover { filter: brightness(1.25); border-color: currentColor; }
 
 /* ---------- contenido ---------- */
 .main { flex: 1; min-height: 0; overflow-y: auto; }

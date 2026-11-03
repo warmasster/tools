@@ -43,3 +43,29 @@ func TestVersionedDownload(t *testing.T) {
 		t.Errorf("TurboSEND se pide como %q", got)
 	}
 }
+
+func TestReleaseDownload(t *testing.T) {
+	t.Setenv("TURBOSETUP_BASE", "")
+	m := &Manifest{
+		Setup: Asset{Asset: "TurboSETUP.exe", Download: "TurboSETUP-1.0.8.exe", Release: "turbosetup-v1.0.9"},
+		Tools: []Tool{
+			{ID: "turbocam", Name: "TurboCAM", Asset: Asset{Asset: "TurboCAM.exe", Release: "turbocam-v1.0.6"}},
+			{ID: "turbocut", Name: "TurboCUT", Asset: Asset{Asset: "TurboCUT.exe", Release: "../apps"}},
+		},
+	}
+	m.clean()
+	if got := m.Setup.remoteURL(); got != "https://github.com/warmasster/tools/releases/download/turbosetup-v1.0.9/TurboSETUP.exe" {
+		t.Errorf("TurboSETUP se pide a %q", got)
+	}
+	if got := m.find("turbocam").remoteURL(); got != "https://github.com/warmasster/tools/releases/download/turbocam-v1.0.6/TurboCAM.exe" {
+		t.Errorf("TurboCAM se pide a %q", got)
+	}
+	// Una etiqueta rara se ignora: el .exe de siempre de "apps".
+	if got := m.find("turbocut").remoteURL(); got != "https://github.com/warmasster/tools/releases/download/apps/TurboCUT.exe" {
+		t.Errorf("TurboCUT se pide a %q", got)
+	}
+	t.Setenv("TURBOSETUP_BASE", "http://localhost:8799/")
+	if got := m.find("turbocam").remoteURL(); got != "http://localhost:8799/turbocam-v1.0.6/TurboCAM.exe" {
+		t.Errorf("con servidor de prueba, TurboCAM se pide a %q", got)
+	}
+}

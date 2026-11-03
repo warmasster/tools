@@ -1,5 +1,6 @@
 # Cada push a main mira si ha cambiado la versión de algún programa
-# (wails.json o manifest.json). Si es así, lo compila y lo sube a la Release "apps".
+# (wails.json o manifest.json). Si es así, lo compila, le crea su Release
+# (turbocam-v1.0.6, con sus novedades) y lo pone en el catálogo de la Release "apps".
 name: Release
 
 on:
@@ -39,6 +40,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Toda la historia: las novedades de cada Release salen de los commits.
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:

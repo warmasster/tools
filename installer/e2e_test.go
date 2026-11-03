@@ -52,8 +52,8 @@ func TestE2EInstallUninstall(t *testing.T) {
 	if _, ok := brokenInstalls()["turbocut"]; ok {
 		t.Skip("TurboCUT está registrado de verdad (sin su programa); no lo toco")
 	}
-	if tool.Download == "" {
-		t.Error("el catálogo de prueba no trae el nombre con versión")
+	if tool.Release == "" {
+		t.Error("el catálogo de prueba no trae la Release de la versión")
 	}
 
 	var last int64
