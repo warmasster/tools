@@ -22,6 +22,12 @@ param(
     [string]$OutDir = ""
 )
 $ErrorActionPreference = "Stop"
+# Cualquier error sale como aviso del workflow, que se ve sin iniciar sesión.
+trap {
+    $msg = "línea $($_.InvocationInfo.ScriptLineNumber): $($_.Exception.Message)" -replace '\r?\n', ' · '
+    if ($env:GITHUB_ACTIONS) { Write-Host "::error::release.ps1, $msg" } else { Write-Host $msg }
+    exit 1
+}
 try { [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false } catch {}
 $OutputEncoding = New-Object Text.UTF8Encoding $false
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
@@ -51,6 +57,14 @@ function Run-Git {
     $out = & git -c core.quotepath=off @args 2>$null
     if ($LASTEXITCODE) { return @() }
     return @($out)
+}
+
+# gh que, si falla, para el script con lo que ha respondido. Devuelve lo que escribe.
+function Invoke-Gh {
+    $ErrorActionPreference = "Continue"
+    $out = @(& gh @args 2>&1)
+    if ($LASTEXITCODE) { throw "gh $($args -join ' '): $(($out | Out-String).Trim())" }
+    return $out | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" }
 }
 
 function Ensure-Wails {
@@ -257,9 +271,10 @@ function Pick($e) {
             # Publicado antes de las Releases por versión: se le crea la suya con el .exe de "apps".
             $dir = Join-Path $work "apps-$($e.id)"
             New-Item -ItemType Directory -Force $dir | Out-Null
-            gh release download $tag --pattern $p.asset --dir $dir --clobber
+            $ok = $true
+            try { $null = Invoke-Gh release download $tag --pattern $p.asset --dir $dir --clobber } catch { $ok = $false; Write-Host "::warning::$($_.Exception.Message)" }
             $file = Join-Path $dir $p.asset
-            if (-not $LASTEXITCODE -and (Test-Path $file) -and (Get-FileHash $file -Algorithm SHA256).Hash.ToLower() -eq $p.sha256) {
+            if ($ok -and (Test-Path $file) -and (Get-FileHash $file -Algorithm SHA256).Hash.ToLower() -eq $p.sha256) {
                 $range = Version-Range $e.version $v -Backfill
                 $script:uploads += [pscustomobject]@{
                     entry = $e; version = $v; tag = $relTag; path = $file; target = $range.end; built = $false
@@ -367,24 +382,21 @@ foreach ($u in $order) {
     $title = "$($u.entry.name) $($u.version)"
     if ($releases[$u.tag]) {
         # Solo con -Force o si una ejecución anterior se cortó antes del catálogo.
-        gh release upload $u.tag $u.path --clobber
-        if ($LASTEXITCODE) { throw "No se pudo subir $($u.path) a $($u.tag)" }
-        gh release edit $u.tag --title $title --notes-file $notesFile --latest=false
+        $null = Invoke-Gh release upload $u.tag $u.path --clobber
+        $null = Invoke-Gh release edit $u.tag --title $title --notes-file $notesFile --latest=false
     } else {
-        gh release create $u.tag $u.path --title $title --notes-file $notesFile --target $u.target --latest=false
-        if ($LASTEXITCODE) { throw "No se pudo crear la Release $($u.tag)" }
+        Write-Host "Creando la Release $($u.tag) en $($u.target)..."
+        $null = Invoke-Gh release create $u.tag $u.path --title $title --notes-file $notesFile --target $u.target --latest=false
     }
 }
 # 2. Los .exe con su nombre de siempre en "apps" (README y TurboSETUP de antes de la
 # 1.0.9). Los nuevos no los usan, así que cambiarlos ahora no les afecta.
 foreach ($u in ($uploads | Where-Object { $_.built })) {
-    gh release upload $tag $u.path --clobber
-    if ($LASTEXITCODE) { throw "No se pudo subir $($u.path)" }
+    $null = Invoke-Gh release upload $tag $u.path --clobber
 }
 # 3. El catálogo, el último: desde aquí TurboSETUP ve la versión nueva, ya entera.
-gh release upload $tag $manifestPath --clobber
-if ($LASTEXITCODE) { throw "No se pudo subir manifest.json" }
-gh release edit $tag --title "TurboSETUP · todas las herramientas" --notes-file $notesPath --latest
+$null = Invoke-Gh release upload $tag $manifestPath --clobber
+$null = Invoke-Gh release edit $tag --title "TurboSETUP · todas las herramientas" --notes-file $notesPath --latest
 
 # 4. Las copias con la versión en el nombre (TurboCAM-1.0.6.exe) eran del sistema de
 # antes; ya no las pide nadie que lea este catálogo.
