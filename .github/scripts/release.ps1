@@ -275,9 +275,12 @@ function Pick($e) {
             try { $null = Invoke-Gh release download $tag --pattern $p.asset --dir $dir --clobber } catch { $ok = $false; Write-Host "::warning::$($_.Exception.Message)" }
             $file = Join-Path $dir $p.asset
             if ($ok -and (Test-Path $file) -and (Get-FileHash $file -Algorithm SHA256).Hash.ToLower() -eq $p.sha256) {
+                # Las novedades, hasta el commit que puso esta versión; la etiqueta, en el
+                # actual: GitHub no deja al workflow crear etiquetas en commits viejos
+                # (donde release.yml era distinto).
                 $range = Version-Range $e.version $v -Backfill
                 $script:uploads += [pscustomobject]@{
-                    entry = $e; version = $v; tag = $relTag; path = $file; target = $range.end; built = $false
+                    entry = $e; version = $v; tag = $relTag; path = $file; target = ((Run-Git rev-parse HEAD) | Select-Object -First 1); built = $false
                     notes = Tool-Notes $e $v $p.asset $p.sha256 $relTag $range
                 }
                 $same.release = $relTag
