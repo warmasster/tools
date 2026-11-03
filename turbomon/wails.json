@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "TurboMON",
+  "outputfilename": "TurboMON",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "",
+  "author": {
+    "name": "Fernando",
+    "email": ""
+  },
+  "info": {
+    "companyName": "TurboMON",
+    "productName": "TurboMON",
+    "productVersion": "1.0.0",
+    "copyright": "Fernando",
+    "comments": "FPS, sensores y overlay para jugar, y una revisión de que tu PC rinde lo que debe"
+  }
+}

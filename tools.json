@@ -88,6 +88,17 @@
       "build": "turbocam/build.ps1",
       "output": "turbocam/TurboCAM.exe",
       "version": "turbocam/wails.json"
+    },
+    {
+      "id": "turbomon",
+      "name": "TurboMON",
+      "kind": "setup",
+      "open": true,
+      "dir": "turbomon",
+      "summary": "FPS, sensores y overlay para jugar que apenas gasta, el historial de tus partidas y una revisión de que tu PC rinde lo que debe (XMP, hercios, energía…).",
+      "build": "turbomon/build.ps1",
+      "output": "turbomon/TurboMON.exe",
+      "version": "turbomon/wails.json"
     }
   ]
 }
