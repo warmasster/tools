@@ -74,11 +74,11 @@ func (t *Tracker) Present(pid uint32, ts int64, src int) {
 
 // Stats es la medida de un proceso.
 type Stats struct {
-	FPS       float64 `json:"fps"`       // último segundo
-	Low1      float64 `json:"low1"`      // FPS del 1 % de fotogramas más lentos (últimos 10 s)
-	FrameMs   float64 `json:"frameMs"`   // tiempo medio por fotograma (último segundo)
-	MaxMs     float64 `json:"maxMs"`     // el fotograma más lento de los últimos 10 s
-	Presenting bool   `json:"presenting"` // presenta fotogramas ahora mismo
+	FPS        float64 `json:"fps"`        // último segundo
+	Low1       float64 `json:"low1"`       // FPS del 1 % de fotogramas más lentos (últimos 10 s)
+	FrameMs    float64 `json:"frameMs"`    // tiempo medio por fotograma (último segundo)
+	MaxMs      float64 `json:"maxMs"`      // el fotograma más lento de los últimos 10 s
+	Presenting bool    `json:"presenting"` // presenta fotogramas ahora mismo
 }
 
 // at devuelve el fotograma i-ésimo empezando por el más reciente (0).
@@ -160,11 +160,17 @@ func lowFPS(ms []float64, frac float64) (float64, float64) {
 // Collect devuelve los tiempos de fotograma (ms) nuevos de un proceso desde la
 // última llamada. Lo usa el registro de partidas.
 func (t *Tracker) Collect(pid uint32, dst []float32) []float32 {
+	dst, _ = t.CollectTS(pid, dst, nil)
+	return dst
+}
+
+// CollectTS es Collect y además devuelve cuándo acabó cada fotograma (si ts no es nil).
+func (t *Tracker) CollectTS(pid uint32, dst []float32, ts []int64) ([]float32, []int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	p := t.procs[pid]
 	if p == nil || p.n < 2 {
-		return dst
+		return dst, ts
 	}
 	// Desde el más antiguo pendiente hasta el último.
 	start := p.n - 1
@@ -178,10 +184,13 @@ func (t *Tracker) Collect(pid uint32, dst []float32) []float32 {
 		d := float64(p.at(i-1)-p.at(i)) * 1000 / t.freq
 		if d > 0 && d < 5000 {
 			dst = append(dst, float32(d))
+			if ts != nil {
+				ts = append(ts, p.at(i-1))
+			}
 		}
 	}
 	p.collected = p.last
-	return dst
+	return dst, ts
 }
 
 // Active devuelve los procesos que han presentado algo en los últimos 2,5 s.
@@ -214,7 +223,7 @@ func (t *Tracker) Prune(now int64) {
 // (hasta 250 ms): ocupa 10 KB sea cual sea la duración.
 type Hist struct {
 	Bins  [2500]uint32
-	Over  uint32  // más de 250 ms
+	Over  uint32 // más de 250 ms
 	Count uint64
 	SumMs float64
 }

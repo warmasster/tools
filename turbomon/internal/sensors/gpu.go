@@ -27,6 +27,8 @@ type Adapter struct {
 	Name      string `json:"name"`
 	Vendor    string `json:"vendor"` // nvidia, amd, intel u otro
 	VendorID  uint32 `json:"-"`
+	DeviceID  uint32 `json:"-"`
+	SubSysID  uint32 `json:"-"`
 	VRAM      uint64 `json:"vram"` // memoria dedicada, en bytes
 	Dedicated bool   `json:"dedicated"`
 	Outputs   int    `json:"outputs"` // pantallas conectadas a esta tarjeta
@@ -106,7 +108,7 @@ func Adapters() []Adapter {
 		name := strings.TrimSpace(windows.UTF16ToString(d.Description[:]))
 		vram := uint64(d.DedicatedVideoMemory)
 		out = append(out, Adapter{
-			Name: name, Vendor: vendorName(d.VendorID), VendorID: d.VendorID, VRAM: vram,
+			Name: name, Vendor: vendorName(d.VendorID), VendorID: d.VendorID, DeviceID: d.DeviceID, SubSysID: d.SubSysID, VRAM: vram,
 			// Las integradas de Intel y AMD dicen tener 128-512 MB «dedicados».
 			Dedicated: vram >= 1<<30,
 			Outputs:   outputs, LuidLow: d.LuidLow, LuidHigh: d.LuidHigh,

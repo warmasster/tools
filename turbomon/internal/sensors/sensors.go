@@ -20,6 +20,8 @@ type CPU struct {
 	MaxCore float64   `json:"maxCore"` // % del hilo más ocupado
 	PerCore []float64 `json:"perCore,omitempty"`
 	MHz     int       `json:"mhz"`
+	DPC     float64   `json:"dpc"`     // % del núcleo más castigado por drivers (DPC + interrupciones)
+	PerfCap float64   `json:"perfCap"` // % del rendimiento nominal que Windows deja dar (100 = normal; menos = frenado por temperatura o potencia)
 	Temp    float64   `json:"temp"`    // °C (0 = no se sabe)
 	TempSrc string    `json:"tempSrc"` // hwinfo o "" (no se sabe)
 	PowerW  float64   `json:"powerW"`
@@ -63,6 +65,15 @@ type Snapshot struct {
 	Plugged  bool    `json:"plugged"`
 	Uptime   int64   `json:"uptime"` // s
 	Full     bool    `json:"full"`   // lectura completa (no ligera)
+	// Decode: procesos que están decodificando vídeo con la gráfica (solo si se ha pedido con WatchDecode).
+	Decode []ProcUse `json:"-"`
+}
+
+// ProcUse es lo que usa un proceso de un motor de la gráfica.
+type ProcUse struct {
+	PID   uint32
+	Luid  string
+	Usage float64
 }
 
 // MainGPU es la gráfica que más importa: la dedicada, o la que haya.
@@ -92,6 +103,8 @@ type Sampler struct {
 	netDown, netUp                     *pdhCounter
 	standbyA, standbyB, standbyC, free *pdhCounter
 	gpuEngine, gpuMem                  *pdhCounter
+	perfLimit, decode                  *pdhCounter
+	procGPU                            map[uint32]ProcUse
 	lastFull                           time.Time
 	hwinfoTry                          time.Time
 	hwinfoOK                           bool
@@ -116,6 +129,7 @@ func NewSampler() *Sampler {
 	if q, err := newQuery(); err == nil {
 		s.q = q
 		s.perf = q.add(`\Processor Information(_Total)\% Processor Performance`)
+		s.perfLimit = q.add(`\Processor Information(_Total)\% Performance Limit`)
 		s.diskR = q.add(`\PhysicalDisk(_Total)\Disk Read Bytes/sec`)
 		s.diskW = q.add(`\PhysicalDisk(_Total)\Disk Write Bytes/sec`)
 		s.diskIdle = q.add(`\PhysicalDisk(_Total)\% Idle Time`)
@@ -174,6 +188,12 @@ func (s *Sampler) Sample(full bool) Snapshot {
 			if u > snap.CPU.MaxCore {
 				snap.CPU.MaxCore = u
 			}
+			if tot > 0 {
+				d := pct(uint64((cur[i].Dpc-s.prevCore[i].Dpc)+(cur[i].Interrupt-s.prevCore[i].Interrupt)), tot)
+				if d > snap.CPU.DPC {
+					snap.CPU.DPC = round1(d)
+				}
+			}
 		}
 		copy(s.prevCore, cur)
 	} else if len(cur) > 0 {
@@ -198,6 +218,9 @@ func (s *Sampler) Sample(full bool) Snapshot {
 	s.q.collect()
 	if v, ok := s.perf.value(); ok && s.info.BaseMHz > 0 {
 		snap.CPU.MHz = int(v * float64(s.info.BaseMHz) / 100)
+	}
+	if v, ok := s.perfLimit.value(); ok {
+		snap.CPU.PerfCap = round1(v)
 	}
 	snap.DiskRead, _ = s.diskR.value()
 	snap.DiskWrit, _ = s.diskW.value()
@@ -239,9 +262,31 @@ func (s *Sampler) Sample(full bool) Snapshot {
 	}
 
 	engine := map[string]float64{}
+	type pidLuid struct {
+		pid  uint32
+		luid string
+	}
+	perPid := map[pidLuid]float64{}
 	for _, it := range s.gpuEngine.array() {
 		if k := luidOf(it.Name); k != "" {
 			engine[k] += it.Value
+			if pid := pidOf(it.Name); pid != 0 && it.Value > 0 {
+				perPid[pidLuid{pid, k}] += it.Value
+			}
+		}
+	}
+	pg := map[uint32]ProcUse{}
+	for k, v := range perPid {
+		if v > pg[k.pid].Usage {
+			pg[k.pid] = ProcUse{PID: k.pid, Luid: k.luid, Usage: round1(v)}
+		}
+	}
+	s.procGPU = pg
+	if s.decode != nil {
+		for _, it := range s.decode.array() {
+			if pid := pidOf(it.Name); pid != 0 && it.Value >= 1 {
+				snap.Decode = append(snap.Decode, ProcUse{PID: pid, Luid: luidOf(it.Name), Usage: round1(it.Value)})
+			}
 		}
 	}
 	vram := map[string]uint64{}
@@ -308,6 +353,45 @@ func StandbyBytes() uint64 {
 		}
 	}
 	return t
+}
+
+// WatchDecode empieza o deja de mirar qué procesos decodifican vídeo con la
+// gráfica (cuesta algo: solo durante las partidas con dos pantallas).
+func (s *Sampler) WatchDecode(on bool) {
+	if s.q == nil || on == (s.decode != nil) {
+		return
+	}
+	if on {
+		s.decode = s.q.add(`\GPU Engine(*engtype_VideoDecode)\Utilization Percentage`)
+		return
+	}
+	s.q.remove(s.decode)
+	s.decode = nil
+}
+
+// ProcGPU dice en qué gráfica (luid) dibuja un proceso y cuánto la usa (última lectura completa).
+func (s *Sampler) ProcGPU(pid uint32) (ProcUse, bool) {
+	u, ok := s.procGPU[pid]
+	return u, ok
+}
+
+// LuidKey es la clave de una gráfica como la usan ProcUse y los contadores.
+func (a Adapter) LuidKey() string { return a.luidKey() }
+
+// pidOf saca el proceso de «pid_1234_luid_…».
+func pidOf(name string) uint32 {
+	n := strings.ToLower(name)
+	if !strings.HasPrefix(n, "pid_") {
+		return 0
+	}
+	v := uint32(0)
+	for _, c := range n[4:] {
+		if c < '0' || c > '9' {
+			break
+		}
+		v = v*10 + uint32(c-'0')
+	}
+	return v
 }
 
 // luidOf saca «0x00000000_0x0000d1f3» de un nombre de instancia de los contadores de la GPU.

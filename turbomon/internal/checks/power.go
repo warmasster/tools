@@ -12,17 +12,17 @@ import (
 )
 
 var (
-	modPowrprof     = windows.NewLazySystemDLL("powrprof.dll")
-	pGetActive      = modPowrprof.NewProc("PowerGetActiveScheme")
-	pSetActive      = modPowrprof.NewProc("PowerSetActiveScheme")
-	pReadAC         = modPowrprof.NewProc("PowerReadACValueIndex")
-	pReadDC         = modPowrprof.NewProc("PowerReadDCValueIndex")
-	pWriteAC        = modPowrprof.NewProc("PowerWriteACValueIndex")
-	pReadName       = modPowrprof.NewProc("PowerReadFriendlyName")
-	pEnumerate      = modPowrprof.NewProc("PowerEnumerate")
-	pGetOverlay     = modPowrprof.NewProc("PowerGetEffectiveOverlayScheme")
-	modKernelLocal  = windows.NewLazySystemDLL("kernel32.dll")
-	pLocalFree      = modKernelLocal.NewProc("LocalFree")
+	modPowrprof    = windows.NewLazySystemDLL("powrprof.dll")
+	pGetActive     = modPowrprof.NewProc("PowerGetActiveScheme")
+	pSetActive     = modPowrprof.NewProc("PowerSetActiveScheme")
+	pReadAC        = modPowrprof.NewProc("PowerReadACValueIndex")
+	pReadDC        = modPowrprof.NewProc("PowerReadDCValueIndex")
+	pWriteAC       = modPowrprof.NewProc("PowerWriteACValueIndex")
+	pReadName      = modPowrprof.NewProc("PowerReadFriendlyName")
+	pEnumerate     = modPowrprof.NewProc("PowerEnumerate")
+	pGetOverlay    = modPowrprof.NewProc("PowerGetEffectiveOverlayScheme")
+	modKernelLocal = windows.NewLazySystemDLL("kernel32.dll")
+	pLocalFree     = modKernelLocal.NewProc("LocalFree")
 )
 
 // Planes conocidos.

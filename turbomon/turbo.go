@@ -103,7 +103,7 @@ func (a *Agent) purgeStandby() (uint64, error) {
 		return 0, err
 	}
 	before := sensors.StandbyBytes()
-	cmd := uint32(4) // MemoryPurgeStandbyList
+	cmd := uint32(4)                                                       // MemoryPurgeStandbyList
 	r, _, _ := procNtSetSysInfo.Call(80, uintptr(unsafe.Pointer(&cmd)), 4) // SystemMemoryListInformation
 	if r != 0 {
 		return 0, errors.New("Windows no ha dejado liberarla")

@@ -20,8 +20,10 @@ Programas para Windows hechos a medida: rápidos, en un solo `.exe` y con una in
 | [**TurboGAMES**](turbogames/README.md) | Todas tus cuentas de Steam a un clic, sin el límite del selector de Steam: cambia de cuenta solo, avisa de cuáles piden contraseña y guarda las contraseñas en una bóveda cifrada con contraseña maestra. También enseña tus juegos con sus portadas, quién ha jugado a cada uno y cuánto, y los abre con la cuenta que toque. |
 | [**TurboVAULT**](turbovault/README.md) | Gestor de contraseñas con todo cifrado en tu PC (AES-256 y Argon2id) y extensión para Chrome que rellena y guarda al iniciar sesión. Códigos 2FA, generador, salud de tus contraseñas, aviso de filtraciones y copias automáticas en un USB. La bóveda se cierra sola a los pocos minutos y al bloquear el PC. |
 | [**TurboCAM**](turbocam/README.md) | El móvil (o varios) como webcam del PC, sin instalar nada en el móvil: escaneas un QR y sale como cámara en Discord, Meet, Zoom u OBS. Funciona por wifi o desde cualquier sitio, con modo negro para gastar poco, escenas (móvil sobre la pantalla), foto y congelar con atajo, y perfiles que se ponen solos según la app. |
-| [**TurboMON**](turbomon/README.md) | FPS, sensores y overlay para jugar que se pone y se quita con un clic, y apenas gasta. Apunta solo cada partida (FPS medios, 1 % bajo, CPU, gráfica, temperaturas) y dice qué te limita. Revisa que el PC rinda lo que debe (XMP, doble canal, hercios de la pantalla, cable en la gráfica, energía…) y arregla con un clic lo que se puede. |
+| [**TurboMON**](turbomon/README.md) 🧪 | FPS, sensores y overlay para jugar que se pone y se quita con un clic, y apenas gasta. Apunta solo cada partida y dice qué te limita, revisa que el PC rinda lo que debe (XMP, hercios, cable en la gráfica…) y te dice en lenguaje normal **por qué** te va mal: qué programa o driver mete los tirones, por qué se cierra el juego, quién te saca de la partida o qué te sube el ping. Con un laboratorio que prueba a ciegas si un ajuste da FPS de verdad. |
 | [**TurboSETUP**](installer/README.md) | El instalador: descarga las herramientas de este repo y las mantiene al día. |
+
+🧪 = experimental: funciona, pero aún puede cambiar.
 
 ## Compilar
 

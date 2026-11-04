@@ -12,14 +12,15 @@ import (
 )
 
 var (
-	modPdh       = windows.NewLazySystemDLL("pdh.dll")
-	pOpenQuery   = modPdh.NewProc("PdhOpenQueryW")
-	pAddCounter  = modPdh.NewProc("PdhAddEnglishCounterW")
-	pCollect     = modPdh.NewProc("PdhCollectQueryData")
-	pGetValue    = modPdh.NewProc("PdhGetFormattedCounterValue")
-	pGetArray    = modPdh.NewProc("PdhGetFormattedCounterArrayW")
-	pCloseQuery  = modPdh.NewProc("PdhCloseQuery")
-	pdhAvailable = modPdh.Load() == nil
+	modPdh         = windows.NewLazySystemDLL("pdh.dll")
+	pOpenQuery     = modPdh.NewProc("PdhOpenQueryW")
+	pAddCounter    = modPdh.NewProc("PdhAddEnglishCounterW")
+	pRemoveCounter = modPdh.NewProc("PdhRemoveCounter")
+	pCollect       = modPdh.NewProc("PdhCollectQueryData")
+	pGetValue      = modPdh.NewProc("PdhGetFormattedCounterValue")
+	pGetArray      = modPdh.NewProc("PdhGetFormattedCounterArrayW")
+	pCloseQuery    = modPdh.NewProc("PdhCloseQuery")
+	pdhAvailable   = modPdh.Load() == nil
 )
 
 const (
@@ -76,6 +77,12 @@ func (q *pdhQuery) add(path string) *pdhCounter {
 		return nil
 	}
 	return &pdhCounter{h: h}
+}
+
+func (q *pdhQuery) remove(c *pdhCounter) {
+	if q != nil && c != nil {
+		pRemoveCounter.Call(c.h)
+	}
 }
 
 func (q *pdhQuery) collect() {

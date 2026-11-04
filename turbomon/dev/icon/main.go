@@ -21,6 +21,20 @@ type style struct {
 	needle     [3]float64
 	track      float64 // opacidad del arco de fondo
 	progress   float64 // 0-1, cuánto marca la aguja
+	badge      bool    // distintivo de «experimental»
+}
+
+// flask es el matraz del distintivo, en la caja de 64.
+var flask = [][2]float64{{46.6, 8}, {51.4, 8}, {51.4, 12.3}, {55.2, 20.5}, {42.8, 20.5}, {46.6, 12.3}}
+
+func inPoly(x, y float64, p [][2]float64) bool {
+	in := false
+	for i, j := 0, len(p)-1; i < len(p); j, i = i, i+1 {
+		if (p[i][1] > y) != (p[j][1] > y) && x < (p[j][0]-p[i][0])*(y-p[i][1])/(p[j][1]-p[i][1])+p[i][0] {
+			in = !in
+		}
+	}
+	return in
 }
 
 var (
@@ -54,6 +68,25 @@ func render(size int, st style) *image.NRGBA {
 					py := (float64(y) + (float64(sy)+.5)/ss) * k
 					if !inRoundRect(px, py, 2, 2, 62, 62, 15) {
 						continue
+					}
+					// Distintivo de «experimental»: un matraz en un círculo ámbar
+					// (no en la bandeja: ahí no se vería).
+					if st.badge && size >= 24 {
+						bd := math.Hypot(px-49, py-15)
+						if bd <= 13.6 {
+							bc := [3]float64{0x0a, 0x0b, 0x12}
+							if bd <= 12 {
+								bc = [3]float64{0xfb, 0xbf, 0x24}
+								if inPoly(px, py, flask) {
+									bc = [3]float64{0x3b, 0x23, 0x00}
+								}
+							}
+							acc[0] += bc[0]
+							acc[1] += bc[1]
+							acc[2] += bc[2]
+							acc[3]++
+							continue
+						}
 					}
 					t := (px + py) / 128
 					var c [3]float64
@@ -157,8 +190,10 @@ func write(p string, b []byte) {
 }
 
 func main() {
-	write("build/appicon.png", pngBytes(render(512, normal)))
-	write("build/windows/icon.ico", ico(normal, 16, 20, 24, 32, 40, 48, 64, 128, 256))
+	app := normal
+	app.badge = true // mientras TurboMON sea experimental
+	write("build/appicon.png", pngBytes(render(512, app)))
+	write("build/windows/icon.ico", ico(app, 16, 20, 24, 32, 40, 48, 64, 128, 256))
 	write("assets/tray-on.ico", ico(normal, 16, 20, 24, 32, 40, 48))
 	write("assets/tray-off.ico", ico(off, 16, 20, 24, 32, 40, 48))
 }

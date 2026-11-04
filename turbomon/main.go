@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"turbomon/internal/noise"
 )
 
 //go:embed all:frontend
@@ -40,6 +42,8 @@ func main() {
 		switch strings.ToLower(args[0]) {
 		case "--agent":
 			os.Exit(runAgent())
+		case "--noise-probe":
+			os.Exit(noise.RunProbe(args[1:], os.Stdout))
 		case "setup":
 			os.Exit(cliSetup())
 		case "uninstall":

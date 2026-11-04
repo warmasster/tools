@@ -90,7 +90,7 @@ func newOverlay(inst windows.Handle) *overlay {
 	wc.Size = uint32(unsafe.Sizeof(wc))
 	procRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc)))
 	title, _ := windows.UTF16PtrFromString("TurboMON overlay")
-	const exStyle = 0x8 | 0x80 | 0x80000 | 0x20 | 0x08000000 // TOPMOST TOOLWINDOW LAYERED TRANSPARENT NOACTIVATE
+	const exStyle = 0x8 | 0x80 | 0x80000 | 0x20 | 0x08000000                                                              // TOPMOST TOOLWINDOW LAYERED TRANSPARENT NOACTIVATE
 	h, _, _ := procCreateWindowEx.Call(exStyle, uintptr(unsafe.Pointer(cls)), uintptr(unsafe.Pointer(title)), 0x80000000, // WS_POPUP
 		0, 0, 10, 10, 0, 0, uintptr(inst), 0)
 	o.hwnd = h
@@ -263,8 +263,8 @@ func (o *overlay) paint(hwnd uintptr) {
 	procSelectObject.Call(mem, oldBrush)
 	procDeleteObject.Call(pen)
 	procDeleteObject.Call(bg)
-	procSetBkMode.Call(mem, 1)       // TRANSPARENT
-	procSetTextAlign.Call(mem, 24)   // TA_BASELINE
+	procSetBkMode.Call(mem, 1)     // TRANSPARENT
+	procSetTextAlign.Call(mem, 24) // TA_BASELINE
 	pad := int(math.Round(9 * o.fontKey))
 	draw := func(x, y int, s string, font int, col uint32) {
 		u, _ := windows.UTF16FromString(s)

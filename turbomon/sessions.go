@@ -22,7 +22,9 @@ import (
 	"golang.org/x/sys/windows"
 
 	"turbomon/internal/fps"
+	"turbomon/internal/parts"
 	"turbomon/internal/sensors"
+	"turbomon/internal/stutter"
 )
 
 // Stat es una media y un máximo.
@@ -42,29 +44,58 @@ type Series struct {
 
 // SessionRecord es una partida guardada.
 type SessionRecord struct {
-	ID      string  `json:"id"`
-	Game    string  `json:"game"`
-	Exe     string  `json:"exe"`
-	Start   int64   `json:"start"` // unix
-	Secs    int     `json:"secs"`  // tiempo con el juego delante
-	FPSAvg  float64 `json:"fpsAvg"`
-	Low1    float64 `json:"low1"`
-	Low01   float64 `json:"low01"`
-	CPU     Stat    `json:"cpu"`
-	MaxCore float64 `json:"maxCore"` // media del hilo más ocupado
-	GPU     Stat    `json:"gpu"`
-	RAM     Stat    `json:"ram"`  // GB
-	VRAM    Stat    `json:"vram"` // GB
-	RAMTot  float64 `json:"ramTotal"`
-	VRAMTot float64 `json:"vramTotal"`
-	CPUTemp Stat    `json:"cpuTemp"`
-	GPUTemp Stat    `json:"gpuTemp"`
-	GPUName string  `json:"gpuName"`
-	Limit   string  `json:"limit"` // gpu, cpu, cap o ""
-	Cap     int     `json:"cap,omitempty"`
-	Purges  int     `json:"purges,omitempty"`
-	Turbo   bool    `json:"turbo,omitempty"`
-	Series  *Series `json:"series,omitempty"`
+	ID       string          `json:"id"`
+	Game     string          `json:"game"`
+	Exe      string          `json:"exe"`
+	Path     string          `json:"path,omitempty"` // dónde está el juego
+	Start    int64           `json:"start"`          // unix
+	Secs     int             `json:"secs"`           // tiempo con el juego delante
+	FPSAvg   float64         `json:"fpsAvg"`
+	Low1     float64         `json:"low1"`
+	Low01    float64         `json:"low01"`
+	CPU      Stat            `json:"cpu"`
+	MaxCore  float64         `json:"maxCore"` // media del hilo más ocupado
+	GPU      Stat            `json:"gpu"`
+	RAM      Stat            `json:"ram"`  // GB
+	VRAM     Stat            `json:"vram"` // GB
+	RAMTot   float64         `json:"ramTotal"`
+	VRAMTot  float64         `json:"vramTotal"`
+	CPUTemp  Stat            `json:"cpuTemp"`
+	GPUTemp  Stat            `json:"gpuTemp"`
+	GPUName  string          `json:"gpuName"`
+	Limit    string          `json:"limit"` // gpu, cpu, cap o ""
+	Cap      int             `json:"cap,omitempty"`
+	Purges   int             `json:"purges,omitempty"`
+	Turbo    bool            `json:"turbo,omitempty"`
+	Ping     *PingStat       `json:"ping,omitempty"`
+	Stutter  *stutter.Report `json:"stutter,omitempty"`
+	Monitors int             `json:"monitors,omitempty"`
+	GameGPU  string          `json:"gameGPU,omitempty"`   // la gráfica en la que dibujaba el juego
+	OnIGPU   bool            `json:"onIGPU,omitempty"`    // dibujaba en la integrada habiendo dedicada
+	Throttle float64         `json:"throttle,omitempty"`  // % del tiempo con el procesador frenado
+	Gov      *GovStat        `json:"gov,omitempty"`       // lo que hizo el ahorro inteligente
+	GPUDrv   string          `json:"gpuDriver,omitempty"` // versión del driver de la gráfica
+	WinBuild string          `json:"winBuild,omitempty"`  // versión de Windows
+	NetHogs  []NetHog        `json:"netHogs,omitempty"`
+	Series   *Series         `json:"series,omitempty"`
+}
+
+// PingStat es el ping durante la partida.
+type PingStat struct {
+	Server string  `json:"server,omitempty"`
+	NoICMP bool    `json:"noICMP,omitempty"` // el servidor no contesta al ping
+	Avg    float64 `json:"avg"`
+	P95    float64 `json:"p95"`
+	Jitter float64 `json:"jitter"`
+	Loss   float64 `json:"loss"`
+	Inet   float64 `json:"inet"` // ping medio a internet (8.8.8.8)
+}
+
+// NetHog es un programa que movió mucho por la red durante la partida.
+type NetHog struct {
+	Name string `json:"name"`
+	Down uint64 `json:"down"`
+	Up   uint64 `json:"up"`
 }
 
 type acc struct {
@@ -91,6 +122,7 @@ type liveSession struct {
 	pid      uint32
 	game     string
 	exe      string
+	path     string
 	start    time.Time
 	lastFg   time.Time
 	secs     int
@@ -110,8 +142,18 @@ type liveSession struct {
 	series   Series
 	pt       [4]acc // punto de la gráfica en curso
 	turbo    *turboState
+	netStart map[uint32][2]uint64
 	purges   int
 	lastPurg time.Time
+	stut     *stutter.Analyzer
+	ts       []int64
+	away     bool
+	monitors int
+	limited  int
+	gpuSeen  map[string]int // gráfica en la que dibuja el juego (cada 10 s)
+	gov      *govRun
+	gpuDrv   string
+	winBuild string
 }
 
 type sessionTracker struct {
@@ -157,12 +199,36 @@ func (t *sessionTracker) update(fgPid uint32, info procInfo, fgHwnd uintptr, st 
 			return
 		}
 		if fgPid != c.pid {
+			c.away = true
+			t.a.labAway()
 			return // en el escritorio, en Discord…: la partida sigue, pero no cuenta
 		}
 		c.lastFg = now
 		c.secs++
-		c.buf = t.a.tracker.Collect(c.pid, c.buf[:0])
-		c.hist.Add(c.buf)
+		tnow := fps.Now()
+		c.buf, c.ts = t.a.tracker.CollectTS(c.pid, c.buf[:0], c.ts[:0])
+		if c.away {
+			// Lo de mientras estaba fuera no cuenta (en segundo plano los juegos van a saltos).
+			c.away = false
+			c.stut.Skip(tnow)
+		} else {
+			c.hist.Add(c.buf)
+			c.stut.Frames(c.buf, c.ts)
+			c.stut.Second(tnow, t.a.stutterCtx(c, snap))
+			t.a.labTick(c, c.buf)
+			t.a.govTick(c.gov, c.buf, st.FPS, snap)
+		}
+		if snap != nil && snap.Full && snap.CPU.PerfCap > 0 && snap.CPU.PerfCap < 90 {
+			c.limited++
+		}
+		if c.secs%10 == 0 && snap != nil && len(snap.GPUs) > 1 {
+			t.a.smu.Lock()
+			u, ok := t.a.sampler.ProcGPU(c.pid)
+			t.a.smu.Unlock()
+			if ok && u.Usage >= 5 {
+				c.gpuSeen[u.Luid]++
+			}
+		}
 		if st.Presenting && st.FPS > 0 {
 			c.fpsSec.add(st.FPS)
 			c.fpsSq += st.FPS * st.FPS
@@ -183,14 +249,42 @@ func (t *sessionTracker) update(fgPid uint32, info procInfo, fgHwnd uintptr, st 
 		return
 	}
 	// Empieza la partida.
-	c := &liveSession{pid: fgPid, game: info.game, exe: info.exe, start: t.candSince, lastFg: now, series: Series{Step: 5}}
+	c := &liveSession{pid: fgPid, game: info.game, exe: info.exe, path: info.path, start: t.candSince, lastFg: now, series: Series{Step: 5},
+		stut: stutter.New(fps.Freq(), fps.Now()), ts: make([]int64, 0, 1024), monitors: monitorCount(), gpuSeen: map[string]int{}}
 	t.a.tracker.Collect(fgPid, nil) // lo de antes no cuenta
+	if c.monitors > 1 {
+		t.a.smu.Lock()
+		t.a.sampler.WatchDecode(true) // ¿hay un vídeo en la otra pantalla?
+		t.a.smu.Unlock()
+	}
+	if p, ok := getProfile(c.exe); ok {
+		applyGameProfile(c.pid, p)
+	}
+	t.a.labSessionStart(c)
+	t.a.prefSessionStart(c, info.path)
 	t.cur = c
 	t.candPid = 0
 	logf("partida: %s (%s, pid %d)", c.game, c.exe, c.pid)
 	if s := getSettings(); s.TurboMode {
 		c.turbo = t.a.turboStart(c.pid)
 	}
+	c.gov = t.a.govStart() // después del modo Turbo: copia el plan que haya puesto
+	go func() {            // versiones del driver y de Windows (para ver si una actualización cambia los FPS)
+		comp := parts.Read(0)
+		drv := ""
+		for _, g := range comp.GPUs {
+			if g.Dedicated || drv == "" {
+				drv = g.DriverVersion
+			}
+		}
+		t.mu.Lock()
+		c.gpuDrv, c.winBuild = drv, comp.OS.Build
+		t.mu.Unlock()
+	}()
+	c.netStart = t.a.net.mon.Totals()
+	t.a.net.gamePing.Reset()
+	t.a.net.inetPing.Reset()
+	go t.a.wifiSessionStart()
 }
 
 func (t *sessionTracker) sample(c *liveSession, st fps.Stats, snap *sensors.Snapshot) {
@@ -252,15 +346,23 @@ func (t *sessionTracker) finish() {
 	if c == nil {
 		return
 	}
+	t.a.labSessionEnd(c)
+	gov := t.a.govEnd(c.gov) // antes que el modo Turbo: vuelve a su plan
 	if c.turbo != nil {
 		t.a.turboEnd(c.turbo)
+	}
+	go t.a.wifiSessionEnd()
+	if c.monitors > 1 {
+		t.a.smu.Lock()
+		t.a.sampler.WatchDecode(false)
+		t.a.smu.Unlock()
 	}
 	if c.secs < 60 || c.hist.Count < 100 || !getSettings().Sessions {
 		logf("partida de %s descartada (%d s)", c.game, c.secs)
 		return
 	}
 	rec := SessionRecord{
-		ID: fmt.Sprintf("%d-%d", c.start.Unix(), c.pid), Game: c.game, Exe: c.exe, Start: c.start.Unix(), Secs: c.secs,
+		ID: fmt.Sprintf("%d-%d", c.start.Unix(), c.pid), Game: c.game, Exe: c.exe, Path: c.path, Start: c.start.Unix(), Secs: c.secs,
 		FPSAvg: c.hist.AvgFPS(), Low1: c.hist.Low(0.01), Low01: c.hist.Low(0.001),
 		CPU: c.cpu.stat(10), GPU: c.gpu.stat(10), RAM: c.ram.stat(100), VRAM: c.vram.stat(100),
 		RAMTot: math.Round(c.ramTot*10) / 10, VRAMTot: math.Round(c.vramTot*10) / 10,
@@ -271,6 +373,18 @@ func (t *sessionTracker) finish() {
 		rec.MaxCore = math.Round(c.core.sum / float64(c.core.n))
 	}
 	rec.Limit, rec.Cap = limitOf(rec, c)
+	rec.Ping, rec.NetHogs = t.a.sessionNet(c)
+	if c.stut != nil {
+		rep := c.stut.Report()
+		rec.Stutter = &rep
+	}
+	rec.Monitors = c.monitors
+	rec.Gov = gov
+	rec.GPUDrv, rec.WinBuild = c.gpuDrv, c.winBuild
+	if c.secs > 0 {
+		rec.Throttle = math.Round(float64(c.limited) / float64(c.secs) * 100)
+	}
+	rec.GameGPU, rec.OnIGPU = t.a.gameGPU(c)
 	s := c.series
 	rec.Series = &s
 	if err := appendSession(rec); err != nil {
@@ -460,6 +574,11 @@ func readSessions(withSeries bool) []SessionRecord {
 		}
 		if !withSeries {
 			r.Series = nil
+			if r.Stutter != nil {
+				st := *r.Stutter
+				st.Times = nil
+				r.Stutter = &st
+			}
 		}
 		out = append(out, r)
 	}
@@ -509,4 +628,30 @@ func sessionsSize() int64 {
 		return 0
 	}
 	return st.Size()
+}
+
+// gameGPU dice en qué gráfica dibujaba el juego y si era la integrada habiendo una dedicada (portátiles).
+func (a *Agent) gameGPU(c *liveSession) (string, bool) {
+	best, n := "", 0
+	for k, v := range c.gpuSeen {
+		if v > n {
+			best, n = k, v
+		}
+	}
+	if best == "" {
+		return "", false
+	}
+	a.smu.Lock()
+	ads := a.sampler.GPUAdapters()
+	a.smu.Unlock()
+	name, integrated, hasDedicated := "", false, false
+	for _, ad := range ads {
+		if ad.Dedicated {
+			hasDedicated = true
+		}
+		if ad.LuidKey() == best {
+			name, integrated = ad.Name, !ad.Dedicated
+		}
+	}
+	return name, integrated && hasDedicated
 }

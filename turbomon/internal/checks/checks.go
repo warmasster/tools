@@ -19,6 +19,7 @@ import (
 
 	"golang.org/x/sys/windows/registry"
 
+	"turbomon/internal/parts"
 	"turbomon/internal/sensors"
 )
 
@@ -51,15 +52,24 @@ type Report struct {
 	Time    int64    `json:"time"`
 }
 
-// Run hace todas las comprobaciones (tarda menos de un segundo).
-func Run() Report {
+// Run hace todas las comprobaciones (tarda menos de un segundo). comp son las
+// piezas del equipo (las lee el agente, que con permiso de administrador ve
+// también la salud de los discos); si es nil se leen aquí.
+func Run(comp *parts.Components) Report {
+	if comp == nil {
+		c := parts.Read(sensors.TotalRAM())
+		comp = &c
+	}
 	hasBattery, plugged, _ := sensors.Battery()
 	adapters := sensors.Adapters()
-	monitors := Monitors()
+	monitors := comp.Monitors
 	var rs []Result
 	rs = append(rs, checkRAM(hasBattery)...)
 	rs = append(rs, checkMonitors(monitors)...)
 	if r, ok := checkMonitorGPU(monitors, adapters, hasBattery); ok {
+		rs = append(rs, r)
+	}
+	if r, ok := checkDualMonitor(monitors); ok {
 		rs = append(rs, r)
 	}
 	if r, ok := checkDriver(adapters); ok {
@@ -73,13 +83,43 @@ func Run() Report {
 	rs = append(rs, checkGameMode(), checkGameDVR(), checkPagefile())
 	rs = append(rs, checkDisks()...)
 	rs = append(rs, checkMouse(), checkStartup())
+	rs = append(rs, tailoredChecks(*comp)...)
 	var out []Result
 	for _, r := range rs {
 		if r.Status != "" {
 			out = append(out, r)
 		}
 	}
+	order := map[string]int{"Memoria": 0, "Procesador": 1, "Pantalla": 2, "Gráfica": 3, "Energía": 4, "Windows": 5, "Red": 6, "Discos": 7}
+	sort.SliceStable(out, func(i, j int) bool { return order[out[i].Group] < order[out[j].Group] })
 	return Report{Score: Score(out), Results: out, Time: time.Now().Unix()}
+}
+
+// checkDualMonitor: dos pantallas a hercios distintos son la causa más típica
+// de tirones con un vídeo en la otra pantalla.
+func checkDualMonitor(ms []Monitor) (Result, bool) {
+	if len(ms) < 2 {
+		return Result{}, false
+	}
+	hz := map[int]bool{}
+	var list []string
+	for _, m := range ms {
+		hz[m.Hz] = true
+		list = append(list, fmt.Sprintf("%d", m.Hz))
+	}
+	r := Result{ID: "dual_monitor", Group: "Pantalla", Title: "Dos pantallas", Weight: 0, Value: strings.Join(list, " y ") + " Hz"}
+	mpo := "activado"
+	if v, ok := regDword(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows\Dwm`, "OverlayTestMode"); ok && v == 5 {
+		mpo = "desactivado"
+	}
+	if len(hz) > 1 {
+		r.Status = Info
+		r.Detail = "Tus pantallas van a hercios distintos. Es lo normal, pero con un vídeo en la otra pantalla a algunos PC les da tirones en el juego (MPO " + mpo + "). Si te pasa, TurboMON lo detecta en «Solucionar» > «Dos pantallas»."
+	} else {
+		r.Status = OK
+		r.Detail = "Las pantallas van a los mismos hercios: es lo que menos problemas da con un vídeo en la otra."
+	}
+	return r, true
 }
 
 // Score: 100 menos lo que resta cada cosa mal (entera) o mejorable (la mitad).
@@ -395,20 +435,6 @@ func driverDate(name string) (time.Time, string) {
 		return time.Date(y, time.Month(mo), d, 0, 0, 0, 0, time.Local), nvidiaVersion(ver)
 	}
 	return time.Time{}, ""
-}
-
-// nvidiaVersion pasa «32.0.16.1664» a «616.64», que es como lo llama NVIDIA.
-func nvidiaVersion(v string) string {
-	p := strings.Split(v, ".")
-	if len(p) != 4 || len(p[2]) < 2 {
-		return v
-	}
-	s := p[2][len(p[2])-1:] + fmt.Sprintf("%04s", p[3])
-	s = strings.ReplaceAll(s, " ", "0")
-	if len(s) < 5 {
-		return v
-	}
-	return s[:3] + "." + s[3:]
 }
 
 func checkHAGS() Result {

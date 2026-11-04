@@ -37,6 +37,7 @@ type OverlaySettings struct {
 	VRAM     bool   `json:"vram"`
 	Clock    bool   `json:"clock"`
 	Power    bool   `json:"power"`
+	Ping     bool   `json:"ping"`
 	Hotkey   bool   `json:"hotkey"` // Ctrl+Alt+O
 }
 
@@ -48,6 +49,8 @@ type Settings struct {
 	TurboPlan    bool            `json:"turboPlan"`    // · plan de energía al máximo durante la partida
 	TurboPrio    bool            `json:"turboPrio"`    // · más prioridad para el juego
 	TurboStandby bool            `json:"turboStandby"` // · soltar la memoria en espera si queda poca
+	WifiNoScan   bool            `json:"wifiNoScan"`   // apagar la búsqueda de redes wifi mientras se juega
+	Governor     bool            `json:"governor"`     // ahorro inteligente: bajar la frecuencia si sobra (experimental)
 	Welcomed     bool            `json:"welcomed"`
 }
 

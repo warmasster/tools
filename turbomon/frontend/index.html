@@ -16,13 +16,15 @@
     </div>
     <nav class="nav" id="nav">
       <button data-v="home" class="on"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></svg>Inicio</button>
-      <button data-v="sensors"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Sensores</button>
+      <button data-v="pc"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Mi PC</button>
       <button data-v="checks"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Revisión<span class="badge" id="checks-badge"></span></button>
-      <button data-v="games"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="6"/><path d="M6 12h4M8 10v4"/><circle cx="15.5" cy="11" r=".6" fill="currentColor"/><circle cx="17.5" cy="13" r=".6" fill="currentColor"/></svg>Partidas</button>
-      <button data-v="tools"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>Herramientas</button>
-      <button data-v="settings"><svg viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>Ajustes</button>
+      <button data-v="games"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="6"/><path d="M6 12h4M8 10v4"/><circle cx="15.5" cy="11" r=".6" fill="currentColor"/><circle cx="17.5" cy="13" r=".6" fill="currentColor"/></svg>Juegos</button>
+      <button data-v="fix"><svg viewBox="0 0 24 24"><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/></svg>Solucionar<span class="badge bad" id="fix-badge"></span></button>
+      <button data-v="opt"><svg viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>Optimizar</button>
     </nav>
     <div class="winbtns">
+      <button class="wb" data-v="settings" title="Ajustes"><svg viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <span class="wsep"></span>
       <button class="wb" id="wb-min" title="Minimizar"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
       <button class="wb" id="wb-max" title="Maximizar"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
       <button class="wb close" id="wb-close" title="Cerrar (TurboMON sigue en la bandeja)"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
@@ -32,16 +34,30 @@
   <div class="banner" id="banner" hidden></div>
 
   <main class="view on" id="v-home"><div class="inner" id="home"></div></main>
-  <main class="view" id="v-sensors"><div class="inner" id="sensors"></div></main>
+  <main class="view" id="v-pc"><div class="inner" id="pc"></div></main>
   <main class="view" id="v-checks"><div class="inner" id="checks"></div></main>
   <main class="view" id="v-games"><div class="inner wide" id="games"></div></main>
-  <main class="view" id="v-tools"><div class="inner" id="tools"></div></main>
+  <main class="view" id="v-fix"><div class="inner" id="fix"></div></main>
+  <main class="view" id="v-opt"><div class="inner" id="opt"></div></main>
   <main class="view" id="v-settings"><div class="inner" id="settings"></div></main>
 
   <div class="toast" id="toast"></div>
   <div class="modal" id="modal" hidden><div class="modal-card" id="modal-card"></div></div>
 </div>
 <script src="mock.js"></script>
-<script src="app.js"></script>
+<script src="core.js"></script>
+<script src="v_home.js"></script>
+<script src="v_pc.js"></script>
+<script src="v_checks.js"></script>
+<script src="v_games.js"></script>
+<script src="v_fix.js"></script>
+<script src="fix_crash.js"></script>
+  <script src="fix_stutter.js"></script>
+<script src="fix_stable.js"></script>
+<script src="fix_focus.js"></script>
+<script src="fix_lag.js"></script>
+<script src="v_opt.js"></script>
+<script src="v_settings.js"></script>
+<script src="main.js"></script>
 </body>
 </html>

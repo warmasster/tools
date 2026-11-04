@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"time"
@@ -20,6 +22,9 @@ import (
 	xwin "golang.org/x/sys/windows"
 
 	"turbomon/internal/checks"
+	"turbomon/internal/events"
+	"turbomon/internal/netmon"
+	"turbomon/internal/parts"
 )
 
 const windowClass = "TurboMONWindow"
@@ -27,6 +32,7 @@ const windowClass = "TurboMONWindow"
 type App struct {
 	ctx   context.Context
 	procs *procSampler
+	bloat *netmon.Bloat
 }
 
 func userTag() string {
@@ -131,16 +137,40 @@ func (a *App) ClearSessions() error {
 	return err
 }
 
-// Checks hace la revisión del equipo.
-func (a *App) Checks() checks.Report { return checks.Run() }
+// Checks hace la revisión del equipo (con las piezas que lee el agente, que ve también la salud de los discos).
+func (a *App) Checks() checks.Report { return checks.Run(a.comps()) }
+
+func (a *App) comps() *parts.Components {
+	var c parts.Components
+	if agentCall("GET", "/components", nil, &c, 10*time.Second) == nil && c.CPU.Name != "" {
+		return &c
+	}
+	return nil
+}
+
+// Components: las piezas del equipo.
+func (a *App) Components() (json.RawMessage, error) {
+	return a.raw("GET", "/components", nil, 15*time.Second)
+}
+
+// StartDiskTest empieza a medir la velocidad de un disco.
+func (a *App) StartDiskTest(disk int) error {
+	_, err := a.raw("POST", fmt.Sprintf("/disktest?disk=%d", disk), nil, 5*time.Second)
+	return err
+}
+
+// DiskTest: cómo va la prueba de velocidad.
+func (a *App) DiskTest() (json.RawMessage, error) {
+	return a.raw("GET", "/disktest", nil, 3*time.Second)
+}
 
 // Fix arregla una comprobación y vuelve a revisar.
 func (a *App) Fix(id string) (checks.Report, error) {
 	if err := checks.Fix(id); err != nil {
-		return checks.Run(), err
+		return checks.Run(a.comps()), err
 	}
 	time.Sleep(300 * time.Millisecond) // la pantalla tarda un poco en dar los hercios nuevos
-	return checks.Run(), nil
+	return checks.Run(a.comps()), nil
 }
 
 // Processes: lo que más gasta ahora.
@@ -170,6 +200,111 @@ func (a *App) QuitAgent() error {
 	stopAgent()
 	runtime.Quit(a.ctx)
 	return nil
+}
+
+// Crashes: cierres de juegos, cuelgues de la gráfica, reinicios y errores de hardware.
+func (a *App) Crashes() events.Report {
+	games := map[string]bool{}
+	var list []SessionRecord
+	if agentCall("GET", "/sessions", nil, &list, 5*time.Second) == nil {
+		for _, s := range list {
+			games[strings.ToLower(s.Exe)] = true
+		}
+	}
+	raptor := false
+	if c := a.comps(); c != nil {
+		raptor = c.CPU.Vendor == "intel" && c.CPU.Family == 6 && c.CPU.Model == 0xB7 && c.CPU.Microcode != 0 && c.CPU.Microcode < 0x12B && !c.Board.Laptop
+	}
+	return events.Collect(events.Options{Days: 60, GameExes: games, IntelRaptor: raptor})
+}
+
+// Stability: la prueba de estabilidad (en marcha o la última).
+func (a *App) Stability() (json.RawMessage, error) {
+	return a.raw("GET", "/stability", nil, 3*time.Second)
+}
+
+// StartStability empieza la prueba de estabilidad.
+func (a *App) StartStability() (json.RawMessage, error) {
+	return a.raw("POST", "/stability", nil, 5*time.Second)
+}
+
+// StopStability para la prueba.
+func (a *App) StopStability() (json.RawMessage, error) {
+	return a.raw("POST", "/stability?stop=1", nil, 5*time.Second)
+}
+
+// Thefts: quién ha sacado el juego de delante (últimos 60 días).
+func (a *App) Thefts() (json.RawMessage, error) { return a.raw("GET", "/thefts", nil, 3*time.Second) }
+
+// ClearThefts borra la lista.
+func (a *App) ClearThefts() error {
+	_, err := a.raw("POST", "/thefts?clear=1", nil, 3*time.Second)
+	return err
+}
+
+// StartupInfo dice qué programas de la lista arrancan con Windows.
+func (a *App) StartupInfo(exes []string) map[string]bool {
+	out := map[string]bool{}
+	for _, e := range exes {
+		out[e] = startupEnabled(e)
+	}
+	return out
+}
+
+// DisableStartup hace que un programa no arranque con Windows.
+func (a *App) DisableStartup(exe string) error { return disableStartup(exe) }
+
+// Profiles: los ajustes de cada juego.
+func (a *App) Profiles() (json.RawMessage, error) {
+	return a.raw("GET", "/profiles", nil, 3*time.Second)
+}
+
+// SaveProfile guarda los ajustes de un juego.
+func (a *App) SaveProfile(exe string, p json.RawMessage) (json.RawMessage, error) {
+	return a.raw("POST", "/profiles", map[string]any{"exe": exe, "profile": p}, 3*time.Second)
+}
+
+// Net: qué programa usa la red y el ping (lo mide el agente).
+func (a *App) Net() (json.RawMessage, error) { return a.raw("GET", "/net", nil, 3*time.Second) }
+
+// StartBloat empieza la prueba de ping con la conexión cargada (usa unos cientos de MB).
+func (a *App) StartBloat() {
+	if a.bloat == nil || !a.bloat.Get().Running {
+		a.bloat = netmon.StartBloat(netip.MustParseAddr("8.8.8.8"))
+	}
+}
+
+// Bloat: cómo va la prueba.
+func (a *App) Bloat() *netmon.BloatState {
+	if a.bloat == nil {
+		return nil
+	}
+	s := a.bloat.Get()
+	return &s
+}
+
+// Stutter: el análisis de tirones de la partida en curso y de las últimas.
+func (a *App) Stutter() (json.RawMessage, error) { return a.raw("GET", "/stutter", nil, 4*time.Second) }
+
+// Noise: el mapa de ruido de los núcleos (el último o el que está en marcha).
+func (a *App) Noise() (json.RawMessage, error) { return a.raw("GET", "/noise", nil, 3*time.Second) }
+
+// StartNoise empieza el mapa de ruido (un segundo por núcleo).
+func (a *App) StartNoise() (json.RawMessage, error) {
+	return a.raw("POST", "/noise", nil, 5*time.Second)
+}
+
+// Lab: los ajustes que se pueden probar, el experimento en marcha y los resultados.
+func (a *App) Lab() (json.RawMessage, error) { return a.raw("GET", "/lab", nil, 3*time.Second) }
+
+// LabAction: start (knob, pairs), stop, apply (id, on), delete (id).
+func (a *App) LabAction(b json.RawMessage) (json.RawMessage, error) {
+	return a.raw("POST", "/lab", b, 5*time.Second)
+}
+
+// Prefetch: lo aprendido para la precarga de cada juego.
+func (a *App) Prefetch() (json.RawMessage, error) {
+	return a.raw("GET", "/prefetch", nil, 3*time.Second)
 }
 
 // Version de TurboMON.

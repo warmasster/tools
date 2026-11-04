@@ -18,7 +18,7 @@ func TestStartWithoutAdmin(t *testing.T) {
 	if elevated() {
 		t.Skip("este proceso es administrador")
 	}
-	_, err := Start(func(uint32, int64, int) {})
+	_, err := Start("TurboMON-prueba", func(uint32, int64, int) {})
 	if !errors.Is(err, ErrNeedAdmin) {
 		t.Fatalf("esperaba ErrNeedAdmin, llega %v", err)
 	}
@@ -37,7 +37,7 @@ func TestRealETW(t *testing.T) {
 	tr := NewTracker(Freq())
 	var mu sync.Mutex
 	counts := map[[2]uint32]int{}
-	s, err := Start(func(pid uint32, ts int64, src int) {
+	s, err := Start("TurboMON-prueba", func(pid uint32, ts int64, src int) {
 		tr.Present(pid, ts, src)
 		mu.Lock()
 		counts[[2]uint32{pid, uint32(src)}]++

@@ -26,6 +26,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"turbomon/internal/fps"
+	"turbomon/internal/procstat"
 	"turbomon/internal/sensors"
 )
 
@@ -100,6 +101,9 @@ type Agent struct {
 	selfCPU   float64
 	selfMemMB float64
 	lastOv    bool
+	win       windowCtl
+	net       *netState
+	pstat     *procstat.Sampler // qué gasta cada proceso (solo en partida, desde el bucle)
 }
 
 func runAgent() int {
@@ -137,13 +141,16 @@ func runAgent() int {
 		kickC: make(chan struct{}, 1), quit: make(chan struct{}),
 	}
 	a.st = &sessionTracker{a: a}
+	a.net = newNetState()
 	os.MkdirAll(dataDir(), 0o755)
 	logf("agente %s arrancado (administrador: %v)", version, a.elevated)
+	restoreGovernor() // primero: su plan «de antes» puede ser el del modo Turbo
 	restorePlan()
+	restoreWifi()
 	a.sampler = sensors.NewSampler()
 	a.tracker = fps.NewTracker(fps.Freq())
 	if a.elevated {
-		if s, err := fps.Start(a.tracker.Present); err != nil {
+		if s, err := fps.Start("TurboMON-FPS"+testEnv("TURBOMON_DIR"), a.tracker.Present); err != nil {
 			a.fpsErr = err.Error()
 			logf("FPS: %v", err)
 		} else {
@@ -161,7 +168,10 @@ func runAgent() int {
 		updateSettings(func(s *Settings) { s.Welcomed = true })
 		a.ui.notify("TurboMON está aquí abajo", "Un clic en este icono pone o quita el overlay de FPS (o Ctrl+Alt+O). Doble clic abre TurboMON.")
 	}
+	a.startProcessWatch()
 	go a.loop()
+	go a.watchFocus()
+	go a.pingLoop()
 	<-a.quit
 	a.ui.close()
 	a.st.mu.Lock()
@@ -250,6 +260,8 @@ func (a *Agent) step(tick int, last sensors.Snapshot) sensors.Snapshot {
 		a.smu.Unlock()
 	}
 	a.st.update(pid, info, hwnd, st, &snap)
+	a.applyWindowRules(hwnd, pid)
+	a.netTick()
 	if tick%30 == 0 {
 		a.tracker.Prune(now)
 	}
@@ -288,7 +300,8 @@ func (a *Agent) step(tick int, last sensors.Snapshot) sensors.Snapshot {
 	a.mu.Unlock()
 
 	if s.Overlay.On || a.lastOv {
-		a.ui.ov.set(buildOverlay(&snap, fv, s.Overlay, hwnd, gameFg))
+		ping, srv := a.overlayPing()
+		a.ui.ov.set(buildOverlay(&snap, fv, s.Overlay, hwnd, gameFg, ping, srv))
 		a.lastOv = s.Overlay.On
 	}
 	return snap
@@ -377,6 +390,23 @@ func (a *Agent) enableFPS() {
 	startAgentTask()
 }
 
+// overlayPing: el último ping al servidor del juego (si contesta) o a internet.
+func (a *Agent) overlayPing() (float64, bool) {
+	n := a.net
+	n.mu.Lock()
+	on, has, no := n.on, n.hasSrv, n.noICMP
+	n.mu.Unlock()
+	if !on {
+		return 0, false
+	}
+	if has && !no {
+		if s := n.gamePing.Stats(); s.Last > 0 {
+			return s.Last, true
+		}
+	}
+	return n.inetPing.Stats().Last, false
+}
+
 // ---------- overlay ----------
 
 func dec(v float64, d int) string {
@@ -421,7 +451,7 @@ func tempColor(v float64) uint32 {
 	return colValue
 }
 
-func buildOverlay(snap *sensors.Snapshot, fv FPSView, o OverlaySettings, anchor uintptr, isGame bool) ovContent {
+func buildOverlay(snap *sensors.Snapshot, fv FPSView, o OverlaySettings, anchor uintptr, isGame bool, pingMs float64, pingSrv bool) ovContent {
 	c := ovContent{show: o.On && (!o.GameOnly || isGame), anchor: anchor, corner: o.Corner, scale: o.Scale, opacity: o.Opacity}
 	if !c.show {
 		return c
@@ -485,6 +515,20 @@ func buildOverlay(snap *sensors.Snapshot, fv FPSView, o OverlaySettings, anchor 
 			{text: " / " + dec(math.Round(float64(snap.Mem.Total)/(1<<30)), 0) + " GB", color: colDim, font: fontSmall},
 		}})
 	}
+	if o.Ping && pingMs > 0 {
+		col := uint32(colValue)
+		switch {
+		case pingMs >= 100:
+			col = colBad
+		case pingMs >= 60:
+			col = colMid
+		}
+		lbl := " ms (internet)"
+		if pingSrv {
+			lbl = " ms"
+		}
+		c.lines = append(c.lines, ovLine{label: "PING", segs: []seg{{text: dec(pingMs, 0), color: col, font: fontNormal}, {text: lbl, color: colDim, font: fontSmall}}})
+	}
 	if g := snap.MainGPU(); o.VRAM && g != nil && g.VRAM > 0 && g.VRAMUsed > 0 {
 		c.lines = append(c.lines, ovLine{label: "VRAM", segs: []seg{
 			{text: gbShort(g.VRAMUsed), color: colValue, font: fontNormal},
@@ -541,6 +585,16 @@ func (a *Agent) serve() error {
 	mux.HandleFunc("/purge", a.hPurge)
 	mux.HandleFunc("/sessions", a.hSessions)
 	mux.HandleFunc("/session", a.hSession)
+	mux.HandleFunc("/components", a.hComponents)
+	mux.HandleFunc("/disktest", a.hDiskTest)
+	mux.HandleFunc("/stability", a.hStability)
+	mux.HandleFunc("/thefts", a.hThefts)
+	mux.HandleFunc("/profiles", a.hProfiles)
+	mux.HandleFunc("/net", a.hNet)
+	mux.HandleFunc("/stutter", a.hStutter)
+	mux.HandleFunc("/noise", a.hNoise)
+	mux.HandleFunc("/lab", a.hLab)
+	mux.HandleFunc("/prefetch", a.hPrefetch)
 	mux.HandleFunc("/quit", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]bool{"ok": true})
 		go a.shutdown()
@@ -673,4 +727,3 @@ func testEnv(name string) string {
 	}
 	return ""
 }
-

@@ -32,10 +32,10 @@ import (
 )
 
 const (
-	runKey    = `Software\Microsoft\Windows\CurrentVersion\Run`
-	turboKey  = `Software\Turbo\TurboMON`
-	runValue  = "TurboMON"
-	noWindow  = 0x08000000 // CREATE_NO_WINDOW
+	runKey   = `Software\Microsoft\Windows\CurrentVersion\Run`
+	turboKey = `Software\Turbo\TurboMON`
+	runValue = "TurboMON"
+	noWindow = 0x08000000 // CREATE_NO_WINDOW
 )
 
 func taskName() string {

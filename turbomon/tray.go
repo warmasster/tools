@@ -154,6 +154,7 @@ func (u *ui) run(ready chan struct{}) {
 		procChangeMsgFilter.Call(hwnd, uintptr(m), 1, 0) // MSGFLT_ALLOW
 	}
 	u.ov = newOverlay(inst)
+	hookForeground()
 	u.addIcon()
 	u.applyHotkey()
 	close(ready)
@@ -423,6 +424,17 @@ func trayWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 		}
 		procDestroyWindow.Call(hwnd)
 		procPostQuitMessage.Call(0)
+		return 0
+	case 0x0011: // WM_QUERYENDSESSION: Windows se apaga o se cierra la sesión
+		return 1
+	case 0x0016: // WM_ENDSESSION
+		if wparam != 0 {
+			// La partida en curso se guarda antes de que Windows cierre el agente.
+			u.a.st.mu.Lock()
+			u.a.st.finish()
+			u.a.st.mu.Unlock()
+			logf("Windows se apaga: partida guardada")
+		}
 		return 0
 	case wmClose:
 		return 0 // solo se cierra con «Salir»

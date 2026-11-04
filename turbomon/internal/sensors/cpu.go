@@ -88,8 +88,8 @@ func systemTimes() (cpuTimes, bool) {
 // SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION
 type sppi struct {
 	Idle, Kernel, User, Dpc, Interrupt int64
-	InterruptCount                    uint32
-	_                                 uint32
+	InterruptCount                     uint32
+	_                                  uint32
 }
 
 func coreTimes(buf []sppi) []sppi {
@@ -136,6 +136,12 @@ func memoryStatus() (memStatus, bool) {
 func TotalRAM() uint64 {
 	m, _ := memoryStatus()
 	return m.TotalPhys
+}
+
+// AvailableRAM devuelve la memoria física disponible en bytes.
+func AvailableRAM() uint64 {
+	m, _ := memoryStatus()
+	return m.AvailPhys
 }
 
 // PageFileBytes devuelve el tamaño de la memoria virtual que hay además de la RAM.
