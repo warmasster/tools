@@ -317,6 +317,12 @@ func (a *App) wsCallEx(appid uint32, req wsRequest, timeout time.Duration, out a
 	if h.p == nil {
 		p, err := startWorkshop(in.Dir, appid, func() { h.mark(appid, false) })
 		if err != nil {
+			// Steam corta la conexión del juego si la cuenta abierta no lo tiene, y
+			// eso llega como «no hay ninguna cuenta dentro». Pero ya se ha mirado
+			// arriba que sí la hay: es que no tiene el juego.
+			if err.Error() == steamworks.ErrNoUser.Error() && st.ActiveUser != 0 {
+				return steamworks.ErrNotOwned
+			}
 			return err
 		}
 		p.user = st.ActiveUser
