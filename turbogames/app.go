@@ -19,7 +19,7 @@ import (
 	"turbogames/internal/vault"
 )
 
-const version = "1.1.0"
+const version = "1.1.1"
 
 type App struct {
 	ctx context.Context
@@ -53,6 +53,9 @@ type App struct {
 	mstore     *modStore // etiquetas tuyas de los mods e historial de suscripciones
 	modsMu     sync.Mutex
 	modsCancel atomic.Bool
+	modsApp    atomic.Uint32 // juego cuyos mods se están viendo (para los datos en segundo plano)
+	fillMu     sync.Mutex
+	filling    map[uint64]bool // mods cuyos datos se están pidiendo ya
 }
 
 func NewApp() *App {
@@ -96,6 +99,10 @@ func (a *App) getSettings() Settings {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// Wails no enseña la ventana hasta que la página ha cargado del todo (con sus
+	// imágenes, que pueden tener que bajarse). Se enseña ya: sale con el fondo
+	// oscuro y la pantalla de carga de la interfaz.
+	runtime.WindowShow(ctx)
 	go a.watch(ctx)
 	a.watchSession()
 }

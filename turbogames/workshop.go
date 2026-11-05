@@ -374,6 +374,7 @@ type ModList struct {
 	DiskSize  int64  `json:"diskSize"`
 	History   []Mod  `json:"history"` // los que tuvo antes esta cuenta y ya no
 	NotOwned  bool   `json:"notOwned"`
+	Pending   int    `json:"pending"` // mods cuyos datos se están pidiendo en segundo plano
 }
 
 func (a *App) modFrom(id uint64) Mod {
@@ -413,14 +414,7 @@ func nonNilU(s []uint64) []uint64 {
 // viejos). Con Steam abierto se piden a Steam (traen votos y dependencias); si
 // no, a la web.
 func (a *App) ensureDetails(appid uint32, ids []uint64, live bool, maxAge time.Duration) {
-	var need []uint64
-	now := time.Now().Unix()
-	for _, id := range ids {
-		e, ok := a.wcache.get(id)
-		if !ok || now-e.At > int64(maxAge.Seconds()) || (live && !e.Votes && !e.Item.Missing) {
-			need = append(need, id)
-		}
-	}
+	need := a.needDetails(ids, live, maxAge)
 	if len(need) == 0 {
 		return
 	}
@@ -438,11 +432,100 @@ func (a *App) ensureDetails(appid uint32, ids []uint64, live bool, maxAge time.D
 	}
 }
 
+// needDetails dice de qué mods no hay datos (o son viejos, o les faltan los
+// votos si se puede preguntar a Steam).
+func (a *App) needDetails(ids []uint64, live bool, maxAge time.Duration) []uint64 {
+	var need []uint64
+	now := time.Now().Unix()
+	for _, id := range ids {
+		e, ok := a.wcache.get(id)
+		if !ok || now-e.At > int64(maxAge.Seconds()) || (live && !e.Votes && !e.Item.Missing) {
+			need = append(need, id)
+		}
+	}
+	return need
+}
+
+// fillDetails pide en segundo plano, de 50 en 50, los datos de unos mods, y
+// avisa a la interfaz con "mods-meta" después de cada tanda para que los vaya
+// enseñando. Para si se cambia de juego.
+func (a *App) fillDetails(appid uint32, ids []uint64, live bool) int {
+	a.fillMu.Lock()
+	if a.filling == nil {
+		a.filling = map[uint64]bool{}
+	}
+	var todo []uint64
+	for _, id := range ids {
+		if !a.filling[id] {
+			a.filling[id] = true
+			todo = append(todo, id)
+		}
+	}
+	a.fillMu.Unlock()
+	if len(todo) == 0 {
+		return len(ids)
+	}
+	go func() {
+		defer func() {
+			a.fillMu.Lock()
+			for _, id := range todo {
+				delete(a.filling, id)
+			}
+			a.fillMu.Unlock()
+		}()
+		for len(todo) > 0 {
+			if a.modsApp.Load() != appid {
+				return
+			}
+			n := min(len(todo), 50)
+			chunk := todo[:n]
+			todo = todo[n:]
+			got := false
+			if live {
+				var items []steamworks.Item
+				if a.wsCall(appid, wsRequest{Op: "details", IDs: chunk}, 60*time.Second, &items) == nil {
+					a.wcache.put(items, true)
+					got = true
+				}
+			}
+			if !got {
+				if items, err := webDetailsFn(chunk); err == nil || len(items) > 0 {
+					a.wcache.put(items, false)
+				}
+			}
+			a.wcache.save()
+			var owners []string
+			for _, id := range chunk {
+				if e, ok := a.wcache.get(id); ok {
+					owners = append(owners, e.Item.Owner)
+				}
+			}
+			a.fillAuthors(owners)
+			a.emit("mods-meta", map[string]any{"appid": appid, "ids": chunk, "left": len(todo)})
+		}
+	}()
+	return len(ids)
+}
+
+// ModsCached devuelve lo que se sabe ya de unos mods, sin pedir nada (para
+// refrescar la lista cuando llegan datos en segundo plano).
+func (a *App) ModsCached(ids []uint64) []Mod {
+	if len(ids) > 5000 {
+		ids = ids[:5000]
+	}
+	out := make([]Mod, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, a.modFrom(id))
+	}
+	return out
+}
+
 // Mods devuelve los mods de un juego: los que tiene Steam en este PC y, si
 // live, a los que está suscrita ahora la cuenta abierta en Steam (aunque el
 // juego no esté instalado).
 func (a *App) Mods(appid uint32, live bool) (ModList, error) {
 	l := ModList{AppID: appid, Mods: []Mod{}, History: []Mod{}}
+	a.modsApp.Store(appid)
 	in := a.steam()
 	if in == nil {
 		return l, steam.ErrNotFound
@@ -480,7 +563,13 @@ func (a *App) Mods(appid uint32, live bool) (ModList, error) {
 			ids = append(ids, id)
 		}
 	}
-	a.ensureDetails(appid, ids, l.Live, 24*time.Hour)
+	// lo que falte llega después, por tandas (evento "mods-meta")
+	pending := map[uint64]bool{}
+	if need := a.needDetails(ids, l.Live, 24*time.Hour); len(need) > 0 {
+		for _, id := range need {
+			pending[id] = true
+		}
+	}
 	var owners []string
 	for _, id := range ids {
 		m := a.modFrom(id)
@@ -546,11 +635,13 @@ func (a *App) Mods(appid uint32, live bool) (ModList, error) {
 		for i := range l.Mods {
 			l.Mods[i].Since = since[l.Mods[i].ID]
 		}
-		var ids []uint64
+		var hids []uint64
 		for _, h := range removed {
-			ids = append(ids, h.ID)
+			hids = append(hids, h.ID)
 		}
-		a.ensureDetails(appid, ids, false, 7*24*time.Hour)
+		for _, id := range a.needDetails(hids, false, 7*24*time.Hour) {
+			pending[id] = true
+		}
 		for _, h := range removed {
 			m := a.modFrom(h.ID)
 			if m.Title == "" {
@@ -562,6 +653,13 @@ func (a *App) Mods(appid uint32, live bool) (ModList, error) {
 		}
 	}
 	a.fillAuthors(owners)
+	if len(pending) > 0 {
+		need := make([]uint64, 0, len(pending))
+		for id := range pending {
+			need = append(need, id)
+		}
+		l.Pending = a.fillDetails(appid, need, l.Live)
+	}
 	return l, nil
 }
 

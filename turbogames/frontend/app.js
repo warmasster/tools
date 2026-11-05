@@ -957,8 +957,15 @@
       renderMods();
       return;
     }
+    const live = opts.live !== undefined ? opts.live : wantLive(app);
     try {
-      const l = await api.Mods(app, opts.live !== undefined ? opts.live : wantLive(app));
+      // lo que hay en el PC sale al momento; preguntar a Steam tarda un poco más
+      if (live && (!MS.list || MS.list.appid !== app)) {
+        const quick = await api.Mods(app, false).catch(() => null);
+        if (tok !== MS.loadTok) return;
+        if (quick) { MS.list = { ...quick, liveError: "", connecting: true }; renderMods(); }
+      }
+      const l = await api.Mods(app, live);
       if (tok !== MS.loadTok) return;
       MS.list = l;
     } catch (e) {
@@ -1034,6 +1041,7 @@
     $("#mod-q").placeholder = home ? "Buscar juegos (Ctrl+F)" : MS.tab === "search" ? "Buscar en el Workshop (Intro)" : MS.tab === "presets" ? "Filtrar presets (Ctrl+F)" : "Filtrar mods (Ctrl+F)";
     const lv = $("#mod-live"), l = MS.list;
     if (home || !MS.app || !l || l.noGame) { lv.innerHTML = !home && MS.loading ? `<span class="livep"><span class="spinner" style="width:12px;height:12px;border-width:2px"></span>Leyendo…</span>` : ""; return; }
+    if (l.connecting) { lv.innerHTML = `<span class="livep"><span class="spinner" style="width:12px;height:12px;border-width:2px"></span>Conectando con Steam…</span>`; return; }
     if (l.live) {
       const a = S.accounts.find((x) => x.steamId === l.account);
       lv.innerHTML = `<span class="livep" title="Los cambios se hacen con la cuenta que está abierta en Steam. Mientras está conectado, tus amigos te ven «jugando» a este juego.">${MS.loading ? `<span class="spinner" style="width:12px;height:12px;border-width:2px"></span>` : '<i class="dot ok"></i>'}Steam · <b>${esc(a ? display(a) : "cuenta abierta")}</b></span>`;
@@ -1173,7 +1181,7 @@
         ${wt.length ? `<select class="fsel${f.wtag ? " on" : ""}" id="mf-wtag" title="Etiquetas que les ha puesto su autor en el Workshop">${o("", "Etiquetas del Workshop", f.wtag)}${wt.map(([t, n]) => o(t, `${t} (${n})`, f.wtag)).join("")}</select>` : ""}
         ${mt.length ? `<select class="fsel${f.mytag ? " on" : ""}" id="mf-mytag" title="Tus etiquetas">${o("", "Tus etiquetas", f.mytag)}${mt.map(([t, n]) => o(t, `#${t} (${n})`, f.mytag)).join("")}</select>` : ""}
         <select class="fsel" id="mf-sort" title="Orden">${o("name", "Por nombre", f.sort)}${o("size", "Más grandes", f.sort)}${o("updated", "Actualizados hace poco", f.sort)}${o("votes", "Mejor valorados", f.sort)}${o("subs", "Más suscriptores", f.sort)}${o("since", f.state === "history" ? "Quitados hace poco" : "Suscritos hace poco", f.sort)}</select>
-        <span class="fstat"><b>${vis.length}</b> de ${src.length}${f.state !== "history" && l && l.diskSize ? " · " + fmtBytes(l.diskSize) + " en el disco" : ""}</span>
+        <span class="fstat"><b>${vis.length}</b> de ${src.length}${f.state !== "history" && l && l.diskSize ? " · " + fmtBytes(l.diskSize) + " en el disco" : ""}${l && l.pending ? ` · <span class="spinner"></span>trayendo datos de ${l.pending}` : ""}</span>
         <span class="grow"></span>`;
       if (MS.checked.size) h += bulkBar();
       else h += `<button class="btn ghost xs" data-mact="save-all"${subs.length ? "" : " disabled"} title="Un preset con todo lo que tienes suscrito">${ic("save")}Guardar como preset</button>
@@ -2089,17 +2097,32 @@
       patchPreset(p, { tags: [...(p.tags || []), t] }, true).then(() => { const i = $("#pd-tag"); if (i) i.focus(); });
     }
   });
-  // los nombres de los autores llegan después
-  rt.EventsOn("mods-meta", debounce(async () => {
-    if (!MS.list || !MS.app) return;
+  // los datos de los mods (y los nombres de los autores) llegan después, por
+  // tandas: se juntan con lo que hay y se vuelve a dibujar, sin pedir nada más
+  const metaQueue = new Set();
+  const applyMeta = debounce(async () => {
+    if (!MS.list || !MS.app) { metaQueue.clear(); return; }
     const all = [...MS.list.mods, ...(MS.list.history || []), ...MS.search.mods];
+    const ids = metaQueue.size ? [...metaQueue].filter((id) => all.some((m) => m.id === id) || MS.pmods.has(id)) : all.map((m) => m.id);
+    metaQueue.clear();
+    if (!ids.length) return;
     let d;
-    try { d = await api.ModDetails(MS.app, all.map((m) => m.id)); } catch { return; }
+    try { d = await api.ModsCached(ids); } catch { return; }
     const by = new Map((d || []).map((m) => [m.id, m]));
-    for (const m of all) { const x = by.get(m.id); if (x && x.author) m.author = x.author; }
-    for (const x of d || []) if (MS.pmods.has(x.id)) MS.pmods.set(x.id, x);
-    if (S.view === "mods" && !MS.home) { renderModList(); renderModDetail(); }
-  }, 400));
+    const keys = ["title", "author", "owner", "preview", "size", "updated", "tags", "votesUp", "votesDown", "score", "hasVotes", "subscriptions", "comments", "children", "missing", "banned", "collection", "known"];
+    for (const m of all) {
+      const x = by.get(m.id);
+      if (!x || !x.known) continue;
+      for (const k of keys) if (x[k] !== undefined && !(k === "author" && !x[k])) m[k] = x[k];
+    }
+    for (const x of d || []) if (MS.pmods.has(x.id) && x.known) MS.pmods.set(x.id, x);
+    if (S.view === "mods" && !MS.home) { renderModBar(); renderModList(); renderModDetail(); }
+  }, 250);
+  rt.EventsOn("mods-meta", (p) => {
+    if (p && p.ids) for (const id of p.ids) metaQueue.add(id);
+    if (p && MS.list && p.appid === MS.app && typeof p.left === "number") MS.list.pending = p.left;
+    applyMeta();
+  });
 
   // ---------- bóveda ----------
   async function refreshVault() {
@@ -2894,6 +2917,13 @@
   rt.EventsOn("clipCleared", () => toast("Portapapeles borrado", "secret"));
 
   // ---------- arranque ----------
+  function bootStep(t) { const el = $("#boot-step"); if (el) el.textContent = t; }
+  function bootDone() {
+    const b = $("#boot");
+    if (!b || b.classList.contains("gone")) return;
+    b.classList.add("gone");
+    setTimeout(() => b.remove(), 300);
+  }
   function applyInit(d) {
     S.version = d.version;
     S.steam = d.steam || { found: false };
@@ -2906,8 +2936,12 @@
     setView(S.view);
     renderAccounts();
     if (S.steam.found) ensureGames().then(() => renderAccDetail());
+    // la primera pantalla ya está dibujada: fuera la de carga
+    requestAnimationFrame(() => requestAnimationFrame(bootDone));
   }
-  api.Init().then(applyInit).catch((e) => toast(errText(e), "error"));
+  bootStep("Leyendo tus cuentas…");
+  api.Init().then(applyInit).catch((e) => { bootDone(); toast(errText(e), "error"); });
+  setTimeout(bootDone, 8000); // por si algo se queda colgado, que no tape la ventana
 
   // ---------- datos de muestra (solo al abrir el HTML en un navegador) ----------
   function mockApi() {
@@ -3004,6 +3038,7 @@
         return { appid: app, mods: l, history, live: !!live, liveError: live ? "" : "", account: status.activeId, diskSize: l.reduce((s, m) => s + (m.diskSize || 0), 0) };
       },
       async SetModTags(ids, add, remove) { const out = {}; for (const id of ids) { let t = (myTags[id] || []).filter((x) => !remove.some((r) => r.toLowerCase() === x.toLowerCase())); for (const a of add) if (!t.some((x) => x.toLowerCase() === a.toLowerCase())) t.push(a); myTags[id] = t; out[id] = t; } return out; },
+      async ModsCached(ids) { return ids.map((id) => ({ ...(allMods().find((m) => m.id === id) || { id, title: "", known: false }) })); },
       async ModDetails(app, ids) { return ids.map((id) => ({ ...(allMods().find((m) => m.id === id) || { id, title: "", known: false }) })); },
       async ModInfo(app, id) {
         await wait(300);
