@@ -50,6 +50,7 @@ type App struct {
 	wcache     *wsCache     // datos de los mods (nombres, imágenes, votos…)
 	presets    *presetStore // presets de mods
 	gmeta      *gameMetaStore
+	mstore     *modStore // etiquetas tuyas de los mods e historial de suscripciones
 	modsMu     sync.Mutex
 	modsCancel atomic.Bool
 }
@@ -65,6 +66,7 @@ func NewApp() *App {
 	a.wcache = loadWsCache(filepath.Join(dataDir(), "cache", "workshop.json"))
 	a.presets = loadPresetStore(filepath.Join(dataDir(), "presets.json"))
 	a.gmeta = loadGameMetaStore(filepath.Join(dataDir(), "juegos.json"))
+	a.mstore = loadModStore(filepath.Join(dataDir(), "mods.json"))
 	return a
 }
 

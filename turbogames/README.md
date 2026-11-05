@@ -46,12 +46,17 @@ Todas tus cuentas de Steam a un clic, sin el límite del selector de Steam, con 
 
 ## Mods
 
-La pestaña **Mods** junta los juegos con Workshop. Por cada uno:
+La pestaña **Mods** empieza con tus juegos con Workshop, con sus portadas, cuántos mods y presets tiene cada uno y cuánto ocupan sus mods. Se filtran por los que tienen mods, presets, instalados o todos; por tus etiquetas y colecciones de Steam; y se ordenan por jugados hace poco, más mods, más espacio, horas o nombre. También se llega desde la ficha de cada juego («Mods»). Dentro de un juego:
 
 - **Suscritos**: los mods con el nombre del Workshop (no el número de la carpeta), su imagen, autor, tamaño, cuándo se actualizó y el porcentaje de votos a favor. Dice si está bajando (y cuánto lleva), en cola, por actualizar o sin bajar todavía. También salen los que hay en el disco de otra cuenta del PC.
-- **Ficha de cada mod**: descripción, valoración en estrellas, suscriptores, los mods que necesita (con «Suscribirse a los que faltan»), los últimos comentarios (si el perfil del autor es público) y en qué presets está. Se abre en Steam, en el navegador o su carpeta.
-- **Suscribirse y quitar** desde aquí, uno o varios a la vez (con las casillas). Funciona aunque el juego no esté instalado: Steam los baja cuando lo instales. Si no se puede (Steam cerrado, la cuenta no tiene el juego…), ofrece abrir la página del mod en Steam.
-- **Workshop**: busca mods nuevos del juego, por texto o por populares, mejor valorados, más suscriptores, nuevos o actualizados hace poco.
+- **Filtros**: por estado (suscritos, en el disco, sin bajar, por actualizar, bajando, sin suscripción, ya no existen o **los que tuviste antes**), por las etiquetas que les puso su autor en el Workshop, por tus etiquetas, y orden por nombre, tamaño, actualizados, mejor valorados, suscriptores o suscritos hace poco. En el buscador, `#algo` busca en las etiquetas.
+- **En bloque**: con las casillas (la de arriba elige todos los que se ven; con Mayús se eligen varios seguidos) te suscribes, los quitas, haces un preset o les pones o quitas una etiqueta tuya de golpe. Por ejemplo: filtrar por una etiqueta del autor, elegir todos y quitarlos.
+- **Tus etiquetas** en cada mod («imprescindible», «gráficos», «probar»…), en `mods.json`.
+- **Los que tuviste antes**: TurboGAMES apunta, cada vez que conecta con Steam, a qué estaba suscrita cada cuenta. Los que quites (desde aquí o desde Steam) quedan ahí con la fecha, para volver a ponerlos.
+- **Ficha de cada mod**: todas sus **imágenes y vídeos** (se ven en grande, y los vídeos de YouTube se reproducen dentro; ← → para pasar), descripción, valoración en estrellas, suscriptores, los mods que necesita (con «Suscribirse a los que faltan»), los últimos comentarios (si el perfil del autor es público), tus etiquetas y en qué presets está. Se abre en Steam, en el navegador o su carpeta.
+- **Suscribirse y quitar** desde aquí, uno o varios a la vez. Funciona aunque el juego no esté instalado: Steam los baja cuando lo instales. Si no se puede (Steam cerrado…), ofrece abrir la página del mod en Steam.
+- **Si la cuenta abierta no tiene el juego**, lo dice y ofrece cambiar a una de tus cuentas que sí lo tiene: con un «Aceptar» cambia de cuenta y sigue con lo que habías pedido (suscribirte, activar un preset…).
+- **Workshop**: busca mods nuevos del juego, por texto o por populares, mejor valorados, más suscriptores, nuevos o actualizados hace poco, y solo los que tengan unas etiquetas del Workshop. También con casillas para suscribirte a varios.
 - **Quitar todo**: para empezar de cero (antes de reinstalar un juego, por ejemplo).
 
 Para saber a qué está suscrita la cuenta y cambiarlo, TurboGAMES habla con el Steam abierto como lo haría el juego desde su menú de mods: un proceso aparte (el propio `TurboGAMES.exe --workshop`) se presenta a Steam como ese juego. No abre el juego ni toca sus archivos ni su memoria, así que no tiene nada que ver con los antitrampas (VAC solo mira dentro del juego). Mientras está conectado, **tus amigos te ven «jugando» a ese juego** unos segundos (se cierra solo a los 20 s sin usarlo). No se conecta si tienes un juego abierto, y se cierra antes de jugar o de cambiar de cuenta. En Ajustes se puede hacer que solo conecte al pulsar «Conectar con Steam». Los cambios se hacen de uno en uno y sin prisa.
@@ -95,6 +100,7 @@ Ctrl+F buscar · Ctrl+1 cuentas · Ctrl+2 juegos · Ctrl+3 mods · flechas para 
 | Suscripciones de la cuenta, votos, dependencias y búsqueda | El Steam abierto, por `steamclient64.dll` (la que trae Steam, firmada por Valve): `ISteamUGC` (versión 020). Las posiciones de cada función salen de las cabeceras del SDK contando los métodos privados, que no salen en `steam_api.json` |
 | Nombre, imagen, tamaño y suscriptores de un mod | API pública `ISteamRemoteStorage/GetPublishedFileDetails` y `GetCollectionDetails` (sin clave) |
 | Valoración, mods que necesita y comentarios | La página pública del mod y `comment/PublishedFile_Public/render` |
+| Imágenes y vídeos de un mod | Con Steam conectado, `GetQueryUGCAdditionalPreview`; si no, de la página pública del mod |
 
 ## Compilar
 
@@ -133,5 +139,6 @@ La interfaz abierta en un navegador (`frontend/index.html`) enseña datos de mue
 | `internal/steamworks` | Habla con el Steam abierto por `steamclient64.dll`: suscripciones, estado de cada mod, datos con votos y búsqueda en el Workshop. |
 | `workshop_host.go` | El proceso aparte del Workshop (`--workshop`) y cómo se abre, se le pregunta y se cierra. |
 | `workshop.go` | La pestaña Mods: lista, ficha de cada mod, búsqueda, cambios por lotes y la caché `cache\workshop.json`. |
+| `modmeta.go` | Tus etiquetas de los mods y el historial de suscripciones de cada cuenta (`mods.json`). |
 | `presets.go` | Los presets: guardarlos, el texto y el código `TGP1` para compartirlos, leer lo pegado (también del lanzador de Arma 3) y las copias automáticas. |
 | `frontend/` | Interfaz (HTML, CSS y JS sin dependencias). |

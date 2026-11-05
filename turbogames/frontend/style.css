@@ -629,6 +629,34 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; scrollbar-widt
 .g-tags .chip.coll { cursor: pointer; }
 
 
+.mod-home-title { margin: 0 6px 0 0; font-size: 16px; font-weight: 750; letter-spacing: -.2px; white-space: nowrap; }
+.all-chk { margin: 0 2px 0 6px; }
+.mrow.checked { background: rgba(99,102,241,.07); }
+.chip.clickable { cursor: pointer; }
+.chip.clickable:hover { border-color: var(--brd2); color: var(--txt); }
+.subbar .tag-add { height: 26px; width: 120px; }
+.subbar .chip button { border: 0; background: transparent; color: var(--dim); cursor: pointer; width: 16px; height: 16px; display: inline-grid; place-items: center; border-radius: 50%; padding: 0; }
+.subbar .chip button:hover { color: var(--txt); background: rgba(255,255,255,.1); }
+.subbar .chip button svg { width: 10px; height: 10px; }
+.gal { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.gal-it { position: relative; aspect-ratio: 16 / 9; border-radius: 9px; overflow: hidden; border: 1px solid var(--brd); background: linear-gradient(135deg, rgba(99,102,241,.2), rgba(34,211,238,.08)) #151827; cursor: pointer; padding: 0; }
+.gal-it img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .25s; }
+.gal-it:hover img { transform: scale(1.06); }
+.gal-it:hover { border-color: rgba(139,92,246,.5); }
+.gal-it.vid i { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; display: grid; place-items: center; background: rgba(229,72,77,.92); box-shadow: 0 6px 16px -4px rgba(0,0,0,.7); }
+.gal-it.vid i svg { width: 13px; height: 13px; fill: #fff; stroke: none; margin-left: 2px; }
+.hero-gal { position: absolute; right: 12px; bottom: 12px; z-index: 1; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 99px; border: 1px solid rgba(255,255,255,.18); background: rgba(5,6,10,.7); backdrop-filter: blur(6px); color: var(--txt); font-size: 12px; font-weight: 700; cursor: pointer; }
+.hero-gal svg { width: 11px; height: 11px; fill: currentColor; stroke: none; }
+.lightbox { position: absolute; inset: 0; z-index: 90; background: rgba(4,5,9,.94); display: flex; flex-direction: column; animation: fade .15s ease both; }
+.lb-stage { flex: 1; min-height: 0; display: grid; place-items: center; padding: 28px 70px 10px; }
+.lb-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 10px; box-shadow: 0 30px 80px -20px rgba(0,0,0,.9); }
+.lb-stage iframe { width: min(100%, calc((100vh - 120px) * 16 / 9)); aspect-ratio: 16 / 9; border: 0; border-radius: 12px; background: #000; }
+.lb-nav { position: absolute; top: 50%; width: 46px; height: 46px; margin-top: -40px; border-radius: 50%; border: 1px solid var(--brd2); background: rgba(20,22,34,.85); color: var(--txt); display: grid; place-items: center; cursor: pointer; }
+.lb-nav:hover { background: rgba(99,102,241,.35); }
+.lb-nav svg { width: 22px; height: 22px; }
+.lb-nav.prev { left: 14px; }
+.lb-nav.next { right: 14px; }
+.lb-bar { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 0 18px; color: var(--muted); font-size: 13px; }
 #game-tag { max-width: 190px; }
 @media (max-width: 1420px) {
   #game-stat { display: none; }

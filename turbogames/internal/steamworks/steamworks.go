@@ -72,6 +72,10 @@ const (
 	gGetQueryUGCPreviewURL          = 9
 	gGetQueryUGCChildren            = 11
 	gGetQueryUGCStatistic           = 12
+	gGetQueryUGCNumPreviews         = 13 // GetQueryUGCNumAdditionalPreviews
+	gGetQueryUGCPreview             = 14 // GetQueryUGCAdditionalPreview
+	gAddRequiredTag                 = 22
+	gSetReturnAdditionalPreviews    = 30
 	gReleaseQueryUGCRequest         = 21
 	gSetReturnLongDescription       = 27
 	gSetReturnChildren              = 29
@@ -458,6 +462,15 @@ type Item struct {
 	Favorites     uint64   `json:"favorites"`
 	Comments      uint64   `json:"comments"`
 	Missing       bool     `json:"missing"` // ya no existe o es privado
+	// Imágenes y vídeos de su página (solo si se han pedido: HasPreviews)
+	Previews    []Preview `json:"previews,omitempty"`
+	HasPreviews bool      `json:"hasPreviews,omitempty"`
+}
+
+// Preview es una imagen (URL) o un vídeo de YouTube (Video, su id) de un mod.
+type Preview struct {
+	URL   string `json:"url,omitempty"`
+	Video string `json:"video,omitempty"`
 }
 
 // Page es una página de resultados del Workshop.
@@ -484,7 +497,7 @@ func indexByte(b []byte, c byte) int {
 }
 
 // runQuery envía una consulta ya preparada y lee sus resultados.
-func (c *Client) runQuery(h uint64, children bool) (Page, error) {
+func (c *Client) runQuery(h uint64, children, previews bool) (Page, error) {
 	var p Page
 	if h == 0 || h == math.MaxUint64 {
 		return p, errors.New("Steam no ha aceptado la búsqueda")
@@ -535,6 +548,24 @@ func (c *Client) runQuery(h uint64, children bool) (Page, error) {
 		}
 		if it.Children == nil {
 			it.Children = []uint64{}
+		}
+		if previews {
+			it.HasPreviews = true
+			n := uint32(vcall(c.ugc, gGetQueryUGCNumPreviews, uintptr(h), uintptr(i)))
+			for j := uint32(0); j < n && j < 60; j++ {
+				u := make([]byte, 1024)
+				name := make([]byte, 260)
+				var kind int32
+				if !vbool(c.ugc, gGetQueryUGCPreview, uintptr(h), uintptr(i), uintptr(j), uintptr(unsafe.Pointer(&u[0])), uintptr(len(u)), uintptr(unsafe.Pointer(&name[0])), uintptr(len(name)), uintptr(unsafe.Pointer(&kind))) {
+					continue
+				}
+				switch v := cString(u); kind {
+				case 0: // imagen
+					it.Previews = append(it.Previews, Preview{URL: v})
+				case 1: // vídeo de YouTube
+					it.Previews = append(it.Previews, Preview{Video: v})
+				}
+			}
 		}
 		p.Items = append(p.Items, it)
 	}
@@ -591,8 +622,9 @@ func (c *Client) Details(ids []uint64) ([]Item, error) {
 		}
 		vcall(c.ugc, gSetReturnLongDescription, uintptr(h), 1)
 		vcall(c.ugc, gSetReturnChildren, uintptr(h), 1)
+		vcall(c.ugc, gSetReturnAdditionalPreviews, uintptr(h), 1)
 		vcall(c.ugc, gSetAllowCachedResponse, uintptr(h), 300)
-		p, err := c.runQuery(h, true)
+		p, err := c.runQuery(h, true, true)
 		if err != nil {
 			return out, err
 		}
@@ -602,8 +634,9 @@ func (c *Client) Details(ids []uint64) ([]Item, error) {
 }
 
 // Search busca mods de este juego en el Workshop. sort es uno de los Query*;
-// con texto se ordena por parecido. cursor "" es la primera página.
-func (c *Client) Search(text string, sort int, cursor string) (Page, error) {
+// con texto se ordena por parecido. cursor "" es la primera página. tags son
+// etiquetas del Workshop que tienen que tener todos.
+func (c *Client) Search(text string, sort int, cursor string, tags []string) (Page, error) {
 	text = strings.TrimSpace(text)
 	if text != "" {
 		sort = QueryByText
@@ -621,8 +654,13 @@ func (c *Client) Search(text string, sort int, cursor string) (Page, error) {
 	if sort == QueryByTrend {
 		vcall(c.ugc, gSetRankedByTrendDays, uintptr(h), 7)
 	}
+	for _, t := range tags {
+		if t = strings.TrimSpace(t); t != "" {
+			vcall(c.ugc, gAddRequiredTag, uintptr(h), uintptr(unsafe.Pointer(cstr(t))))
+		}
+	}
 	vcall(c.ugc, gSetAllowCachedResponse, uintptr(h), 120)
-	p, err := c.runQuery(h, false)
+	p, err := c.runQuery(h, false, false)
 	if err == nil && p.Cursor == cursor {
 		p.Cursor = ""
 	}

@@ -888,12 +888,15 @@
 
   // ---------- mods del Workshop ----------
   const MS = {
+    home: true, // portada con los juegos
     app: store.get("modApp", 0), tab: store.get("modTab", "subs"), q: "",
     list: null, loading: false, loadTok: 0,
     sel: null, selMod: null, // sel: { kind: "mod" | "preset", id }
     checked: new Set(), pchecked: new Set(),
     presets: null, info: new Map(), pmods: new Map(),
-    search: { q: "", sort: store.get("modSort", "trend"), mods: [], cursor: "", total: 0, loading: false, done: false, err: "", app: 0 },
+    search: { q: "", sort: store.get("modSort", "trend"), tags: [], mods: [], cursor: "", total: 0, loading: false, done: false, err: "", app: 0 },
+    f: { state: "all", wtag: "", mytag: "", sort: store.get("modListSort", "name") }, // filtros de la lista
+    h: { filter: store.get("modHomeFilter", "mods"), tag: "", sort: store.get("modHomeSort", "recent") }, // filtros de la portada
     pTag: "", pFrom: "", connect: new Set(), busy: false,
   };
 
@@ -902,26 +905,37 @@
   function modGames() {
     const list = S.games ? S.games.games.filter((g) => g.workshop || g.mods) : [];
     for (const p of MS.presets || []) {
-      if (!list.some((g) => g.appid === p.appid)) list.push({ appid: p.appid, name: p.game || ("Juego " + p.appid), mods: 0, workshop: true, players: [], notOwned: true });
+      if (!list.some((g) => g.appid === p.appid)) list.push({ appid: p.appid, name: p.game || ("Juego " + p.appid), mods: 0, workshop: true, players: [], tags: [], collections: [], notOwned: true });
     }
     return list.sort((x, y) => ((y.mods || 0) - (x.mods || 0)) || ((y.lastPlayed || 0) - (x.lastPlayed || 0)) || x.name.localeCompare(y.name, "es"));
   }
   const modGame = () => modGames().find((g) => g.appid === MS.app);
   const wantLive = (app) => !S.settings.workshopManual || MS.connect.has(app);
-  const modById = (id) => (MS.list && MS.list.mods.find((m) => m.id === id)) || MS.search.mods.find((m) => m.id === id) || (MS.selMod && MS.selMod.id === id ? MS.selMod : null) || MS.pmods.get(id) || null;
+  const modById = (id) => (MS.list && (MS.list.mods.find((m) => m.id === id) || (MS.list.history || []).find((m) => m.id === id))) || MS.search.mods.find((m) => m.id === id) || (MS.selMod && MS.selMod.id === id ? MS.selMod : null) || MS.pmods.get(id) || null;
   const subscribedIds = () => MS.list ? MS.list.mods.filter((m) => m.subscribed).map((m) => m.id) : [];
-  const gamePresets = () => (MS.presets || []).filter((p) => p.appid === MS.app);
+  const presetsOf = (app) => (MS.presets || []).filter((p) => p.appid === app);
+  const gamePresets = () => presetsOf(MS.app);
   const presetById = (id) => (MS.presets || []).find((p) => p.id === id);
   const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
   const spinnerBox = (t) => `<div class="empty"><div class="spinner"></div><b>${esc(t)}</b></div>`;
   const fail = (e) => toast(errText(e), "error");
+  const notOwnedErr = (msg) => /no tiene este juego/i.test(String(msg || ""));
+
+  // cuentas tuyas (que no son la abierta) que tienen el juego
+  function ownersOf(appid) {
+    const g = S.games && S.games.games.find((x) => x.appid === appid);
+    if (!g) return [];
+    const act = activeAcc();
+    return S.accounts.filter((a) => a.steamId && !a.hidden && (!act || a.key !== act.key) && hasGame(g, a.steamId))
+      .sort((x, y) => (hasPlayed(g, y.steamId) - hasPlayed(g, x.steamId)) || ((y.lastUsed || 0) - (x.lastUsed || 0)));
+  }
 
   async function ensureMods() {
     await ensureGames();
     if (!MS.presets) await loadPresets(true);
+    if (MS.home) { renderMods(); return; }
     const games = modGames();
-    if (!games.length) { MS.app = 0; renderMods(); return; }
-    if (!games.some((g) => g.appid === MS.app)) MS.app = games[0].appid;
+    if (!games.some((g) => g.appid === MS.app)) { MS.home = true; renderMods(); return; }
     if (!MS.list || MS.list.appid !== MS.app) loadMods();
     else renderMods();
   }
@@ -938,7 +952,7 @@
     renderMods();
     const g = modGame();
     if (g && g.notOwned) {
-      MS.list = { appid: app, mods: [], live: false, liveError: "", account: "", diskSize: 0, notOwned: true };
+      MS.list = { appid: app, mods: [], history: [], live: false, liveError: "", account: "", diskSize: 0, notOwned: true, noGame: true };
       MS.loading = false;
       renderMods();
       return;
@@ -948,29 +962,47 @@
       if (tok !== MS.loadTok) return;
       MS.list = l;
     } catch (e) {
-      if (tok === MS.loadTok) MS.list = { appid: app, mods: [], live: false, liveError: errText(e), account: "", diskSize: 0 };
+      if (tok === MS.loadTok) MS.list = { appid: app, mods: [], history: [], live: false, liveError: errText(e), account: "", diskSize: 0 };
     } finally {
       if (tok === MS.loadTok) MS.loading = false;
     }
     if (tok === MS.loadTok) renderMods();
   }
 
-  function selectModApp(appid) {
-    if (MS.app === appid) return;
+  // entra en los mods de un juego (desde la portada o desde Juegos)
+  function openModGame(appid, tab) {
+    const changed = MS.app !== appid;
+    MS.home = false;
     MS.app = appid;
     store.set("modApp", appid);
-    MS.sel = null; MS.selMod = null; MS.checked.clear(); MS.pchecked.clear();
-    MS.search = { ...MS.search, mods: [], cursor: "", total: 0, done: false, err: "", app: 0 };
-    loadMods();
-    if (MS.tab === "search") runSearch();
+    if (changed) {
+      MS.sel = null; MS.selMod = null; MS.checked.clear(); MS.pchecked.clear(); MS.list = null;
+      MS.f = { ...MS.f, state: "all", wtag: "", mytag: "" };
+      MS.search = { ...MS.search, tags: [], mods: [], cursor: "", total: 0, done: false, err: "", app: 0 };
+    }
+    clearModQ();
+    if (tab) { MS.tab = tab; store.set("modTab", tab); }
+    if (S.view !== "mods") { setView("mods"); return; }
+    ensureMods();
+    if (MS.tab === "search" && MS.search.app !== MS.app) runSearch();
+  }
+  function goModHome() {
+    MS.home = true;
+    MS.sel = null;
+    clearModQ();
+    renderMods();
+  }
+  function clearModQ() {
+    MS.q = "";
+    const inp = $("#mod-q");
+    inp.value = ""; inp.parentElement.classList.remove("has");
   }
 
   function setModTab(t) {
     MS.tab = t;
     store.set("modTab", t);
-    MS.q = "";
-    const inp = $("#mod-q");
-    inp.value = ""; inp.parentElement.classList.remove("has");
+    clearModQ();
+    MS.checked.clear();
     if (t === "presets" && MS.sel && MS.sel.kind !== "preset") MS.sel = null;
     if (t !== "presets" && MS.sel && MS.sel.kind === "preset") MS.sel = null;
     renderMods();
@@ -985,46 +1017,169 @@
     renderModDetail();
   }
 
+  // ---------- barra de arriba ----------
   function renderModTop() {
+    const home = MS.home;
+    $("#mod-back").hidden = home;
+    $("#mod-game").hidden = home;
+    $("#mod-tab").hidden = home;
+    $("#mod-home-title").hidden = !home;
     const games = modGames();
-    const sel = $("#mod-game");
-    sel.innerHTML = games.length
-      ? games.map((g) => `<option value="${g.appid}"${g.appid === MS.app ? " selected" : ""}>${esc(g.name)}${g.mods ? " · " + g.mods : ""}${g.notOwned ? " (no lo tienes)" : ""}</option>`).join("")
-      : `<option>Sin juegos con Workshop</option>`;
-    sel.disabled = !games.length;
-    $$("#mod-tab button").forEach((b) => b.classList.toggle("on", b.dataset.v === MS.tab));
-    $("#mod-n-subs").textContent = MS.list && !MS.list.notOwned ? MS.list.mods.filter((m) => m.subscribed).length : "";
-    const np = gamePresets().filter((p) => !p.auto).length;
-    $("#mod-n-presets").textContent = np || "";
-    $("#mod-q").placeholder = MS.tab === "search" ? "Buscar en el Workshop (Intro)" : MS.tab === "presets" ? "Filtrar presets (Ctrl+F)" : "Filtrar mods (Ctrl+F)";
+    if (!home) {
+      $("#mod-game").innerHTML = games.map((g) => `<option value="${g.appid}"${g.appid === MS.app ? " selected" : ""}>${esc(g.name)}${g.mods ? " · " + g.mods : ""}${g.notOwned ? " (no lo tienes)" : ""}</option>`).join("");
+      $$("#mod-tab button").forEach((b) => b.classList.toggle("on", b.dataset.v === MS.tab));
+      $("#mod-n-subs").textContent = MS.list && !MS.list.noGame ? MS.list.mods.filter((m) => m.subscribed).length : "";
+      $("#mod-n-presets").textContent = gamePresets().filter((p) => !p.auto).length || "";
+    }
+    $("#mod-q").placeholder = home ? "Buscar juegos (Ctrl+F)" : MS.tab === "search" ? "Buscar en el Workshop (Intro)" : MS.tab === "presets" ? "Filtrar presets (Ctrl+F)" : "Filtrar mods (Ctrl+F)";
     const lv = $("#mod-live"), l = MS.list;
-    if (!MS.app || !l || l.notOwned) lv.innerHTML = MS.loading ? `<span class="livep"><span class="spinner" style="width:12px;height:12px;border-width:2px"></span>Leyendo…</span>` : "";
-    else if (l.live) {
+    if (home || !MS.app || !l || l.noGame) { lv.innerHTML = !home && MS.loading ? `<span class="livep"><span class="spinner" style="width:12px;height:12px;border-width:2px"></span>Leyendo…</span>` : ""; return; }
+    if (l.live) {
       const a = S.accounts.find((x) => x.steamId === l.account);
       lv.innerHTML = `<span class="livep" title="Los cambios se hacen con la cuenta que está abierta en Steam. Mientras está conectado, tus amigos te ven «jugando» a este juego.">${MS.loading ? `<span class="spinner" style="width:12px;height:12px;border-width:2px"></span>` : '<i class="dot ok"></i>'}Steam · <b>${esc(a ? display(a) : "cuenta abierta")}</b></span>`;
-    } else if (l.liveError) lv.innerHTML = `<span class="livep warn" data-mact="connect" title="${esc(l.liveError)}. Pulsa para volver a intentarlo.">${ic("alert")}<b>${esc(l.liveError)}</b></span>`;
-    else lv.innerHTML = `<span class="livep off" data-mact="connect" title="Para ver todas tus suscripciones (aunque el juego no esté instalado) y poder cambiarlas desde aquí">${ic("plug")}Conectar con Steam</span>`;
+    } else if (l.liveError) {
+      const own = notOwnedErr(l.liveError) ? ownersOf(MS.app)[0] : null;
+      lv.innerHTML = own
+        ? `<span class="livep warn" data-mact="switch-owner" title="La cuenta abierta en Steam no tiene este juego. Pulsa para cambiar a ${esc(display(own))}.">${ic("login")}<b>Cambiar a ${esc(display(own))}</b></span>`
+        : `<span class="livep warn" data-mact="connect" title="${esc(l.liveError)}. Pulsa para volver a intentarlo.">${ic("alert")}<b>${esc(l.liveError)}</b></span>`;
+    } else lv.innerHTML = `<span class="livep off" data-mact="connect" title="Para ver todas tus suscripciones (aunque el juego no esté instalado) y poder cambiarlas desde aquí">${ic("plug")}Conectar con Steam</span>`;
+  }
+
+  // ---------- portada: los juegos con mods ----------
+  function homeGames() {
+    const q = norm(MS.q.trim());
+    const h = MS.h;
+    let list = modGames().filter((g) => {
+      if (h.filter === "mods" && !g.mods && !presetsOf(g.appid).length) return false;
+      if (h.filter === "presets" && !presetsOf(g.appid).length) return false;
+      if (h.filter === "installed" && !g.installed) return false;
+      if (h.tag.startsWith("t:") && !(g.tags || []).some((t) => t.toLowerCase() === h.tag.slice(2).toLowerCase())) return false;
+      if (h.tag.startsWith("c:") && !(g.collections || []).includes(h.tag.slice(2))) return false;
+      const hay = norm([g.name, ...(g.tags || []), ...(g.collections || []), g.appid].join(" "));
+      return !q || q.split(/\s+/).every((w) => hay.includes(w.replace(/^#/, "")));
+    });
+    const by = {
+      recent: (x, y) => ((y.lastPlayed || 0) - (x.lastPlayed || 0)),
+      mods: (x, y) => ((y.mods || 0) - (x.mods || 0)),
+      size: (x, y) => ((y.modsSize || 0) - (x.modsSize || 0)),
+      hours: (x, y) => ((y.minutes || 0) - (x.minutes || 0)),
+      name: () => 0,
+    }[h.sort] || (() => 0);
+    return list.sort((x, y) => by(x, y) || x.name.localeCompare(y.name, "es", { sensitivity: "base" }));
+  }
+  function renderHomeBar(bar) {
+    const all = modGames();
+    const n = { mods: all.filter((g) => g.mods || presetsOf(g.appid).length).length, all: all.length, presets: all.filter((g) => presetsOf(g.appid).length).length, installed: all.filter((g) => g.installed).length };
+    const tags = [...new Set(all.flatMap((g) => g.tags || []))].sort((a, b) => a.localeCompare(b, "es"));
+    const cols = [...new Set(all.flatMap((g) => g.collections || []))].sort((a, b) => a.localeCompare(b, "es"));
+    if (MS.h.tag && !tags.includes(MS.h.tag.slice(2)) && !cols.includes(MS.h.tag.slice(2))) MS.h.tag = "";
+    const o = (v, l, cur) => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(l)}</option>`;
+    const shown = homeGames();
+    bar.innerHTML = `<div class="seg" id="mh-filter">${[["mods", "Con mods", n.mods], ["presets", "Con presets", n.presets], ["installed", "Instalados", n.installed], ["all", "Con Workshop", n.all]].map(([v, l, c]) => `<button data-v="${v}" class="${MS.h.filter === v ? "on" : ""}">${l}<small>${c}</small></button>`).join("")}</div>
+      ${tags.length || cols.length ? `<select class="fsel${MS.h.tag ? " on" : ""}" id="mh-tag" title="Tus etiquetas y colecciones de Steam">${o("", "Etiquetas y colecciones", MS.h.tag)}${tags.length ? `<optgroup label="Tus etiquetas">${tags.map((t) => o("t:" + t, "#" + t, MS.h.tag)).join("")}</optgroup>` : ""}${cols.length ? `<optgroup label="Colecciones de Steam">${cols.map((c) => o("c:" + c, c, MS.h.tag)).join("")}</optgroup>` : ""}</select>` : ""}
+      <select class="fsel" id="mh-sort" title="Orden">${o("recent", "Jugados hace poco", MS.h.sort)}${o("mods", "Más mods", MS.h.sort)}${o("size", "Más espacio en mods", MS.h.sort)}${o("hours", "Más horas", MS.h.sort)}${o("name", "Por nombre", MS.h.sort)}</select>
+      <span class="grow"></span><span class="fstat"><b>${shown.length}</b> juegos</span>`;
+  }
+  function renderHomeList(box) {
+    if (!S.games) { box.innerHTML = spinnerBox("Leyendo tu biblioteca…"); return; }
+    const list = homeGames();
+    if (!modGames().length) {
+      box.innerHTML = `<div class="empty">${ic("puzzle")}<b>Ningún juego con Workshop</b><p>Aquí salen los juegos de tu biblioteca que tienen mods en el Workshop de Steam. También puedes pegar un preset que te hayan pasado.</p><div class="row-btns"><button class="btn primary sm" data-mact="paste">${ic("paste")}Pegar preset</button></div></div>`;
+      return;
+    }
+    if (!list.length) { box.innerHTML = `<div class="empty">${ic("search")}<b>Ningún juego coincide</b><p>Prueba con otro nombre o quita los filtros (arriba, «Con Workshop» los enseña todos).</p></div>`; return; }
+    box.innerHTML = `<div class="game-grid">${list.map((g) => {
+      const np = presetsOf(g.appid).filter((p) => !p.auto).length;
+      const badges = (g.mods ? `<span>${plural(g.mods, "mod", "mods")}</span>` : "") + (np ? `<span>${plural(np, "preset", "presets")}</span>` : "") + (g.notOwned ? `<span class="st-update">No lo tienes</span>` : "");
+      const meta = [g.modsSize ? fmtBytes(g.modsSize) + " en mods" : "", !g.mods && !np ? "Sin mods" : "", g.lastPlayed ? ago(g.lastPlayed) : ""].filter(Boolean).join(" · ");
+      return `<div class="game seen${g.installed || g.notOwned ? "" : " notinst"}" data-mgame="${g.appid}" title="Ver sus mods">
+        <div class="cover"><div class="ph"><span>${esc(g.name)}</span></div><img loading="lazy" decoding="async" alt="" draggable="false" src="/img/app/${g.appid}/cover" onload="this.parentElement.classList.add('loaded')" onerror="this.parentElement.classList.add('noimg');this.remove()"><div class="shade"></div><div class="badges">${badges}</div></div>
+        <div class="gname" title="${esc(g.name)}">${esc(g.name)}</div><div class="gmeta">${g.installed ? "<i></i>" : ""}<span>${esc(meta || "—")}</span></div></div>`;
+    }).join("")}</div>`;
+  }
+  function renderHomeDetail(box) {
+    const all = modGames();
+    const mods = all.reduce((s, g) => s + (g.mods || 0), 0), size = all.reduce((s, g) => s + (g.modsSize || 0), 0);
+    const ps = (MS.presets || []).filter((p) => !p.auto);
+    const froms = [...new Set(ps.map((p) => p.from).filter(Boolean))];
+    const recent = [...ps].sort((a, b) => b.updated - a.updated).slice(0, 6);
+    box.innerHTML = `<div class="d-title" style="padding-top:20px"><h2>Tus mods</h2><div class="by">Elige un juego para ver sus mods, sus presets y buscar en su Workshop.</div></div>
+      <div class="d-sec"><div class="facts">
+        <div class="fact"><b>${nf0.format(mods)}</b><span>mods en este PC</span></div>
+        <div class="fact"><b>${size ? fmtBytes(size) : "—"}</b><span>ocupan</span></div>
+        <div class="fact"><b>${ps.length}</b><span>presets</span></div>
+        <div class="fact"><b>${froms.length}</b><span>${froms.length === 1 ? "persona te ha pasado presets" : "personas te han pasado presets"}</span></div>
+      </div></div>
+      ${recent.length ? `<div class="d-sec"><div class="sec-h"><span class="label">Presets recientes</span></div>${recent.map((p) => `<div class="ritem" data-home-preset="${esc(p.id)}"><div class="mthumb" style="background-image:url('/img/app/${p.appid}/header');background-size:cover;background-position:center"></div><div style="min-width:0"><div class="rn">${esc(p.name)}</div><div class="rs">${esc(p.game || "")} · ${plural(p.mods.length, "mod", "mods")}${p.from ? " · de " + esc(p.from) : ""}</div></div><span></span></div>`).join("")}</div>` : ""}
+      <div class="dfoot"><button class="btn ghost xs" data-mact="paste">${ic("paste")}Pegar un preset</button><button class="btn ghost xs" data-mact="import">${ic("file")}Abrir un archivo…</button></div>`;
+  }
+
+  // ---------- barra de cada pestaña ----------
+  const MSTATES = [["all", "Todos"], ["subs", "Suscritos"], ["installed", "En el disco"], ["notdl", "Sin bajar"], ["update", "Por actualizar"], ["downloading", "Bajando o en cola"], ["nosub", "Sin suscripción"], ["missing", "Ya no existen"], ["history", "Los que tuve antes"]];
+  function stateMatch(m, st) {
+    switch (st) {
+      case "subs": return m.subscribed;
+      case "installed": return m.installed;
+      case "notdl": return m.subscribed && !m.installed && !m.downloading && !m.pending;
+      case "update": return m.needsUpdate;
+      case "downloading": return m.downloading || m.pending;
+      case "nosub": return !m.subscribed;
+      case "missing": return m.missing;
+    }
+    return true;
+  }
+  const modMatch = (m, q) => !q || q.split(/\s+/).every((w) => w.startsWith("#") ? norm([...(m.tags || []), ...(m.myTags || [])].join(" ")).includes(w.slice(1)) : norm([m.title, m.author, (m.tags || []).join(" "), (m.myTags || []).join(" "), m.id].join(" ")).includes(w));
+  function sourceMods() {
+    if (!MS.list) return [];
+    return MS.f.state === "history" ? (MS.list.history || []) : MS.list.mods;
+  }
+  // los mods que se ven ahora en la lista (con todos los filtros)
+  function visibleMods() {
+    if (MS.tab === "search") return MS.search.mods;
+    const q = norm(MS.q.trim()), f = MS.f;
+    const list = sourceMods().filter((m) => (f.state === "history" || stateMatch(m, f.state)) && (!f.wtag || (m.tags || []).includes(f.wtag)) && (!f.mytag || (m.myTags || []).includes(f.mytag)) && modMatch(m, q));
+    const by = {
+      name: (x, y) => x.title.localeCompare(y.title, "es", { sensitivity: "base" }),
+      size: (x, y) => ((y.diskSize || y.size || 0) - (x.diskSize || x.size || 0)),
+      updated: (x, y) => ((y.updated || 0) - (x.updated || 0)),
+      votes: (x, y) => (score(y) - score(x)) || ((y.votesUp || 0) - (x.votesUp || 0)),
+      subs: (x, y) => ((y.subscriptions || 0) - (x.subscriptions || 0)),
+      since: (x, y) => (f.state === "history" ? (y.removed || 0) - (x.removed || 0) : (y.since || 0) - (x.since || 0)),
+    }[f.sort] || (() => 0);
+    return list.sort((x, y) => by(x, y) || x.title.localeCompare(y.title, "es", { sensitivity: "base" }));
+  }
+  const score = (m) => { const t = (m.votesUp || 0) + (m.votesDown || 0); return t ? m.votesUp / t : -1; };
+  function tagCounts(mods, key) {
+    const c = new Map();
+    for (const m of mods) for (const t of m[key] || []) c.set(t, (c.get(t) || 0) + 1);
+    return [...c.entries()].sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0], "es"));
   }
 
   function renderModBar() {
     const bar = $("#mod-bar");
+    if (MS.home) { renderHomeBar(bar); return; }
     if (!MS.app) { bar.innerHTML = ""; return; }
+    const o = (v, l, cur) => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(l)}</option>`;
     if (MS.tab === "subs") {
-      const l = MS.list, subs = l ? l.mods.filter((m) => m.subscribed) : [];
-      let h = `<span class="fstat"><b>${subs.length}</b> ${subs.length === 1 ? "suscrito" : "suscritos"}${l && l.diskSize ? " · " + fmtBytes(l.diskSize) + " en el disco" : ""}</span>`;
-      if (MS.checked.size) {
-        h += `<span class="sep"></span><span class="fstat"><b>${MS.checked.size}</b> elegidos</span>
-          <button class="btn ghost xs" data-mact="save-checked">${ic("save")}Guardar como preset</button>
-          <button class="btn ghost xs" data-mact="sub-checked">${ic("plus")}Suscribirse</button>
-          <button class="btn ghost xs danger-txt" data-mact="unsub-checked">${ic("minus")}Quitar suscripción</button>
-          <button class="btn ghost xs" data-mact="uncheck">Deseleccionar</button>`;
-      } else {
-        h += `<span class="grow"></span>
-          <button class="btn ghost xs" data-mact="save-all"${subs.length ? "" : " disabled"}>${ic("save")}Guardar todo como preset</button>
+      const l = MS.list, src = sourceMods(), f = MS.f;
+      const vis = visibleMods();
+      const allChecked = vis.length > 0 && vis.every((m) => MS.checked.has(m.id));
+      const wt = tagCounts(src, "tags"), mt = tagCounts([...(l ? l.mods : []), ...((l && l.history) || [])], "myTags");
+      if (f.wtag && !wt.some(([t]) => t === f.wtag)) f.wtag = "";
+      if (f.mytag && !mt.some(([t]) => t === f.mytag)) f.mytag = "";
+      const subs = l ? l.mods.filter((m) => m.subscribed) : [];
+      let h = `<label class="chk all-chk" title="Elegir todos los que se ven"><input type="checkbox" data-mact="check-all"${allChecked ? " checked" : ""}${vis.length ? "" : " disabled"}></label>
+        <select class="fsel${f.state !== "all" ? " on" : ""}" id="mf-state" title="Estado">${MSTATES.map(([v, t]) => o(v, t + (v === "history" ? ` (${(l && l.history || []).length})` : ""), f.state)).join("")}</select>
+        ${wt.length ? `<select class="fsel${f.wtag ? " on" : ""}" id="mf-wtag" title="Etiquetas que les ha puesto su autor en el Workshop">${o("", "Etiquetas del Workshop", f.wtag)}${wt.map(([t, n]) => o(t, `${t} (${n})`, f.wtag)).join("")}</select>` : ""}
+        ${mt.length ? `<select class="fsel${f.mytag ? " on" : ""}" id="mf-mytag" title="Tus etiquetas">${o("", "Tus etiquetas", f.mytag)}${mt.map(([t, n]) => o(t, `#${t} (${n})`, f.mytag)).join("")}</select>` : ""}
+        <select class="fsel" id="mf-sort" title="Orden">${o("name", "Por nombre", f.sort)}${o("size", "Más grandes", f.sort)}${o("updated", "Actualizados hace poco", f.sort)}${o("votes", "Mejor valorados", f.sort)}${o("subs", "Más suscriptores", f.sort)}${o("since", f.state === "history" ? "Quitados hace poco" : "Suscritos hace poco", f.sort)}</select>
+        <span class="fstat"><b>${vis.length}</b> de ${src.length}${f.state !== "history" && l && l.diskSize ? " · " + fmtBytes(l.diskSize) + " en el disco" : ""}</span>
+        <span class="grow"></span>`;
+      if (MS.checked.size) h += bulkBar();
+      else h += `<button class="btn ghost xs" data-mact="save-all"${subs.length ? "" : " disabled"} title="Un preset con todo lo que tienes suscrito">${ic("save")}Guardar como preset</button>
           <button class="btn ghost xs" data-mact="paste">${ic("paste")}Pegar preset</button>
           <button class="btn ghost xs danger-txt" data-mact="unsub-all"${subs.length ? "" : " disabled"} title="Quitar todas las suscripciones de este juego (antes se guarda una copia)">${ic("trash")}Quitar todo…</button>
           <button class="ibtn" data-mact="reload" title="Volver a leer">${ic("refresh")}</button>`;
-      }
       bar.innerHTML = h;
     } else if (MS.tab === "presets") {
       const ps = gamePresets();
@@ -1043,20 +1198,40 @@
     } else {
       const s = MS.search;
       const sorts = [["trend", "Populares esta semana"], ["votes", "Mejor valorados"], ["subs", "Más suscriptores"], ["recent", "Más nuevos"], ["updated", "Actualizados hace poco"]];
-      bar.innerHTML = `<select class="fsel" id="mod-sort" title="Orden"${s.q ? " disabled" : ""}>${sorts.map(([v, l]) => `<option value="${v}"${v === s.sort ? " selected" : ""}>${l}</option>`).join("")}</select>
-        ${s.q ? `<span class="fstat">Buscando «<b>${esc(s.q)}</b>»</span><button class="btn ghost xs" data-mact="search-clear">${ic("x")}Quitar búsqueda</button>` : ""}
-        <span class="grow"></span><span class="fstat">${s.total ? `<b>${nf0.format(s.total)}</b> mods` : ""}</span>`;
+      const vis = s.mods;
+      const allChecked = vis.length > 0 && vis.every((m) => MS.checked.has(m.id));
+      // etiquetas para filtrar: las de los resultados y las de tus mods
+      const known = tagCounts([...s.mods, ...(MS.list ? MS.list.mods : [])], "tags").map(([t]) => t).filter((t) => !s.tags.includes(t)).slice(0, 40);
+      let h = `<label class="chk all-chk" title="Elegir todos los que se ven"><input type="checkbox" data-mact="check-all"${allChecked ? " checked" : ""}${vis.length ? "" : " disabled"}></label>
+        <select class="fsel" id="mod-sort" title="Orden"${s.q ? " disabled" : ""}>${sorts.map(([v, l]) => o(v, l, s.sort)).join("")}</select>
+        ${known.length ? `<select class="fsel" id="ms-addtag" title="Solo mods con esta etiqueta del Workshop">${o("", "+ Filtrar por etiqueta", "")}${known.map((t) => o(t, t, "")).join("")}</select>` : ""}
+        ${s.tags.map((t) => `<span class="chip tag">${esc(t)}<button data-stag="${esc(t)}" title="Quitar este filtro">${ic("x")}</button></span>`).join("")}
+        ${s.q ? `<span class="fstat">«<b>${esc(s.q)}</b>»</span><button class="btn ghost xs" data-mact="search-clear">${ic("x")}Quitar búsqueda</button>` : ""}
+        <span class="grow"></span>`;
+      h += MS.checked.size ? bulkBar() : `<span class="fstat">${s.total ? `<b>${nf0.format(s.total)}</b> mods` : ""}</span>`;
+      bar.innerHTML = h;
     }
+  }
+
+  // acciones sobre los mods elegidos con las casillas
+  function bulkBar() {
+    const ids = [...MS.checked];
+    const ms = ids.map(modById).filter(Boolean);
+    const toSub = ms.filter((m) => !m.subscribed).length, toUnsub = ms.filter((m) => m.subscribed).length;
+    return `<span class="fstat"><b>${ids.length}</b> elegidos</span>
+      ${toSub ? `<button class="btn go xs" data-mact="sub-checked">${ic("plus")}Suscribirse${toSub !== ids.length ? " a " + toSub : ""}</button>` : ""}
+      ${toUnsub ? `<button class="btn ghost xs danger-txt" data-mact="unsub-checked">${ic("minus")}Quitar${toUnsub !== ids.length ? " " + toUnsub : ""}</button>` : ""}
+      <button class="btn ghost xs" data-mact="save-checked">${ic("save")}Preset</button>
+      <input class="tag-add" id="mod-bulk-tag" maxlength="24" placeholder="+ etiqueta" spellcheck="false" title="Pon una etiqueta tuya a los elegidos (Intro)">
+      <button class="ibtn" data-mact="bulk-untag" title="Quitar una etiqueta tuya a los elegidos">${ic("x")}</button>
+      <button class="btn ghost xs" data-mact="uncheck">Ninguno</button>`;
   }
 
   function renderModList() {
     const box = $("#mod-list");
     if (S.view !== "mods") return;
+    if (MS.home) { renderHomeList(box); return; }
     if (!S.games) { box.innerHTML = spinnerBox("Leyendo tu biblioteca…"); return; }
-    if (!MS.app) {
-      box.innerHTML = `<div class="empty">${ic("puzzle")}<b>Ningún juego con Workshop</b><p>Aquí salen los juegos de tu biblioteca que tienen mods en el Workshop de Steam. También puedes pegar un preset que te hayan pasado.</p><div class="row-btns"><button class="btn primary sm" data-mact="paste">${ic("paste")}Pegar preset</button></div></div>`;
-      return;
-    }
     if (MS.tab === "subs") renderModSubs(box);
     else if (MS.tab === "presets") renderPresetList(box);
     else renderSearch(box);
@@ -1066,7 +1241,8 @@
     const out = [];
     const acc = m.subscribedBy && S.accounts.find((a) => a.steamId === m.subscribedBy);
     if (m.missing) out.push(`<span class="chip bad" title="Lo ha borrado su autor o lo ha hecho privado">Ya no existe</span>`);
-    if (mode === "search") { if (m.subscribed) out.push(`<span class="chip token">${ic("check")}Suscrito</span>`); }
+    if (m.removed) out.push(`<span class="chip off" title="Quitado ${esc(fmtDate(m.removed))}">Quitado ${esc(ago(m.removed))}</span>`);
+    else if (mode === "search") { if (m.subscribed) out.push(`<span class="chip token">${ic("check")}Suscrito</span>`); }
     else if (!m.subscribed && m.installed) {
       const other = m.subscribedBy && MS.list && m.subscribedBy !== MS.list.account;
       out.push(`<span class="chip off" title="Steam lo tiene en el disco pero la cuenta abierta no está suscrita">${other ? "De " + esc(acc ? display(acc) : "otra cuenta") : "Sin suscripción"}</span>`);
@@ -1074,6 +1250,7 @@
     if (m.downloading) out.push(`<span class="chip token">Bajando ${Math.round((m.progress || 0) * 100)}%</span>`);
     else if (m.pending) out.push(`<span class="chip token">En cola</span>`);
     else if (m.needsUpdate) out.push(`<span class="chip ask" title="Steam lo actualizará">Actualizar</span>`);
+    for (const t of (m.myTags || []).slice(0, 3)) out.push(`<span class="chip from">#${esc(t)}</span>`);
     return out.join("");
   }
   function votesHTML(m) {
@@ -1095,11 +1272,11 @@
     const v = votesHTML(m);
     if (v) sub.push(v);
     const act = !m.subscribed
-      ? `<button class="ibtn sub" data-sub="${m.id}" title="Suscribirse">${ic("plus")}</button>`
+      ? `<button class="ibtn sub" data-sub="${m.id}" title="${m.removed ? "Volver a suscribirse" : "Suscribirse"}">${ic("plus")}</button>`
       : `<button class="ibtn danger" data-unsub="${m.id}" title="Quitar la suscripción">${ic("minus")}</button>`;
     const sel = MS.sel && MS.sel.kind === "mod" && MS.sel.id === m.id;
-    return `<div class="mrow${sel ? " sel" : ""}${!m.subscribed && mode !== "search" ? " dim" : ""}" data-mod="${m.id}">
-      ${mode === "search" ? "<span></span>" : `<input type="checkbox" class="ck" data-check="${m.id}"${MS.checked.has(m.id) ? " checked" : ""} title="Elegir">`}
+    return `<div class="mrow${sel ? " sel" : ""}${!m.subscribed && mode !== "search" ? " dim" : ""}${MS.checked.has(m.id) ? " checked" : ""}" data-mod="${m.id}">
+      <input type="checkbox" class="ck" data-check="${m.id}"${MS.checked.has(m.id) ? " checked" : ""} title="Elegir (Mayús para elegir varios seguidos)">
       ${thumbMod(m)}
       <div class="mtxt"><div class="mn" title="${esc(m.title)}">${esc(m.title)}</div><div class="ms">${sub.join(" · ") || "&nbsp;"}</div></div>
       <div class="mchips">${modChips(m, mode)}</div>
@@ -1107,29 +1284,37 @@
     </div>`;
   }
   const groupHead = (label, n) => `<div class="mgroup"><span class="label">${esc(label)}</span><span class="mini fstat">${n}</span><span class="line"></span></div>`;
-  const modMatch = (m, q) => !q || q.split(/\s+/).every((w) => norm([m.title, m.author, (m.tags || []).join(" "), m.id].join(" ")).includes(w));
+
+  function switchOwnerHTML() {
+    const own = ownersOf(MS.app);
+    if (!own.length) return `<p>Ninguna de tus cuentas guardadas tiene este juego.</p>`;
+    return `<div class="row-btns" style="justify-content:flex-start"><button class="btn primary sm" data-mact="switch-owner">${ic("login")}Cambiar a ${esc(display(own[0]))}</button>${own.length > 1 ? `<button class="btn ghost sm" data-mact="switch-owner-menu">Otra cuenta…</button>` : ""}</div>`;
+  }
 
   function renderModSubs(box) {
     const l = MS.list;
     if (!l) { box.innerHTML = spinnerBox("Leyendo los mods…"); return; }
     const g = modGame();
-    if (l.notOwned) {
+    if (l.noGame) {
       box.innerHTML = `<div class="empty">${ic("puzzle")}<b>${esc(g ? g.name : "Este juego")} no está en tu biblioteca</b><p>Tienes presets de este juego que te han pasado. Para suscribirte a sus mods, entra en Steam con una cuenta que lo tenga.</p><div class="row-btns"><button class="btn ghost sm" data-mact="tab-presets">Ver sus presets</button></div></div>`;
       return;
     }
-    const q = norm(MS.q.trim());
-    const mods = l.mods.filter((m) => modMatch(m, q));
-    if (!l.mods.length) {
-      const why = l.live ? "La cuenta abierta en Steam no está suscrita a ningún mod de este juego." : l.liveError ? `En este PC no hay mods de este juego. ${esc(l.liveError)}.` : "En este PC no hay mods de este juego. Conecta con Steam para ver también las suscripciones que aún no se han bajado.";
-      box.innerHTML = `<div class="empty">${ic("puzzle")}<b>Sin mods de ${esc(g ? g.name : "este juego")}</b><p>${why}</p><div class="row-btns"><button class="btn primary sm" data-mact="tab-search">${ic("search")}Buscar en el Workshop</button><button class="btn ghost sm" data-mact="paste">${ic("paste")}Pegar preset</button></div></div>`;
+    const vis = visibleMods();
+    let h = "";
+    if (!l.live && notOwnedErr(l.liveError)) h += `<div class="warn-box"><b>La cuenta abierta en Steam no tiene ${esc(g ? g.name : "este juego")}.</b> Para ver y cambiar sus suscripciones, entra con una cuenta que lo tenga. Abajo sale lo que hay en este PC.${switchOwnerHTML()}</div>`;
+    else if (!l.live) h += `<div class="warn-box">${l.liveError ? esc(l.liveError) + ". " : ""}Esta lista sale de lo que Steam tiene en este PC: las suscripciones que aún no se han bajado no salen hasta que conectes con Steam.</div>`;
+    if (!sourceMods().length) {
+      if (MS.f.state === "history") { box.innerHTML = h + `<div class="empty">${ic("clock")}<b>Todavía no hay historial</b><p>Aquí saldrán los mods que quites de este juego (desde aquí o desde Steam), para poder volver a ponerlos. TurboGAMES lo apunta cada vez que conecta con Steam.</p></div>`; return; }
+      const why = l.live ? "La cuenta abierta en Steam no está suscrita a ningún mod de este juego." : "En este PC no hay mods de este juego.";
+      box.innerHTML = h + `<div class="empty">${ic("puzzle")}<b>Sin mods de ${esc(g ? g.name : "este juego")}</b><p>${why}</p><div class="row-btns"><button class="btn primary sm" data-mact="tab-search">${ic("search")}Buscar en el Workshop</button><button class="btn ghost sm" data-mact="paste">${ic("paste")}Pegar preset</button></div></div>`;
       return;
     }
-    if (!mods.length) { box.innerHTML = `<div class="empty">${ic("search")}<b>Ningún mod coincide</b><p>Prueba con otro nombre, autor o etiqueta.</p></div>`; return; }
-    const subs = mods.filter((m) => m.subscribed), rest = mods.filter((m) => !m.subscribed);
-    let h = "";
-    if (!l.live) h += `<div class="warn-box">${l.liveError ? esc(l.liveError) + ". " : ""}Esta lista sale de lo que Steam tiene en este PC: las suscripciones que aún no se han bajado no salen hasta que conectes con Steam.</div>`;
-    if (subs.length) h += (rest.length ? groupHead("Suscritos", subs.length) : "") + `<div class="mlist">${subs.map((m) => modRow(m)).join("")}</div>`;
-    if (rest.length) h += groupHead("En este PC, sin suscripción de esta cuenta", rest.length) + `<div class="mlist">${rest.map((m) => modRow(m)).join("")}</div>`;
+    if (!vis.length) { box.innerHTML = h + `<div class="empty">${ic("search")}<b>Ningún mod coincide</b><p>Prueba con otro nombre o quita los filtros.</p><div class="row-btns"><button class="btn ghost sm" data-mact="clear-filters">Quitar los filtros</button></div></div>`; return; }
+    if (MS.f.state === "all" && MS.f.sort === "name") {
+      const subs = vis.filter((m) => m.subscribed), rest = vis.filter((m) => !m.subscribed);
+      if (subs.length) h += (rest.length ? groupHead("Suscritos", subs.length) : "") + `<div class="mlist">${subs.map((m) => modRow(m)).join("")}</div>`;
+      if (rest.length) h += groupHead("En este PC, sin suscripción de esta cuenta", rest.length) + `<div class="mlist">${rest.map((m) => modRow(m)).join("")}</div>`;
+    } else h += `<div class="mlist">${vis.map((m) => modRow(m)).join("")}</div>`;
     box.innerHTML = h;
   }
 
@@ -1137,7 +1322,7 @@
     if (MS.pTag && !(p.tags || []).includes(MS.pTag)) return false;
     if (MS.pFrom === "__mine" && p.from) return false;
     if (MS.pFrom && MS.pFrom !== "__mine" && p.from !== MS.pFrom) return false;
-    return !q || q.split(/\s+/).every((w) => norm([p.name, p.author, p.from, p.notes, (p.tags || []).join(" ")].join(" ")).includes(w));
+    return !q || q.split(/\s+/).every((w) => norm([p.name, p.author, p.from, p.notes, (p.tags || []).join(" ")].join(" ")).includes(w.replace(/^#/, "")));
   }
   function presetCard(p, subs) {
     const have = p.mods.filter((m) => subs.has(m.id)).length;
@@ -1179,12 +1364,13 @@
 
   function renderSearch(box) {
     const s = MS.search;
-    if (MS.list && MS.list.notOwned) { box.innerHTML = `<div class="empty">${ic("search")}<b>Necesitas tener el juego</b><p>Para buscar en su Workshop, entra en Steam con una cuenta que lo tenga.</p></div>`; return; }
+    if (MS.list && MS.list.noGame) { box.innerHTML = `<div class="empty">${ic("search")}<b>Necesitas tener el juego</b><p>Para buscar en su Workshop, entra en Steam con una cuenta que lo tenga.</p></div>`; return; }
     if (s.err && !s.mods.length) {
-      box.innerHTML = `<div class="empty">${ic("plug")}<b>No se puede buscar ahora</b><p>${esc(s.err)}. Para buscar en el Workshop desde aquí, Steam tiene que estar abierto con una cuenta que tenga el juego.</p><div class="row-btns"><button class="btn primary sm" data-mact="search-retry">${ic("refresh")}Reintentar</button><button class="btn ghost sm" data-mact="workshop-web">${ic("globe")}Abrir el Workshop en el navegador</button></div></div>`;
+      const own = notOwnedErr(s.err);
+      box.innerHTML = `<div class="empty">${ic("plug")}<b>${own ? "La cuenta abierta no tiene este juego" : "No se puede buscar ahora"}</b><p>${esc(s.err)}. Para buscar en el Workshop desde aquí, Steam tiene que estar abierto con una cuenta que tenga el juego.</p>${own ? switchOwnerHTML() : ""}<div class="row-btns"><button class="btn ${own ? "ghost" : "primary"} sm" data-mact="search-retry">${ic("refresh")}Reintentar</button><button class="btn ghost sm" data-mact="workshop-web">${ic("globe")}Abrir el Workshop en el navegador</button></div></div>`;
       return;
     }
-    if (!s.mods.length) { box.innerHTML = s.loading ? spinnerBox("Buscando en el Workshop…") : (s.app === MS.app ? `<div class="empty">${ic("search")}<b>Nada por aquí</b><p>Prueba con otras palabras.</p></div>` : ""); return; }
+    if (!s.mods.length) { box.innerHTML = s.loading ? spinnerBox("Buscando en el Workshop…") : (s.app === MS.app ? `<div class="empty">${ic("search")}<b>Nada por aquí</b><p>Prueba con otras palabras o quita las etiquetas.</p></div>` : ""); return; }
     box.innerHTML = `<div class="mlist">${s.mods.map((m) => modRow(m, "search")).join("")}</div>` +
       (s.loading ? spinnerBox("Buscando…") : !s.done ? `<div class="more-row"><button class="btn ghost sm" data-mact="search-more">Cargar más</button></div>` : "");
   }
@@ -1192,17 +1378,16 @@
   async function runSearch(more) {
     const s = MS.search, app = MS.app;
     if (!app || s.loading) return;
-    if (!more) { s.mods = []; s.cursor = ""; s.done = false; s.err = ""; s.total = 0; s.q = MS.tab === "search" ? MS.q.trim() : ""; }
+    if (!more) { s.mods = []; s.cursor = ""; s.done = false; s.err = ""; s.total = 0; s.q = MS.tab === "search" ? MS.q.trim() : ""; MS.checked.clear(); }
     s.app = app;
     s.loading = true;
     renderModBar(); renderModList();
     try {
-      const r = await api.ModsSearch(app, s.q, s.sort, more ? s.cursor : "");
+      const r = await api.ModsSearch(app, s.q, s.sort, more ? s.cursor : "", s.tags);
       if (MS.app !== app) return;
       const seen = new Set(s.mods.map((m) => m.id));
       s.mods = s.mods.concat((r.mods || []).filter((m) => !seen.has(m.id)));
       s.total = r.total; s.cursor = r.cursor; s.done = !r.cursor || !(r.mods || []).length;
-      if (MS.list && !MS.list.live) MS.list.live = true;
     } catch (e) { s.err = errText(e); }
     finally { s.loading = false; }
     renderMods();
@@ -1229,19 +1414,35 @@
   }
   async function loadInfo(m) {
     if (MS.info.has(m.id)) return MS.info.get(m.id);
-    const p = api.ModInfo(MS.app, m.id).catch((e) => ({ error: errText(e) }));
+    const live = !!(MS.list && MS.list.live);
+    const p = api.ModInfo(MS.app, m.id, live).catch((e) => ({ error: errText(e), gallery: [], required: [], commentList: [] }));
     MS.info.set(m.id, p);
     const d = await p;
     MS.info.set(m.id, d);
+    if (d && d.mod && d.mod.known) {
+      // trae datos más nuevos (votos, etiquetas…): se pasan al mod de la lista
+      const cur = modById(m.id);
+      if (cur) for (const k of ["votesUp", "votesDown", "hasVotes", "subscriptions", "tags", "children", "author"]) if (d.mod[k] !== undefined && d.mod[k] !== "") cur[k] = d.mod[k];
+    }
     if (MS.sel && MS.sel.kind === "mod" && MS.sel.id === m.id) renderModDetail();
     return d;
   }
   function presetsWith(id) { return gamePresets().filter((p) => !p.auto && p.mods.some((x) => x.id === id)); }
+  const ytThumb = (v) => `https://i.ytimg.com/vi/${encodeURIComponent(v)}/mqdefault.jpg`;
+  function galleryHTML(d) {
+    const g = (d && d.gallery) || [];
+    if (!g.length) return "";
+    return `<div class="d-sec"><div class="sec-h"><span class="label">Imágenes y vídeos</span><span class="mini">${g.length}</span></div>
+      <div class="gal">${g.map((x, i) => x.video
+        ? `<button class="gal-it vid" data-gal="${i}" title="Ver el vídeo"><img src="${esc(ytThumb(x.video))}" alt="" loading="lazy" draggable="false" onerror="this.remove()"><i>${ic("play")}</i></button>`
+        : `<button class="gal-it" data-gal="${i}" title="Ver en grande"><img src="${esc(x.url)}?imw=400&imh=225&ima=fit&impolicy=Letterbox" alt="" loading="lazy" draggable="false" onerror="this.remove()"></button>`).join("")}</div></div>`;
+  }
 
   function renderModDetail() {
     const box = $("#mod-detail");
+    if (MS.home) { renderHomeDetail(box); return; }
     if (!MS.sel) {
-      const tips = { subs: ["Elige un mod", "Verás su descripción, valoración, los mods que necesita y los últimos comentarios."], presets: ["Elige un preset", "Verás sus mods, cuáles te faltan, de quién viene, y podrás activarlo o mandarlo por un chat."], search: ["Busca mods nuevos", "Escribe arriba y pulsa Intro, o mira los más populares. Con + te suscribes."] }[MS.tab];
+      const tips = { subs: ["Elige un mod", "Verás sus imágenes y vídeos, su descripción, valoración, los mods que necesita y los últimos comentarios. Con las casillas eliges varios para suscribirte, quitarlos o etiquetarlos de golpe."], presets: ["Elige un preset", "Verás sus mods, cuáles te faltan, de quién viene, y podrás activarlo o mandarlo por un chat."], search: ["Busca mods nuevos", "Escribe arriba y pulsa Intro, ordena o filtra por etiquetas. Con + te suscribes, o elige varios con las casillas."] }[MS.tab];
       box.innerHTML = `<div class="empty-d">${ic(MS.tab === "presets" ? "layers" : "puzzle")}<b>${tips[0]}</b><span>${tips[1]}</span></div>`;
       return;
     }
@@ -1250,9 +1451,8 @@
     if (!m) { MS.sel = null; renderModDetail(); return; }
     const info = MS.info.get(m.id);
     if (!info) loadInfo(m);
-    const ready = info && !(info instanceof Promise);
-    const d = ready ? info : null;
-    const chips = modChips(m, m.subscribed ? "search" : "") + (m.collection ? `<span class="chip">Colección</span>` : "") + (m.banned ? `<span class="chip bad">Bloqueado por Steam</span>` : "");
+    const d = info && !(info instanceof Promise) ? info : null;
+    const chips = modChips({ ...m, myTags: [] }, m.subscribed ? "search" : "") + (m.collection ? `<span class="chip">Colección</span>` : "") + (m.banned ? `<span class="chip bad">Bloqueado por Steam</span>` : "");
     const size = m.diskSize || m.size;
     const rating = d && d.stars >= 0 ? `${starsHTML(d.stars)}` : (votesHTML(m) || "—");
     const ratingSub = d && d.ratings ? `${nf0.format(d.ratings)} valoraciones` : (m.hasVotes ? `${nf0.format((m.votesUp || 0) + (m.votesDown || 0))} votos` : "valoración");
@@ -1269,12 +1469,12 @@
       ? d.commentList.map((c) => `<div class="comment"><div class="ca">${esc(c.author)}<span>${esc(ago(c.time))}</span></div><div class="ct">${esc(c.text)}</div></div>`).join("")
       : d ? `<div class="note">${d.commentsN ? "Steam solo enseña sus comentarios dentro de su página (el perfil del autor es privado)." : "Todavía no tiene comentarios."}</div>` : `<div class="note">Cargando…</div>`;
     box.innerHTML = `
-      <div class="m-hero">${m.preview ? `<img src="/img/mod/${m.id}" alt="" draggable="false" onerror="this.remove()">` : ""}</div>
+      <div class="m-hero">${m.preview ? `<img src="/img/mod/${m.id}" alt="" draggable="false" onerror="this.remove()">` : ""}${d && d.gallery && d.gallery.length ? `<button class="hero-gal" data-gal="0" title="Ver las imágenes y vídeos">${ic("play")}${d.gallery.length}</button>` : ""}</div>
       <div class="d-title">
         <h2>${esc(m.title)}</h2>
-        <div class="by">${m.author ? "de <b>" + esc(m.author) + "</b> · " : ""}<span class="mono">${m.id}</span></div>
+        <div class="by">${m.author ? "de <b>" + esc(m.author) + "</b> · " : ""}<span class="mono">${m.id}</span>${m.since && m.subscribed ? " · suscrito desde " + esc(fmtDate(m.since)) : ""}</div>
         <div class="d-chips">${chips}</div>
-        <div class="d-actions">${m.subscribed ? `<button class="btn ghost sm danger-txt" data-unsub="${m.id}">${ic("minus")}Quitar suscripción</button>` : `<button class="btn go sm" data-sub="${m.id}">${ic("plus")}Suscribirse</button>`}
+        <div class="d-actions">${m.subscribed ? `<button class="btn ghost sm danger-txt" data-unsub="${m.id}">${ic("minus")}Quitar suscripción</button>` : `<button class="btn go sm" data-sub="${m.id}">${ic("plus")}${m.removed ? "Volver a suscribirse" : "Suscribirse"}</button>`}
           <button class="ibtn" data-mact="mod-steam" title="Abrir en Steam">${ic("open")}</button><button class="ibtn" data-mact="mod-web" title="Abrir en el navegador">${ic("globe")}</button><button class="ibtn" data-mmenu="${m.id}" title="Más opciones">${ic("more")}</button></div>
       </div>
       <div class="d-sec">
@@ -1286,12 +1486,46 @@
         </div>
         ${m.installed && m.dir ? `<div class="path"><span title="${esc(m.dir)}">&lrm;${esc(m.dir)}&lrm;</span><button class="ibtn" data-mact="mod-folder" title="Abrir la carpeta">${ic("folder")}</button></div>` : ""}
       </div>
+      ${d ? galleryHTML(d) : `<div class="d-sec"><div class="sec-h"><span class="label">Imágenes y vídeos</span></div><div class="note">Cargando…</div></div>`}
+      <div class="d-sec"><div class="sec-h"><span class="label">Tus etiquetas</span></div>
+        <div class="tags" style="margin:0">${(m.myTags || []).map((t) => `<span class="chip from">#${esc(t)}<button data-muntag="${esc(t)}" title="Quitar">${ic("x")}</button></span>`).join("")}<input class="tag-add" id="md-tag" maxlength="24" placeholder="+ etiqueta" spellcheck="false" title="Para ordenarlos a tu manera: imprescindible, gráficos, probar… (Intro)"></div></div>
       ${req}
       ${inP.length ? `<div class="d-sec"><div class="sec-h"><span class="label">En tus presets</span></div><div class="g-tags">${inP.map((p) => `<span class="chip coll" data-goto-preset="${esc(p.id)}">${ic("layers")}${esc(p.name)}</span>`).join("")}</div></div>` : ""}
       <div class="d-sec"><div class="sec-h"><span class="label">Descripción</span></div>${d ? (desc ? `<div class="desc${desc.length > 900 ? " long" : ""}" id="md-desc">${bbcode(desc)}</div>${desc.length > 900 ? `<div class="sec-foot"><button class="btn ghost xs" data-mact="desc-more">Leer todo</button></div>` : ""}` : `<div class="note">Sin descripción.</div>`) : `<div class="note">Cargando…</div>`}</div>
       <div class="d-sec"><div class="sec-h"><span class="label">Comentarios</span><span class="mini">${d && d.commentsN ? nf0.format(d.commentsN) : ""}</span></div>${comments}${d && d.commentsN ? `<div class="sec-foot"><button class="btn ghost xs" data-mact="mod-web">${ic("globe")}Ver todos en su página</button></div>` : ""}</div>
-      ${m.tags && m.tags.length ? `<div class="d-sec"><div class="sec-h"><span class="label">Etiquetas del Workshop</span></div><div class="g-tags">${m.tags.map((t) => `<span class="chip tag">${esc(t)}</span>`).join("")}</div></div>` : ""}`;
+      ${m.tags && m.tags.length ? `<div class="d-sec"><div class="sec-h"><span class="label">Etiquetas del Workshop</span></div><div class="g-tags">${m.tags.map((t) => `<span class="chip tag clickable" data-wtag="${esc(t)}" title="Ver solo los mods con esta etiqueta">${esc(t)}</span>`).join("")}</div></div>` : ""}`;
   }
+
+  // ---------- visor de imágenes y vídeos ----------
+  let lb = null; // { items, i }
+  function openLightbox(items, i) {
+    lb = { items, i };
+    drawLightbox();
+    $("#lightbox").hidden = false;
+  }
+  function drawLightbox() {
+    if (!lb) return;
+    const it = lb.items[lb.i], n = lb.items.length;
+    $("#lb-stage").innerHTML = it.video
+      ? `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(it.video)}?autoplay=1&rel=0" title="Vídeo" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`
+      : `<img src="${esc(it.url)}" alt="" draggable="false">`;
+    $("#lb-count").textContent = `${lb.i + 1} de ${n}`;
+    $("#lb-open").textContent = it.video ? "Abrir en YouTube" : "Abrir la imagen";
+    $("#lb-prev").hidden = $("#lb-next").hidden = n < 2;
+  }
+  function closeLightbox() { $("#lightbox").hidden = true; $("#lb-stage").innerHTML = ""; lb = null; }
+  const lbMove = (d) => { if (!lb) return; lb.i = (lb.i + d + lb.items.length) % lb.items.length; drawLightbox(); };
+  $("#lb-prev").addEventListener("click", () => lbMove(-1));
+  $("#lb-next").addEventListener("click", () => lbMove(1));
+  $("#lb-close").addEventListener("click", closeLightbox);
+  $("#lightbox").addEventListener("mousedown", (e) => { if (e.target.id === "lightbox" || e.target.id === "lb-stage") closeLightbox(); });
+  $("#lb-open").addEventListener("click", () => { if (!lb) return; const it = lb.items[lb.i]; rt.BrowserOpenURL(it.video ? "https://www.youtube.com/watch?v=" + encodeURIComponent(it.video) : it.url); });
+  document.addEventListener("keydown", (e) => {
+    if (!lb) return;
+    if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); closeLightbox(); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); e.stopImmediatePropagation(); lbMove(-1); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); e.stopImmediatePropagation(); lbMove(1); }
+  }, true);
 
   // ---------- ficha de un preset ----------
   async function loadPresetMods(p) {
@@ -1310,7 +1544,7 @@
     const subs = new Set(subscribedIds());
     const have = p.mods.filter((m) => subs.has(m.id)).length;
     const size = p.mods.reduce((s, m) => s + ((MS.pmods.get(m.id) || {}).size || 0), 0);
-    const owned = !(MS.list && MS.list.notOwned);
+    const owned = !(MS.list && MS.list.noGame);
     const missingMods = p.mods.filter((m) => (MS.pmods.get(m.id) || {}).missing).length;
     box.innerHTML = `
       <div class="d-title" style="padding-top:20px">
@@ -1350,6 +1584,41 @@
     } catch (e) { fail(e); return null; }
   }
 
+  // ---------- etiquetas tuyas en los mods ----------
+  async function tagMods(ids, add, remove) {
+    if (!ids.length) return;
+    try {
+      const r = await api.SetModTags(ids, add || [], remove || []);
+      for (const [k, tags] of Object.entries(r || {})) {
+        const id = +k;
+        for (const m of [...(MS.list ? MS.list.mods : []), ...((MS.list && MS.list.history) || []), ...MS.search.mods]) if (m.id === id) m.myTags = tags || [];
+        if (MS.selMod && MS.selMod.id === id) MS.selMod.myTags = tags || [];
+      }
+      renderMods();
+      return true;
+    } catch (e) { fail(e); return false; }
+  }
+
+  // ---------- cambiar a una cuenta que tenga el juego ----------
+  // Devuelve true si al final está dentro una cuenta que lo tiene.
+  async function switchToOwner(a, then) {
+    const g = modGame();
+    if (!a) { toast("Ninguna de tus cuentas guardadas tiene este juego", "error"); return false; }
+    await switchTo(a, { forceAsk: true, note: `La cuenta abierta en Steam no tiene <b>${esc(g ? g.name : "este juego")}</b>; <b>${esc(display(a))}</b> sí.${then ? " Cuando entre, se seguirá con los mods." : ""}` });
+    await loadAccounts();
+    const now = activeAcc();
+    if (!now || now.key !== a.key) return false;
+    MS.connect.add(MS.app);
+    MS.info.clear();
+    await loadMods({ live: true });
+    if (then) await then();
+    return true;
+  }
+  function ownerMenu(x, y, then) {
+    const own = ownersOf(MS.app);
+    showMenu([{ head: "Cambiar a…" }, ...own.map((a) => ({ html: `${avatarHTML(a, "sm", false)}<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(display(a))}</span>`, fn: () => switchToOwner(a, then) }))], x, y);
+  }
+
   // ---------- suscribirse, quitar y activar ----------
   function showProgress(total, title) {
     $("#mg-title").textContent = title || "Cambiando mods…";
@@ -1374,6 +1643,7 @@
     MS.busy = true;
     const total = sub.length + unsub.length;
     if (total > 2) showProgress(total, title);
+    let notOwned = false;
     try {
       const r = await api.ModsChange(app, sub, unsub);
       const parts = [];
@@ -1386,7 +1656,18 @@
       for (const m of MS.search.mods) { if (sub.includes(m.id)) m.subscribed = true; if (unsub.includes(m.id)) m.subscribed = false; }
     } catch (e) {
       const msg = errText(e);
-      if (total === 1) {
+      MS.busy = false;
+      $("#m-progress").hidden = true;
+      if (notOwnedErr(msg)) {
+        // la cuenta abierta no tiene el juego: se ofrece cambiar a una que sí y seguir
+        notOwned = true;
+        const g = modGame(), own = ownersOf(app);
+        if (!own.length) toast(`Ninguna de tus cuentas guardadas tiene ${g ? g.name : "este juego"}`, "error");
+        else {
+          const r = await ask({ title: "Hay que cambiar de cuenta", html: `<p>La cuenta abierta en Steam no tiene <b>${esc(g ? g.name : "este juego")}</b>. <b>${esc(display(own[0]))}</b> sí lo tiene.</p><p>Steam se cerrará un momento, entrará con ella y después se hará lo que has pedido.</p>`, ok: `Cambiar a ${display(own[0])} y seguir` });
+          if (r.ok) await switchToOwner(own[0], () => changeMods(sub, unsub, title));
+        }
+      } else if (total === 1) {
         const r = await ask({ title: "No se ha podido hacer desde aquí", html: `<p>${esc(msg)}.</p><p>Puedes hacerlo en la página del mod dentro de Steam.</p>`, ok: "Abrir en Steam" });
         if (r.ok) api.OpenModInSteam(sub[0] || unsub[0]).catch(fail);
       } else toast(msg, "error");
@@ -1394,6 +1675,7 @@
       MS.busy = false;
       $("#m-progress").hidden = true;
     }
+    if (notOwned) return;
     MS.connect.add(app);
     MS.info.clear();
     await loadMods({ live: true });
@@ -1402,6 +1684,12 @@
   async function subscribeIds(ids) {
     ids = ids.filter((id) => !(modById(id) || {}).subscribed);
     if (!ids.length) { toast("Ya estás suscrito"); return; }
+    if (ids.length > 3) {
+      const size = ids.reduce((s, id) => s + ((modById(id) || {}).size || 0), 0);
+      const r = await ask({ title: `¿Suscribirse a ${ids.length} mods?`, html: `<p>Steam los bajará${size ? ` (unos <b>${fmtBytes(size)}</b>)` : ""} ${modGame() && modGame().installed ? "en cuanto pueda" : "cuando instales el juego"}. Va de uno en uno, sin prisa.</p>`, ok: "Suscribirse" });
+      if (!r.ok) return;
+    }
+    MS.checked.clear();
     changeMods(ids, [], "Suscribiendo a " + plural(ids.length, "mod", "mods"));
   }
   async function unsubscribeIds(ids, all) {
@@ -1410,18 +1698,29 @@
     const one = ids.length === 1 && modById(ids[0]);
     const r = await ask({
       title: all ? "¿Quitar todas las suscripciones?" : one ? `¿Quitar ${one.title}?` : `¿Quitar ${ids.length} suscripciones?`,
-      html: `<p>${all ? `Te quitarás de los <b>${ids.length}</b> mods de este juego.` : one ? "Te quitarás de este mod." : `Te quitarás de <b>${ids.length}</b> mods.`} Steam borrará sus archivos del disco.</p><p>Antes se guarda una <b>copia automática</b> en Presets con lo que tienes ahora, para poder volver a ponerlo todo.</p>`,
+      html: `<p>${all ? `Te quitarás de los <b>${ids.length}</b> mods de este juego.` : one ? "Te quitarás de este mod." : `Te quitarás de <b>${ids.length}</b> mods.`} Steam borrará sus archivos del disco.</p><p>Antes se guarda una <b>copia automática</b> en Presets con lo que tienes ahora, y quedan en «Los que tuve antes» para volver a ponerlos.</p>`,
       ok: all ? "Quitar todo" : "Quitar", danger: true,
     });
-    if (r.ok) changeMods([], ids, all ? "Quitando todo…" : "Quitando suscripciones…");
+    if (!r.ok) return;
+    MS.checked.clear();
+    changeMods([], ids, all ? "Quitando todo…" : "Quitando suscripciones…");
   }
 
   async function activatePresets(list, exclusive) {
-    if (!MS.list || MS.list.notOwned) { toast("Necesitas tener el juego para activar sus mods", "error"); return; }
+    if (!MS.list || MS.list.noGame) { toast("Necesitas tener el juego para activar sus mods", "error"); return; }
     if (!MS.list.live) {
       MS.connect.add(MS.app);
       await loadMods({ live: true });
-      if (!MS.list.live) { toast((MS.list.liveError || "No se puede conectar con Steam") + ". Sin eso no se sabe a qué estás suscrito.", "error"); return; }
+      if (!MS.list.live) {
+        if (notOwnedErr(MS.list.liveError) && ownersOf(MS.app).length) {
+          const own = ownersOf(MS.app)[0];
+          const r = await ask({ title: "Hay que cambiar de cuenta", html: `<p>La cuenta abierta en Steam no tiene este juego. <b>${esc(display(own))}</b> sí.</p><p>Steam se cerrará un momento, entrará con ella y después se activará el preset.</p>`, ok: `Cambiar a ${display(own)} y seguir` });
+          if (r.ok) await switchToOwner(own, () => activatePresets(list, exclusive));
+          return;
+        }
+        toast((MS.list.liveError || "No se puede conectar con Steam") + ". Sin eso no se sabe a qué estás suscrito.", "error");
+        return;
+      }
     }
     const want = new Set(list.flatMap((p) => p.mods.map((m) => m.id)));
     const subs = subscribedIds();
@@ -1481,7 +1780,7 @@
       presetDraft = null;
       await loadPresets(true);
       toast(d.mode === "import" ? `Preset «${saved.name}» guardado` : "Preset guardado");
-      if (saved.appid !== MS.app) selectModApp(saved.appid);
+      openModGame(saved.appid, "presets");
       MS.sel = { kind: "preset", id: saved.id };
       setModTab("presets");
     } catch (err) { fieldErr($("#mpr-name"), errText(err)); shake($("#m-preset")); }
@@ -1514,6 +1813,7 @@
     } catch (e) {
       $("#mp-err").textContent = errText(e);
       $("#mp-err").classList.add("bad");
+      $("#m-paste").hidden = false;
       shake($("#m-paste"));
     } finally { btn.classList.remove("busy"); }
   }
@@ -1531,10 +1831,11 @@
   }
 
   function presetMenu(p, x, y) {
+    const noGame = MS.list && MS.list.noGame;
     showMenu([
       { head: p.name },
-      { icon: "play", label: "Activar (suscribirse y quitar los demás)", fn: () => activatePresets([p], true), disabled: MS.list && MS.list.notOwned },
-      { icon: "plus", label: "Añadir (solo suscribirse a los que faltan)", fn: () => activatePresets([p], false), disabled: MS.list && MS.list.notOwned },
+      { icon: "play", label: "Activar (suscribirse y quitar los demás)", fn: () => activatePresets([p], true), disabled: noGame },
+      { icon: "plus", label: "Añadir (solo suscribirse a los que faltan)", fn: () => activatePresets([p], false), disabled: noGame },
       "-",
       { icon: "copy", label: "Copiar el texto para un chat", fn: () => copyPreset(p, true) },
       { icon: "share", label: "Copiar solo el código", fn: () => copyPreset(p, false) },
@@ -1560,7 +1861,7 @@
     const ps = gamePresets().filter((p) => !p.auto);
     showMenu([
       { head: m.title },
-      m.subscribed ? { icon: "minus", label: "Quitar la suscripción", danger: true, fn: () => unsubscribeIds([m.id]) } : { icon: "plus", label: "Suscribirse", fn: () => subscribeIds([m.id]) },
+      m.subscribed ? { icon: "minus", label: "Quitar la suscripción", danger: true, fn: () => unsubscribeIds([m.id]) } : { icon: "plus", label: m.removed ? "Volver a suscribirse" : "Suscribirse", fn: () => subscribeIds([m.id]) },
       { icon: "open", label: "Abrir en Steam", fn: () => api.OpenModInSteam(m.id).catch(fail) },
       { icon: "globe", label: "Abrir en el navegador", fn: () => rt.BrowserOpenURL("https://steamcommunity.com/sharedfiles/filedetails/?id=" + m.id) },
       m.installed && m.dir ? { icon: "folder", label: "Abrir su carpeta", fn: () => api.OpenFolder(m.dir).catch(fail) } : null,
@@ -1572,36 +1873,71 @@
   }
 
   // ---------- eventos de la pestaña ----------
-  $("#mod-game").addEventListener("change", (e) => selectModApp(+e.target.value));
+  $("#mod-game").addEventListener("change", (e) => openModGame(+e.target.value));
+  $("#mod-back").addEventListener("click", goModHome);
   $("#mod-tab").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setModTab(b.dataset.v); });
   {
     const inp = $("#mod-q");
-    const r = debounce(() => { if (MS.tab !== "search") renderModList(); }, 60);
+    const r = debounce(() => { if (MS.home || MS.tab !== "search") { renderModList(); renderModBar(); } }, 60);
     inp.addEventListener("input", () => { MS.q = inp.value; inp.parentElement.classList.toggle("has", !!inp.value); r(); });
     inp.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && MS.tab === "search") { e.preventDefault(); runSearch(); }
-      if (e.key === "Escape" && inp.value) { e.stopPropagation(); inp.value = ""; MS.q = ""; inp.parentElement.classList.remove("has"); if (MS.tab === "search") { if (MS.search.q) runSearch(); } else renderModList(); }
+      if (e.key === "Enter" && !MS.home && MS.tab === "search") { e.preventDefault(); runSearch(); }
+      if (e.key === "Escape" && inp.value) { e.stopPropagation(); clearModQ(); if (!MS.home && MS.tab === "search") { if (MS.search.q) runSearch(); } else { renderModList(); renderModBar(); } }
     });
   }
   $("#mod-bar").addEventListener("change", (e) => {
-    if (e.target.id === "mod-sort") { MS.search.sort = e.target.value; store.set("modSort", MS.search.sort); runSearch(); }
-    if (e.target.id === "mod-ptag") { MS.pTag = e.target.value; renderModBar(); renderModList(); }
-    if (e.target.id === "mod-pfrom") { MS.pFrom = e.target.value; renderModBar(); renderModList(); }
+    const id = e.target.id, v = e.target.value;
+    if (id === "mod-sort") { MS.search.sort = v; store.set("modSort", v); runSearch(); }
+    else if (id === "ms-addtag") { if (v && !MS.search.tags.includes(v)) { MS.search.tags.push(v); runSearch(); } }
+    else if (id === "mod-ptag") { MS.pTag = v; renderModBar(); renderModList(); }
+    else if (id === "mod-pfrom") { MS.pFrom = v; renderModBar(); renderModList(); }
+    else if (id === "mf-state") { MS.f.state = v; if (v === "history") MS.f.sort = "since"; MS.checked.clear(); renderModBar(); renderModList(); }
+    else if (id === "mf-wtag") { MS.f.wtag = v; renderModBar(); renderModList(); }
+    else if (id === "mf-mytag") { MS.f.mytag = v; renderModBar(); renderModList(); }
+    else if (id === "mf-sort") { MS.f.sort = v; store.set("modListSort", v); renderModBar(); renderModList(); }
+    else if (id === "mh-tag") { MS.h.tag = v; renderModBar(); renderModList(); }
+    else if (id === "mh-sort") { MS.h.sort = v; store.set("modHomeSort", v); renderModBar(); renderModList(); }
+  });
+  $("#mod-bar").addEventListener("keydown", (e) => {
+    if (e.target.id !== "mod-bulk-tag" || (e.key !== "Enter" && e.key !== ",")) return;
+    e.preventDefault();
+    const t = e.target.value.replace(/^#+/, "").trim();
+    if (!t) return;
+    if (/[\s,#]/.test(t)) { toast("Sin espacios, comas ni #: usa una palabra o guiones", "error"); return; }
+    tagMods([...MS.checked], [t], []).then((ok) => { if (ok) toast(`#${t} puesta a ${plural(MS.checked.size, "mod", "mods")}`); });
   });
 
   async function modAction(act, el) {
     const m = MS.sel && MS.sel.kind === "mod" ? modById(MS.sel.id) : null;
     switch (act) {
       case "connect": MS.connect.add(MS.app); loadMods({ live: true }); break;
+      case "switch-owner": switchToOwner(ownersOf(MS.app)[0]); break;
+      case "switch-owner-menu": { const r = el.getBoundingClientRect(); ownerMenu(r.left, r.bottom + 4); break; }
       case "reload": MS.info.clear(); loadMods(); break;
       case "paste": openPaste(); break;
       case "import": readPaste(true); break;
       case "save-all": newPresetFrom(subscribedIds(), ""); break;
       case "save-checked": newPresetFrom([...MS.checked], ""); break;
       case "new-preset": newPresetFrom(subscribedIds(), ""); break;
-      case "sub-checked": subscribeIds([...MS.checked]); MS.checked.clear(); break;
-      case "unsub-checked": unsubscribeIds([...MS.checked]); MS.checked.clear(); break;
+      case "sub-checked": subscribeIds([...MS.checked]); break;
+      case "unsub-checked": unsubscribeIds([...MS.checked]); break;
       case "uncheck": MS.checked.clear(); renderModBar(); renderModList(); break;
+      case "check-all": {
+        const vis = visibleMods();
+        const all = vis.length && vis.every((x) => MS.checked.has(x.id));
+        for (const x of vis) { if (all) MS.checked.delete(x.id); else MS.checked.add(x.id); }
+        renderModBar(); renderModList();
+        break;
+      }
+      case "bulk-untag": {
+        const ids = [...MS.checked];
+        const tags = [...new Set(ids.flatMap((id) => (modById(id) || {}).myTags || []))];
+        if (!tags.length) { toast("Los elegidos no tienen etiquetas tuyas"); break; }
+        const r = el.getBoundingClientRect();
+        showMenu([{ head: "Quitar a los elegidos…" }, ...tags.map((t) => ({ icon: "x", label: "#" + t, fn: () => tagMods(ids, [], [t]) }))], r.left - 160, r.bottom + 4);
+        break;
+      }
+      case "clear-filters": MS.f = { ...MS.f, state: "all", wtag: "", mytag: "" }; clearModQ(); renderModBar(); renderModList(); break;
       case "unsub-all": unsubscribeIds(subscribedIds(), true); break;
       case "activate-checked": activatePresets([...MS.pchecked].map(presetById).filter(Boolean), true); break;
       case "puncheck": MS.pchecked.clear(); renderModBar(); renderModList(); break;
@@ -1609,7 +1945,7 @@
       case "tab-presets": setModTab("presets"); break;
       case "search-more": runSearch(true); break;
       case "search-retry": runSearch(); break;
-      case "search-clear": { const i = $("#mod-q"); i.value = ""; MS.q = ""; i.parentElement.classList.remove("has"); runSearch(); break; }
+      case "search-clear": clearModQ(); runSearch(); break;
       case "workshop-web": rt.BrowserOpenURL("https://steamcommunity.com/app/" + MS.app + "/workshop/"); break;
       case "mod-steam": if (m) api.OpenModInSteam(m.id).catch(fail); break;
       case "mod-web": if (m) rt.BrowserOpenURL("https://steamcommunity.com/sharedfiles/filedetails/?id=" + m.id); break;
@@ -1623,14 +1959,45 @@
     }
   }
 
+  let lastCheck = null; // para elegir varios seguidos con Mayús
   function modClick(e) {
     const t = e.target;
     const url = t.closest("[data-url]");
     if (url) { e.preventDefault(); rt.BrowserOpenURL(url.dataset.url); return; }
+    const hg = t.closest("[data-mgame]");
+    if (hg) { openModGame(+hg.dataset.mgame); return; }
+    const hp = t.closest("[data-home-preset]");
+    if (hp) { const p = presetById(hp.dataset.homePreset); if (p) { openModGame(p.appid, "presets"); MS.sel = { kind: "preset", id: p.id }; setModTab("presets"); } return; }
+    const hf = t.closest("#mh-filter button");
+    if (hf) { MS.h.filter = hf.dataset.v; store.set("modHomeFilter", MS.h.filter); renderModBar(); renderModList(); return; }
+    const gal = t.closest("[data-gal]");
+    if (gal) { const d = MS.sel && MS.info.get(MS.sel.id); if (d && d.gallery && d.gallery.length) openLightbox(d.gallery, +gal.dataset.gal); return; }
     const ck = t.closest("[data-check]");
-    if (ck) { const id = +ck.dataset.check; if (ck.checked) MS.checked.add(id); else MS.checked.delete(id); renderModBar(); return; }
+    if (ck) {
+      const id = +ck.dataset.check;
+      const vis = visibleMods().map((m) => m.id);
+      if (e.shiftKey && lastCheck != null && vis.includes(lastCheck)) {
+        const [a, b] = [vis.indexOf(lastCheck), vis.indexOf(id)].sort((x, y) => x - y);
+        for (const x of vis.slice(a, b + 1)) { if (ck.checked) MS.checked.add(x); else MS.checked.delete(x); }
+      } else if (ck.checked) MS.checked.add(id); else MS.checked.delete(id);
+      lastCheck = id;
+      renderModBar();
+      if (e.shiftKey) renderModList(); else ck.closest(".mrow").classList.toggle("checked", ck.checked);
+      return;
+    }
     const pck = t.closest("[data-pcheck]");
     if (pck) { if (pck.checked) MS.pchecked.add(pck.dataset.pcheck); else MS.pchecked.delete(pck.dataset.pcheck); renderModBar(); return; }
+    const stag = t.closest("[data-stag]");
+    if (stag) { MS.search.tags = MS.search.tags.filter((x) => x !== stag.dataset.stag); runSearch(); return; }
+    const wtag = t.closest("[data-wtag]");
+    if (wtag) {
+      const tg = wtag.dataset.wtag;
+      if (MS.tab === "search") { if (!MS.search.tags.includes(tg)) { MS.search.tags.push(tg); runSearch(); } }
+      else { MS.f.wtag = tg; if (MS.f.state === "history") MS.f.state = "all"; renderModBar(); renderModList(); }
+      return;
+    }
+    const mun = t.closest("[data-muntag]");
+    if (mun) { const m = MS.sel && modById(MS.sel.id); if (m) tagMods([m.id], [], [mun.dataset.muntag]); return; }
     const sub = t.closest("[data-sub]");
     if (sub) { subscribeIds([+sub.dataset.sub]); return; }
     const uns = t.closest("[data-unsub]");
@@ -1666,7 +2033,8 @@
     const rm = t.closest("[data-rmod]");
     if (rm) {
       const id = +rm.dataset.rmod;
-      const found = modById(id) || (MS.info.get(MS.sel && MS.sel.id) || {}).required?.find?.((x) => x.id === id);
+      const prev = MS.sel && MS.info.get(MS.sel.id);
+      const found = modById(id) || (prev && prev.required ? prev.required.find((x) => x.id === id) : null);
       MS.selMod = found || { id, title: "Mod " + id, tags: [], children: [] };
       MS.sel = { kind: "mod", id };
       renderModList(); renderModDetail();
@@ -1690,7 +2058,7 @@
     const card = e.target.closest("[data-preset]");
     if (card && !e.target.closest("button,input")) { const p = presetById(card.dataset.preset); if (p) activatePresets([p], true); }
   });
-  // ficha del preset: se guarda al salir de cada campo
+  // fichas: se guardan al salir de cada campo
   $("#mod-detail").addEventListener("change", (e) => {
     const p = MS.sel && MS.sel.kind === "preset" && presetById(MS.sel.id);
     if (!p) return;
@@ -1702,11 +2070,20 @@
   });
   $("#mod-detail").addEventListener("keydown", (e) => {
     if (["pd-name", "pd-author", "pd-from"].includes(e.target.id) && e.key === "Enter") e.target.blur();
-    if (e.target.id === "pd-tag" && (e.key === "Enter" || e.key === ",")) {
+    if ((e.target.id === "pd-tag" || e.target.id === "md-tag") && (e.key === "Enter" || e.key === ",")) {
       e.preventDefault();
-      const p = MS.sel && presetById(MS.sel.id);
       const t = e.target.value.replace(/^#+/, "").trim();
-      if (!p || !t) return;
+      if (!t) return;
+      if (/[\s,#]/.test(t)) { toast("Sin espacios, comas ni #: usa una palabra o guiones", "error"); return; }
+      if (e.target.id === "md-tag") {
+        const m = MS.sel && modById(MS.sel.id);
+        if (!m) return;
+        if ((m.myTags || []).length >= 8) { toast("Como mucho 8 etiquetas por mod", "error"); return; }
+        tagMods([m.id], [t], []).then(() => { const i = $("#md-tag"); if (i) i.focus(); });
+        return;
+      }
+      const p = MS.sel && presetById(MS.sel.id);
+      if (!p) return;
       if ((p.tags || []).some((x) => x.toLowerCase() === t.toLowerCase())) { e.target.value = ""; return; }
       if ((p.tags || []).length >= 8) { toast("Como mucho 8 etiquetas", "error"); return; }
       patchPreset(p, { tags: [...(p.tags || []), t] }, true).then(() => { const i = $("#pd-tag"); if (i) i.focus(); });
@@ -1715,13 +2092,13 @@
   // los nombres de los autores llegan después
   rt.EventsOn("mods-meta", debounce(async () => {
     if (!MS.list || !MS.app) return;
-    const all = [...MS.list.mods, ...MS.search.mods];
+    const all = [...MS.list.mods, ...(MS.list.history || []), ...MS.search.mods];
     let d;
     try { d = await api.ModDetails(MS.app, all.map((m) => m.id)); } catch { return; }
     const by = new Map((d || []).map((m) => [m.id, m]));
     for (const m of all) { const x = by.get(m.id); if (x && x.author) m.author = x.author; }
     for (const x of d || []) if (MS.pmods.has(x.id)) MS.pmods.set(x.id, x);
-    if (S.view === "mods") { renderModList(); renderModDetail(); }
+    if (S.view === "mods" && !MS.home) { renderModList(); renderModDetail(); }
   }, 400));
 
   // ---------- bóveda ----------
@@ -2363,7 +2740,7 @@
       case "store": rt.BrowserOpenURL("https://store.steampowered.com/app/" + g.appid); break;
       case "verify": api.SteamURL("steam://validate/" + g.appid).then(() => toast("Steam está verificando los archivos")).catch(fail); break;
       case "install": playGame(g); break;
-      case "mods": MS.app = g.appid; store.set("modApp", g.appid); MS.list = null; MS.sel = null; MS.tab = "subs"; store.set("modTab", "subs"); setView("mods"); break;
+      case "mods": openModGame(g.appid, "subs"); break;
     }
   });
   $("#game-detail").addEventListener("click", async (e) => {
@@ -2547,14 +2924,15 @@
       { appid: 108600, name: "Project Zomboid", type: "game", workshop: true, mods: 3, tags: ["coop"], collections: ["Con amigos"], installed: true, dir: "C:\\Program Files (x86)\\Steam\\steamapps\\common\\ProjectZomboid", library: "C:\\", size: 10.3e9, state: "update", updated: now - 86400 * 25, lastPlayed: now - 86400 * 15, minutes: 6200, owner: "76561198000000001", players: [{ key: "nightowl_99", name: "nightowl_99", persona: "NightOwl", steamId: "76561198000000001", minutes: 6200, lastPlayed: now - 86400 * 15 }], running: false },
       { appid: 945360, name: "Among Us", type: "game", collections: ["Con amigos"], installed: true, dir: "C:\\Games\\Among Us", library: "C:\\", size: 1.1e9, updated: now - 86400 * 60, lastPlayed: now - 86400 * 40, minutes: 900, owner: "76561198000000003", players: [{ key: "familia_lopez", name: "familia_lopez", persona: "Lopez Family", steamId: "76561198000000003", minutes: 900, lastPlayed: now - 86400 * 40 }], running: false },
       { appid: 239820, name: "Game Dev Tycoon", type: "game", installed: true, state: "missing", dir: "C:\\Games\\GDT", library: "C:\\", size: 168e6, updated: now - 86400 * 200, lastPlayed: 0, minutes: 0, owner: "76561198000000001", players: [], running: false },
-      { appid: 107410, name: "Arma 3", type: "game", workshop: true, mods: 0, tags: ["milsim", "coop"], installed: false, dir: "", library: "", size: 0, updated: 0, lastPlayed: now - 86400 * 9, minutes: 41000, minutes2w: 0, owner: "", players: [{ key: "nightowl_99", name: "nightowl_99", persona: "NightOwl", steamId: "76561198000000001", minutes: 41000, lastPlayed: now - 86400 * 9 }], running: false },
+      { appid: 107410, name: "Arma 3", type: "game", workshop: true, mods: 0, tags: ["milsim", "coop"], installed: false, dir: "", library: "", size: 0, updated: 0, lastPlayed: now - 86400 * 9, minutes: 41000, minutes2w: 0, owner: "", players: [{ key: "smurfito", name: "smurfito", persona: "Smurfito", steamId: "76561198000000002", minutes: 41000, lastPlayed: now - 86400 * 9 }], running: false },
       { appid: 1091500, name: "Cyberpunk 2077", type: "game", installed: false, dir: "", library: "", size: 0, updated: 0, lastPlayed: now - 86400 * 120, minutes: 5400, owner: "", players: [{ key: "nightowl_99", name: "nightowl_99", persona: "NightOwl", steamId: "76561198000000001", minutes: 5400, lastPlayed: now - 86400 * 120 }], running: false },
       { appid: 1304930, name: "The Outlast Trials", type: "game", installed: false, dir: "", library: "", size: 0, updated: 0, lastPlayed: 0, minutes: 0, owner: "", players: [], inLibrary: ["76561198000000002"], running: false },
       { appid: 4900640, name: "Shreddead Demo", type: "demo", installed: true, dir: "C:\\Games\\Shreddead", library: "C:\\", size: 420e6, updated: now - 86400 * 5, lastPlayed: now - 86400 * 6, minutes: 75, owner: "76561198000000001", players: [{ key: "nightowl_99", name: "nightowl_99", persona: "NightOwl", steamId: "76561198000000001", minutes: 75, lastPlayed: now - 86400 * 6 }], running: false },
     ];
     let vault = { exists: true, unlocked: false, lockMinutes: 5, locksIn: 0 };
     // mods de muestra
-    const mk = (id, title, author, size, o = {}) => ({ id, appid: o.appid || 294100, title, author, owner: "7656119800" + id, preview: false, size, updated: now - 86400 * (o.days || 12), tags: o.tags || [], votesUp: o.up || 900, votesDown: o.down || 40, score: .9, hasVotes: true, subscriptions: o.subs || 120000, comments: 40, children: o.children || [], missing: !!o.missing, banned: false, collection: false, known: true, subscribed: o.sub !== false, subscribedBy: o.sub === false ? "" : "76561198000000001", installed: o.inst !== false, dir: o.inst === false ? "" : "C:\\Program Files (x86)\\Steam\\steamapps\\workshop\\content\\294100\\" + id, diskSize: o.inst === false ? 0 : size, needsUpdate: !!o.upd, downloading: !!o.dl, pending: false, progress: o.dl ? .42 : 0 });
+    const myTags = { 2009463077: ["imprescindible"], 1561769193: ["imprescindible", "base"] };
+    const mk = (id, title, author, size, o = {}) => ({ id, appid: o.appid || 294100, title, author, myTags: myTags[id] || [], since: now - 86400 * (id % 40), owner: "7656119800" + id, preview: false, size, updated: now - 86400 * (o.days || 12), tags: o.tags || [], votesUp: o.up || 900, votesDown: o.down || 40, score: .9, hasVotes: true, subscriptions: o.subs || 120000, comments: 40, children: o.children || [], missing: !!o.missing, banned: false, collection: false, known: true, subscribed: o.sub !== false, subscribedBy: o.sub === false ? "" : "76561198000000001", installed: o.inst !== false, dir: o.inst === false ? "" : "C:\\Program Files (x86)\\Steam\\steamapps\\workshop\\content\\294100\\" + id, diskSize: o.inst === false ? 0 : size, needsUpdate: !!o.upd, downloading: !!o.dl, pending: false, progress: o.dl ? .42 : 0 });
     const mods = {
       294100: [
         mk(2009463077, "Harmony", "Brrainz", 1.2e6, { subs: 3.1e6, up: 24000, down: 300, tags: ["Library"] }),
@@ -2618,17 +2996,27 @@
       async PickSteamDir() { return ""; },
       async OpenFolder() { }, async SteamURL() { }, async OpenSteam() { },
       async SetGameTags(appid, tags) { const g = games.find((x) => x.appid === appid); if (g) g.tags = tags; return tags; },
-      async Mods(app, live) { await wait(250); const l = (mods[app] || []).map((m) => ({ ...m })); return { appid: app, mods: l, live: !!live, liveError: live ? "" : "", account: status.activeId, diskSize: l.reduce((s, m) => s + (m.diskSize || 0), 0) }; },
+      async Mods(app, live) {
+        await wait(250);
+        if (app === 107410 && status.activeId !== "76561198000000002") return { appid: app, mods: [], history: [], live: false, liveError: "La cuenta abierta en Steam no tiene este juego", notOwned: true, account: status.activeId, diskSize: 0 };
+        const l = (mods[app] || []).map((m) => ({ ...m, myTags: myTags[m.id] || [] }));
+        const history = app === 294100 ? [mk(1541460369, "Rimfeller", "Oskar Potocki", 6e6, { sub: false, inst: false }), mk(1414302321, "Combat Extended", "N7Huntsman", 230e6, { sub: false, inst: false })].map((m, i) => ({ ...m, removed: now - 86400 * (3 + i * 20) })) : [];
+        return { appid: app, mods: l, history, live: !!live, liveError: live ? "" : "", account: status.activeId, diskSize: l.reduce((s, m) => s + (m.diskSize || 0), 0) };
+      },
+      async SetModTags(ids, add, remove) { const out = {}; for (const id of ids) { let t = (myTags[id] || []).filter((x) => !remove.some((r) => r.toLowerCase() === x.toLowerCase())); for (const a of add) if (!t.some((x) => x.toLowerCase() === a.toLowerCase())) t.push(a); myTags[id] = t; out[id] = t; } return out; },
       async ModDetails(app, ids) { return ids.map((id) => ({ ...(allMods().find((m) => m.id === id) || { id, title: "", known: false }) })); },
       async ModInfo(app, id) {
         await wait(300);
         const m = allMods().find((x) => x.id === id) || { id, title: "Mod " + id, tags: [], children: [] };
-        return { mod: m, previewUrl: "", description: "[h1]" + m.title + "[/h1]\nUn mod de muestra con [b]negritas[/b] y un [url=https://example.com]enlace[/url].\n\n[list][*]Cosa uno[*]Cosa dos[/list]\n" + "Texto largo de relleno. ".repeat(60), required: (m.children || []).map((c) => ({ ...(allMods().find((x) => x.id === c) || { id: c, title: "Mod " + c }) })), stars: 4, ratings: 1234, commentsN: 56, commentList: [{ author: "Ana", text: "Va genial con la 1.5", time: now - 3600 * 5 }, { author: "Pablo", text: "¿Es compatible con Medieval Overhaul?\nGracias", time: now - 86400 * 2 }], pageError: "" };
+        return { gallery: [{ video: "yHBGkPQ6tVk" }, { url: "https://images.steamusercontent.com/ugc/1/A/" }, { url: "https://images.steamusercontent.com/ugc/2/B/" }], mod: m, previewUrl: "", description: "[h1]" + m.title + "[/h1]\nUn mod de muestra con [b]negritas[/b] y un [url=https://example.com]enlace[/url].\n\n[list][*]Cosa uno[*]Cosa dos[/list]\n" + "Texto largo de relleno. ".repeat(60), required: (m.children || []).map((c) => ({ ...(allMods().find((x) => x.id === c) || { id: c, title: "Mod " + c }) })), stars: 4, ratings: 1234, commentsN: 56, commentList: [{ author: "Ana", text: "Va genial con la 1.5", time: now - 3600 * 5 }, { author: "Pablo", text: "¿Es compatible con Medieval Overhaul?\nGracias", time: now - 86400 * 2 }], pageError: "" };
       },
-      async ModsSearch(app, q, sort, cursor) {
+      async ModsSearch(app, q, sort, cursor, tags) {
         await wait(400);
+        if (app === 107410 && status.activeId !== "76561198000000002") throw "La cuenta abierta en Steam no tiene este juego";
         const page = cursor ? +cursor : 0;
-        const list = Array.from({ length: 12 }, (_, i) => mk(4000000000 + page * 12 + i, (q ? q + " " : "") + ["Mejor interfaz", "Más animales", "Armas medievales", "Clima realista", "Ropa nueva", "Mapas grandes"][i % 6] + " " + (page * 12 + i + 1), "autor" + i, (i + 1) * 3e6, { appid: app, sub: false, inst: false, subs: 90000 - i * 5000 }));
+        const TG = ["Interfaz", "Animales", "Armas", "Clima", "Ropa", "Mapas"];
+        let list = Array.from({ length: 12 }, (_, i) => mk(4000000000 + page * 12 + i, (q ? q + " " : "") + ["Mejor interfaz", "Más animales", "Armas medievales", "Clima realista", "Ropa nueva", "Mapas grandes"][i % 6] + " " + (page * 12 + i + 1), "autor" + i, (i + 1) * 3e6, { appid: app, sub: false, inst: false, subs: 90000 - i * 5000, tags: [TG[i % 6], i % 2 ? "1.5" : "1.4"] }));
+        if (tags && tags.length) list = list.filter((m) => tags.every((t) => m.tags.includes(t)));
         for (const m of list) m.subscribed = (mods[app] || []).some((x) => x.id === m.id);
         return { mods: list, total: 340, cursor: page < 2 ? String(page + 1) : "" };
       },

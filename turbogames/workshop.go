@@ -348,7 +348,10 @@ type Mod struct {
 	Missing       bool     `json:"missing"`
 	Banned        bool     `json:"banned"`
 	Collection    bool     `json:"collection"`
-	Known         bool     `json:"known"` // tenemos sus datos
+	Known         bool     `json:"known"`   // tenemos sus datos
+	MyTags        []string `json:"myTags"`  // etiquetas que le has puesto tú
+	Since         int64    `json:"since"`   // desde cuándo está suscrito (lo que ha visto TurboGAMES)
+	Removed       int64    `json:"removed"` // cuándo se quitó (en el historial)
 
 	Subscribed   bool    `json:"subscribed"`   // la cuenta abierta en Steam
 	SubscribedBy string  `json:"subscribedBy"` // SteamID64 de quien se suscribió en este PC
@@ -369,6 +372,8 @@ type ModList struct {
 	LiveError string `json:"liveError"` // por qué no se ha podido preguntar a Steam
 	Account   string `json:"account"`   // SteamID64 de la cuenta abierta en Steam
 	DiskSize  int64  `json:"diskSize"`
+	History   []Mod  `json:"history"` // los que tuvo antes esta cuenta y ya no
+	NotOwned  bool   `json:"notOwned"`
 }
 
 func (a *App) modFrom(id uint64) Mod {
@@ -383,6 +388,9 @@ func (a *App) modFrom(id uint64) Mod {
 		m.Subscriptions, m.Comments = it.Subscriptions, it.Comments
 		m.Missing, m.Banned, m.Collection = it.Missing, it.Banned, it.Collection
 		m.Author = a.wcache.author(it.Owner)
+	}
+	if a.mstore != nil {
+		m.MyTags = a.mstore.tags(id)
 	}
 	return m
 }
@@ -434,7 +442,7 @@ func (a *App) ensureDetails(appid uint32, ids []uint64, live bool, maxAge time.D
 // live, a los que está suscrita ahora la cuenta abierta en Steam (aunque el
 // juego no esté instalado).
 func (a *App) Mods(appid uint32, live bool) (ModList, error) {
-	l := ModList{AppID: appid, Mods: []Mod{}}
+	l := ModList{AppID: appid, Mods: []Mod{}, History: []Mod{}}
 	in := a.steam()
 	if in == nil {
 		return l, steam.ErrNotFound
@@ -454,6 +462,7 @@ func (a *App) Mods(appid uint32, live bool) (ModList, error) {
 		var states []steamworks.ItemState
 		if err := a.wsCall(appid, wsRequest{Op: "subscribed"}, 30*time.Second, &states); err != nil {
 			l.LiveError = err.Error()
+			l.NotOwned = errors.Is(err, errNotOwned) || err.Error() == steamworks.ErrNotOwned.Error()
 		} else {
 			l.Live = true
 			liveStates = map[uint64]steamworks.ItemState{}
@@ -519,9 +528,44 @@ func (a *App) Mods(appid uint32, live bool) (ModList, error) {
 	sort.Slice(l.Mods, func(i, j int) bool {
 		return strings.ToLower(l.Mods[i].Title) < strings.ToLower(l.Mods[j].Title)
 	})
+	// historial: a qué estaba suscrita esta cuenta antes
+	if l.Live && l.Account != "" {
+		var subs []uint64
+		titles := map[uint64]string{}
+		for _, m := range l.Mods {
+			if m.Subscribed {
+				subs = append(subs, m.ID)
+				titles[m.ID] = m.Title
+			}
+		}
+		// los nombres se sacan antes: record tiene el cerrojo de mstore
+		a.mstore.record(l.Account, appid, subs, func(id uint64) string { return titles[id] })
+	}
+	if l.Account != "" {
+		removed, since := a.mstore.history(l.Account, appid)
+		for i := range l.Mods {
+			l.Mods[i].Since = since[l.Mods[i].ID]
+		}
+		var ids []uint64
+		for _, h := range removed {
+			ids = append(ids, h.ID)
+		}
+		a.ensureDetails(appid, ids, false, 7*24*time.Hour)
+		for _, h := range removed {
+			m := a.modFrom(h.ID)
+			if m.Title == "" {
+				m.Title = firstNonEmpty(h.Title, "Mod "+strconv.FormatUint(h.ID, 10))
+			}
+			m.Removed, m.Since = h.Removed, h.First
+			owners = append(owners, m.Owner)
+			l.History = append(l.History, m)
+		}
+	}
 	a.fillAuthors(owners)
 	return l, nil
 }
+
+var errNotOwned = steamworks.ErrNotOwned
 
 // ModDetails devuelve los datos de unos mods (para los presets: nombres,
 // tamaños y si existen). No pregunta a Steam si no está ya conectado.
@@ -552,15 +596,16 @@ type ModComment struct {
 
 // ModInfoData es todo lo que enseña la ficha de un mod.
 type ModInfoData struct {
-	Mod         Mod          `json:"mod"`
-	Description string       `json:"description"`
-	PreviewURL  string       `json:"previewUrl"`
-	Required    []Mod        `json:"required"` // mods que necesita
-	Stars       int          `json:"stars"`    // 0 a 5 (la valoración de la página; -1 = sin valorar)
-	Ratings     int          `json:"ratings"`
-	CommentList []ModComment `json:"commentList"`
-	CommentsN   int          `json:"commentsN"`
-	PageError   string       `json:"pageError"`
+	Mod         Mod                  `json:"mod"`
+	Description string               `json:"description"`
+	PreviewURL  string               `json:"previewUrl"`
+	Required    []Mod                `json:"required"` // mods que necesita
+	Stars       int                  `json:"stars"`    // 0 a 5 (la valoración de la página; -1 = sin valorar)
+	Ratings     int                  `json:"ratings"`
+	CommentList []ModComment         `json:"commentList"`
+	CommentsN   int                  `json:"commentsN"`
+	PageError   string               `json:"pageError"`
+	Gallery     []steamworks.Preview `json:"gallery"` // imágenes y vídeos
 }
 
 var (
@@ -580,17 +625,32 @@ func htmlText(s string) string {
 }
 
 // ModInfo trae la ficha completa de un mod: descripción, mods que necesita,
-// valoración y los últimos comentarios (de su página del Workshop).
-func (a *App) ModInfo(appid uint32, id uint64) (ModInfoData, error) {
+// valoración, imágenes y vídeos, y los últimos comentarios (de su página del
+// Workshop). Con live, primero se lo pregunta a Steam (si ya está conectado o
+// se puede conectar).
+func (a *App) ModInfo(appid uint32, id uint64, live bool) (ModInfoData, error) {
 	var d ModInfoData
 	if id == 0 {
 		return d, errors.New("falta el mod")
 	}
+	if live && appid != 0 {
+		if e, ok := a.wcache.get(id); !ok || !e.Item.HasPreviews || time.Now().Unix()-e.At > 3600 {
+			var items []steamworks.Item
+			if a.wsCall(appid, wsRequest{Op: "details", IDs: []uint64{id}}, 30*time.Second, &items) == nil {
+				a.wcache.put(items, true)
+				a.wcache.save()
+			}
+		}
+	}
 	a.ensureDetails(appid, []uint64{id}, false, 6*time.Hour)
 	d.Mod = a.modFrom(id)
+	fromSteam := false
 	if e, ok := a.wcache.get(id); ok {
 		d.Description = e.Item.Description
 		d.PreviewURL = e.Item.Preview
+		if e.Item.HasPreviews {
+			d.Gallery, fromSteam = galleryFromItem(e.Item), true
+		}
 	}
 	d.Stars = -1
 	req, _ := http.NewRequest("GET", "https://steamcommunity.com/sharedfiles/filedetails/?id="+strconv.FormatUint(id, 10), nil)
@@ -622,6 +682,9 @@ func (a *App) ModInfo(appid uint32, id uint64) (ModInfoData, error) {
 		if len(req) == 0 {
 			req = d.Mod.Children
 		}
+		if !fromSteam {
+			d.Gallery = pageGallery(page)
+		}
 		if len(req) > 0 {
 			d.Required = a.ModDetails(appid, req)
 		}
@@ -649,6 +712,9 @@ func (a *App) ModInfo(appid uint32, id uint64) (ModInfoData, error) {
 	if d.Required == nil {
 		d.Required = []Mod{}
 	}
+	if d.Gallery == nil {
+		d.Gallery = []steamworks.Preview{}
+	}
 	if d.CommentList == nil {
 		d.CommentList = []ModComment{}
 	}
@@ -671,14 +737,20 @@ var searchSorts = map[string]int{
 }
 
 // ModsSearch busca mods de un juego en el Workshop (necesita Steam abierto).
-func (a *App) ModsSearch(appid uint32, text, sortBy, cursor string) (ModPage, error) {
+func (a *App) ModsSearch(appid uint32, text, sortBy, cursor string, tags []string) (ModPage, error) {
 	p := ModPage{Mods: []Mod{}}
 	s, ok := searchSorts[sortBy]
 	if !ok {
 		s = steamworks.QueryByTrend
 	}
 	var page steamworks.Page
-	if err := a.wsCall(appid, wsRequest{Op: "search", Text: clip(text, 200), Sort: s, Cursor: cursor}, 45*time.Second, &page); err != nil {
+	if len(tags) > 10 {
+		tags = tags[:10]
+	}
+	for i := range tags {
+		tags[i] = clip(tags[i], 64)
+	}
+	if err := a.wsCall(appid, wsRequest{Op: "search", Text: clip(text, 200), Sort: s, Cursor: cursor, Tags: tags}, 45*time.Second, &page); err != nil {
 		return p, err
 	}
 	a.wcache.put(page.Items, true)
@@ -840,4 +912,43 @@ func (a *App) modPreviewURL(id uint64) string {
 		return e.Item.Preview
 	}
 	return ""
+}
+
+var (
+	reVideoID   = regexp.MustCompile(`^[A-Za-z0-9_-]{6,20}$`)
+	rePageVideo = regexp.MustCompile(`YOUTUBE_VIDEO_ID:\s*"([A-Za-z0-9_-]{6,20})"`)
+	rePageImage = regexp.MustCompile(`https://images\.steamusercontent\.com/ugc/\d+/[0-9A-Fa-f]+/`)
+)
+
+func validVideoID(v string) bool { return reVideoID.MatchString(v) }
+
+// safeImageURL: solo imágenes de los servidores de Steam, por https.
+func safeImageURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && modImageHost(u)
+}
+
+// pageGallery saca de la página pública de un mod sus vídeos y capturas (la
+// zona de arriba, antes de la descripción, para no coger otras imágenes).
+func pageGallery(page string) []steamworks.Preview {
+	out := []steamworks.Preview{}
+	start := strings.Index(page, `id="highlight_player_area"`)
+	if start < 0 {
+		return out
+	}
+	area := page[start:]
+	if i := strings.Index(area, `class="workshopItemDescription"`); i > 0 {
+		area = area[:i]
+	}
+	for _, m := range rePageVideo.FindAllStringSubmatch(page, 40) {
+		out = append(out, steamworks.Preview{Video: m[1]})
+	}
+	seen := map[string]bool{}
+	for _, u := range rePageImage.FindAllString(area, 80) {
+		if !seen[u] {
+			seen[u] = true
+			out = append(out, steamworks.Preview{URL: u})
+		}
+	}
+	return out
 }

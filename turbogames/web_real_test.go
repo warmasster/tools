@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 )
 
 // Prueba con la web de Steam de verdad (solo lee páginas públicas):
@@ -32,14 +33,14 @@ func TestWebReal(t *testing.T) {
 	for id, kids := range cols {
 		t.Logf("  %d: %d mods", id, len(kids))
 	}
-	if _, err := a.ModInfo(108600, 1299328280); err != nil {
+	if _, err := a.ModInfo(108600, 1299328280, false); err != nil {
 		t.Fatal(err)
 	}
-	d, err := a.ModInfo(108600, 3807334881)
+	d, err := a.ModInfo(108600, 3807334881, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("estrellas=%d valoraciones=%d comentarios=%d (%d leídos) requiere=%d error=%q", d.Stars, d.Ratings, d.CommentsN, len(d.CommentList), len(d.Required), d.PageError)
+	t.Logf("estrellas=%d valoraciones=%d comentarios=%d (%d leídos) requiere=%d galería=%d error=%q", d.Stars, d.Ratings, d.CommentsN, len(d.CommentList), len(d.Required), len(d.Gallery), d.PageError)
 	for i, c := range d.CommentList {
 		if i < 2 {
 			t.Logf("  %s (%d): %.60q", c.Author, c.Time, c.Text)
@@ -70,7 +71,7 @@ func TestWorkshopReal(t *testing.T) {
 	appid64, _ := strconv.ParseUint(v, 10, 32)
 	appid := uint32(appid64)
 	dir := t.TempDir()
-	a := &App{settings: defaultSettings(), uaCache: map[uint32]uaEntry{}, wcache: loadWsCache(filepath.Join(dir, "w.json")), presets: loadPresetStore(filepath.Join(dir, "p.json")), gmeta: loadGameMetaStore(filepath.Join(dir, "j.json")), metas: loadMetaStore(filepath.Join(dir, "c.json"))}
+	a := &App{settings: defaultSettings(), uaCache: map[uint32]uaEntry{}, wcache: loadWsCache(filepath.Join(dir, "w.json")), presets: loadPresetStore(filepath.Join(dir, "p.json")), gmeta: loadGameMetaStore(filepath.Join(dir, "j.json")), metas: loadMetaStore(filepath.Join(dir, "c.json")), mstore: loadModStore(filepath.Join(dir, "m.json"))}
 	a.locate()
 	defer a.stopWorkshop()
 	l, err := a.Mods(appid, true)
@@ -89,7 +90,7 @@ func TestWorkshopReal(t *testing.T) {
 	if st := a.Status(); st.RunningApp != 0 {
 		t.Errorf("el juego de mentira se ve como abierto: %d", st.RunningApp)
 	}
-	p, err := a.ModsSearch(appid, "", "votes", "")
+	p, err := a.ModsSearch(appid, "", "votes", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,4 +115,32 @@ func TestWorkshopReal(t *testing.T) {
 		}
 	}
 	t.Logf("juegos=%d con Workshop=%d en colecciones=%d jugados en 2 semanas=%d", len(g.Games), nw, nc, n2)
+}
+
+// La ficha con Steam conectado trae la galería de Steam.
+func TestWorkshopRealInfo(t *testing.T) {
+	v := os.Getenv("TURBOGAMES_WORKSHOP")
+	if v == "" {
+		t.Skip("pon TURBOGAMES_WORKSHOP con el appid de un juego")
+	}
+	appid64, _ := strconv.ParseUint(v, 10, 32)
+	dir := t.TempDir()
+	a := &App{settings: defaultSettings(), uaCache: map[uint32]uaEntry{}, wcache: loadWsCache(filepath.Join(dir, "w.json")), presets: loadPresetStore(filepath.Join(dir, "p.json")), gmeta: loadGameMetaStore(filepath.Join(dir, "j.json")), metas: loadMetaStore(filepath.Join(dir, "c.json")), mstore: loadModStore(filepath.Join(dir, "m.json"))}
+	a.locate()
+	// la prueba anterior acaba de cerrar su proceso: Steam tarda en soltar el juego
+	for i := 0; i < 40 && a.steam() != nil && a.steam().ReadStatus().RunningApp != 0; i++ {
+		time.Sleep(500 * time.Millisecond)
+	}
+	defer a.stopWorkshop()
+	l, err := a.Mods(uint32(appid64), true)
+	if err != nil || !l.Live || len(l.Mods) == 0 {
+		t.Fatalf("%v %+v", err, l.LiveError)
+	}
+	d, err := a.ModInfo(uint32(appid64), l.Mods[0].ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%q: galería=%d estrellas=%d comentarios=%d", d.Mod.Title, len(d.Gallery), d.Stars, len(d.CommentList))
+	p, err := a.ModsSearch(uint32(appid64), "", "votes", "", []string{"Build 42"})
+	t.Logf("búsqueda con etiqueta: %v %d de %d", err, len(p.Mods), p.Total)
 }

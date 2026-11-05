@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -267,5 +268,50 @@ func TestWorkshopFiles(t *testing.T) {
 	c := in.UserCollections(42)
 	if len(c) != 2 || len(c["Favoritos"]) != 1 || c["Favoritos"][0] != 730 || c["Coop"][0] != 294100 {
 		t.Fatalf("%+v", c)
+	}
+}
+
+func TestModHistoryAndTags(t *testing.T) {
+	a := testApp(t, nil, nil)
+	a.mstore = loadModStore(filepath.Join(t.TempDir(), "mods.json"))
+	title := func(id uint64) string { return "M" + strconv.FormatUint(id, 10) }
+	a.mstore.record("acc", 5, []uint64{1, 2, 3}, title)
+	a.mstore.record("acc", 5, []uint64{2, 3, 4}, title)
+	removed, since := a.mstore.history("acc", 5)
+	if len(removed) != 1 || removed[0].ID != 1 || removed[0].Title != "M1" || len(since) != 3 || since[4] == 0 {
+		t.Fatalf("%+v %v", removed, since)
+	}
+	a.mstore.record("acc", 5, []uint64{1, 2, 3, 4}, title) // vuelve a suscribirse
+	if removed, _ := a.mstore.history("acc", 5); len(removed) != 0 {
+		t.Fatalf("%+v", removed)
+	}
+	if removed, _ := a.mstore.history("otra", 5); len(removed) != 0 {
+		t.Fatal("el historial es por cuenta")
+	}
+	got, err := a.SetModTags([]uint64{7, 8}, []string{"gráficos", "#probar"}, nil)
+	if err != nil || len(got["7"]) != 2 || got["8"][1] != "probar" {
+		t.Fatalf("%v %v", err, got)
+	}
+	got, _ = a.SetModTags([]uint64{7}, nil, []string{"Gráficos"})
+	if len(got["7"]) != 1 || got["7"][0] != "probar" || len(a.mstore.tags(8)) != 2 {
+		t.Fatalf("%v %v", got, a.mstore.tags(8))
+	}
+}
+
+func TestPageGallery(t *testing.T) {
+	page := `<div id="highlight_player_area"><script>var x = { YOUTUBE_VIDEO_ID: "yHBGkPQ6tVk", };</script>
+	<div id="highlight_screenshot_0"><img src="https://images.steamusercontent.com/ugc/115/ED4F8D/?imw=5000"></div>
+	<a onclick="ShowEnlargedImagePreview( 'https://images.steamusercontent.com/ugc/115/ED4F8D/?imw=5000' )"></a>
+	<img src="https://images.steamusercontent.com/ugc/222/AB12/"></div>
+	<div class="workshopItemDescription"><img src="https://images.steamusercontent.com/ugc/999/FFFF/"></div>`
+	g := pageGallery(page)
+	if len(g) != 3 || g[0].Video != "yHBGkPQ6tVk" || g[1].URL != "https://images.steamusercontent.com/ugc/115/ED4F8D/" || g[2].URL != "https://images.steamusercontent.com/ugc/222/AB12/" {
+		t.Fatalf("%+v", g)
+	}
+	if len(pageGallery("sin galería")) != 0 {
+		t.Fatal("sin zona de galería no debería sacar nada")
+	}
+	if safeImageURL("https://evil.com/x.png") || !safeImageURL("https://images.steamusercontent.com/ugc/1/2/") || validVideoID("../x") {
+		t.Fatal("comprobaciones de direcciones")
 	}
 }

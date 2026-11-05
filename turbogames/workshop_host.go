@@ -38,6 +38,7 @@ type wsRequest struct {
 	Text   string   `json:"text,omitempty"`
 	Sort   int      `json:"sort,omitempty"`
 	Cursor string   `json:"cursor,omitempty"`
+	Tags   []string `json:"tags,omitempty"`
 }
 
 type wsReply struct {
@@ -133,7 +134,7 @@ func wsHandle(c *steamworks.Client, r wsRequest) (any, error) {
 		}
 		return err == nil, err
 	case "search":
-		return c.Search(r.Text, r.Sort, r.Cursor)
+		return c.Search(r.Text, r.Sort, r.Cursor, r.Tags)
 	}
 	return nil, fmt.Errorf("orden desconocida %q", r.Op)
 }
@@ -171,8 +172,8 @@ func (h *wsHost) mark(appid uint32, alive bool) {
 	if alive {
 		h.app, h.till = appid, time.Now().Add(24*time.Hour)
 	} else if h.app == appid {
-		// Steam tarda un poco en darse cuenta de que se ha cerrado
-		h.till = time.Now().Add(5 * time.Second)
+		// Steam tarda unos segundos en darse cuenta de que se ha cerrado
+		h.till = time.Now().Add(15 * time.Second)
 	}
 }
 
@@ -191,6 +192,14 @@ func (h *wsHost) stopLocked() {
 		p.cmd.Process.Kill()
 	}
 	h.mark(p.appid, false)
+}
+
+// forgetOwn olvida que el juego abierto pueda ser nuestro (cuando se va a abrir
+// el juego de verdad: a partir de ahí, si Steam lo da por abierto, lo está).
+func (h *wsHost) forgetOwn() {
+	h.smu.Lock()
+	h.app, h.till = 0, time.Time{}
+	h.smu.Unlock()
 }
 
 // stopWorkshop cierra el proceso del Workshop (antes de abrir un juego o cambiar

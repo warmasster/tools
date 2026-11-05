@@ -2,6 +2,7 @@ package steamworks
 
 import (
 	"os"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -52,7 +53,7 @@ func TestRealReadOnly(t *testing.T) {
 			}
 		}
 	}
-	p, err := c.Search("", QueryByTrend, "")
+	p, err := c.Search("", QueryByTrend, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,13 +67,38 @@ func TestRealReadOnly(t *testing.T) {
 	if len(p.Items) == 0 {
 		t.Error("la búsqueda no ha devuelto nada")
 	}
-	p2, err := c.Search("map", QueryByText, "")
+	p2, err := c.Search("map", QueryByText, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("búsqueda «map»: %d de %d", len(p2.Items), p2.Total)
+	if len(p.Items) > 0 && len(p.Items[0].Tags) > 0 {
+		tag := p.Items[0].Tags[0]
+		p4, err := c.Search("", QueryByVote, "", []string{tag})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("con la etiqueta %q: %d de %d", tag, len(p4.Items), p4.Total)
+		for _, it := range p4.Items {
+			if !slices.Contains(it.Tags, tag) {
+				t.Errorf("%q no tiene la etiqueta %q: %v", it.Title, tag, it.Tags)
+				break
+			}
+		}
+	}
+	if len(ids) > 0 {
+		items, _ := c.Details(ids)
+		n := 0
+		for _, it := range items {
+			n += len(it.Previews)
+			if len(it.Previews) > 0 && n == len(it.Previews) {
+				t.Logf("galería de %q: %+v", it.Title, it.Previews[:min(3, len(it.Previews))])
+			}
+		}
+		t.Logf("imágenes y vídeos en sus %d mods: %d", len(items), n)
+	}
 	if p.Cursor != "" {
-		p3, err := c.Search("", QueryByTrend, p.Cursor)
+		p3, err := c.Search("", QueryByTrend, p.Cursor, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
