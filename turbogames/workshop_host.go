@@ -42,9 +42,16 @@ type wsRequest struct {
 }
 
 type wsReply struct {
-	ID    int             `json:"id"`
-	Error string          `json:"error,omitempty"`
-	Data  json.RawMessage `json:"data,omitempty"`
+	ID       int             `json:"id"`
+	Error    string          `json:"error,omitempty"`
+	Data     json.RawMessage `json:"data,omitempty"`
+	Progress *wsProgress     `json:"progress,omitempty"` // un mod de una tanda (no es la respuesta final)
+}
+
+// wsProgress es un mod de una tanda que ya ha terminado.
+type wsProgress struct {
+	ID    uint64 `json:"id"`
+	Error string `json:"error,omitempty"`
 }
 
 // ---------- el proceso aparte ----------
@@ -61,7 +68,7 @@ func workshopChild(args []string) int {
 	if err != nil {
 		return fail(errors.New("juego no válido"))
 	}
-	c, err := steamworks.Open(args[1], uint32(id), steam.SignedByValve)
+	c, err := openWSClient(args[1], uint32(id))
 	if err != nil {
 		return fail(err)
 	}
@@ -90,6 +97,41 @@ func workshopChild(args []string) int {
 			if json.Unmarshal(l, &req) != nil {
 				continue
 			}
+			if req.Op == "subscribeMany" || req.Op == "unsubscribeMany" {
+				stopped := false
+				c.Batch(req.Op == "subscribeMany", req.IDs, steamworks.BatchWindow, func(id uint64, err error) {
+					p := &wsProgress{ID: id}
+					if err != nil {
+						p.Error = err.Error()
+					}
+					out.Encode(wsReply{ID: req.ID, Progress: p})
+				}, func() bool {
+					// «parar» llega por la misma entrada mientras va la tanda
+					for !stopped {
+						select {
+						case l2, ok := <-lines:
+							if !ok {
+								stopped = true
+								break
+							}
+							var r2 wsRequest
+							if json.Unmarshal(l2, &r2) == nil && r2.Op == "cancel" {
+								stopped = true
+							}
+							continue
+						default:
+						}
+						break
+					}
+					return stopped
+				})
+				out.Encode(wsReply{ID: req.ID, Data: json.RawMessage("true")})
+				idle.Reset(wsIdle)
+				continue
+			}
+			if req.Op == "cancel" {
+				continue
+			}
 			rep := wsReply{ID: req.ID}
 			data, err := wsHandle(c, req)
 			if err != nil {
@@ -103,7 +145,28 @@ func workshopChild(args []string) int {
 	}
 }
 
-func wsHandle(c *steamworks.Client, r wsRequest) (any, error) {
+// wsClient es lo que hace el proceso del Workshop con Steam (las pruebas lo
+// cambian por uno de mentira).
+type wsClient interface {
+	Close()
+	Subscribed() []uint64
+	State(id uint64) steamworks.ItemState
+	Details(ids []uint64) ([]steamworks.Item, error)
+	Subscribe(id uint64) error
+	Unsubscribe(id uint64) error
+	Search(text string, sort int, cursor string, tags []string) (steamworks.Page, error)
+	Batch(sub bool, ids []uint64, window int, done func(id uint64, err error), stop func() bool)
+}
+
+var openWSClient = func(steamDir string, appid uint32) (wsClient, error) {
+	c, err := steamworks.Open(steamDir, appid, steam.SignedByValve)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func wsHandle(c wsClient, r wsRequest) (any, error) {
 	switch r.Op {
 	case "ping":
 		return true, nil
@@ -213,6 +276,12 @@ func (a *App) stopWorkshop() {
 // wsCall manda una petición al proceso del Workshop de ese juego (lo abre si
 // hace falta) y espera su respuesta.
 func (a *App) wsCall(appid uint32, req wsRequest, timeout time.Duration, out any) error {
+	return a.wsCallEx(appid, req, timeout, out, nil, nil)
+}
+
+// wsCallEx es wsCall para las tandas: progress recibe cada mod que termina (y
+// el plazo vuelve a empezar), y si cancel dice que pare, se le pide al proceso.
+func (a *App) wsCallEx(appid uint32, req wsRequest, timeout time.Duration, out any, progress func(wsProgress), cancel func() bool) error {
 	in := a.steam()
 	if in == nil {
 		return steam.ErrNotFound
@@ -260,9 +329,20 @@ func (a *App) wsCall(appid uint32, req wsRequest, timeout time.Duration, out any
 		h.stopLocked()
 		return errors.New("Se ha cerrado la conexión con Steam: vuelve a intentarlo")
 	}
-	deadline := time.After(timeout)
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+	canceled := false
 	for {
 		select {
+		case <-tick.C:
+			if cancel != nil && !canceled && cancel() {
+				canceled = true
+				b, _ := json.Marshal(wsRequest{Op: "cancel"})
+				p.stdin.Write(append(b, '\n'))
+			}
+			continue
 		case r, ok := <-p.replies:
 			if !ok {
 				h.stopLocked()
@@ -271,6 +351,13 @@ func (a *App) wsCall(appid uint32, req wsRequest, timeout time.Duration, out any
 			if r.ID != req.ID {
 				continue // respuesta de una petición anterior que se dio por perdida
 			}
+			if r.Progress != nil {
+				if progress != nil {
+					progress(*r.Progress)
+				}
+				deadline.Reset(timeout)
+				continue
+			}
 			if r.Error != "" {
 				return errors.New(r.Error)
 			}
@@ -278,7 +365,7 @@ func (a *App) wsCall(appid uint32, req wsRequest, timeout time.Duration, out any
 				return json.Unmarshal(r.Data, out)
 			}
 			return nil
-		case <-deadline:
+		case <-deadline.C:
 			h.stopLocked()
 			return errors.New("Steam no ha respondido a tiempo")
 		}

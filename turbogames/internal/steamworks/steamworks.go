@@ -391,6 +391,107 @@ func (c *Client) Unsubscribe(id uint64) error {
 	return resultErr(int32(binary.LittleEndian.Uint32(b)))
 }
 
+// BatchWindow es cuántas suscripciones o bajas se dejan en marcha a la vez.
+const BatchWindow = 10
+
+// Batch suscribe (sub) o quita unos mods con varios a la vez en marcha (window),
+// para que cientos no tarden una eternidad: Steam contesta cada uno por su
+// cuenta. done se llama cuando termina cada mod. stop se mira antes de mandar
+// cada uno: si dice que pare, no se mandan más (los que ya van se esperan).
+func (c *Client) Batch(sub bool, ids []uint64, window int, done func(id uint64, err error), stop func() bool) {
+	method, cb := gUnsubscribeItem, cbUnsubscribe
+	if sub {
+		method, cb = gSubscribeItem, cbSubscribe
+	}
+	if window < 1 {
+		window = 1
+	}
+	type call struct {
+		id uint64
+		at time.Time
+	}
+	pending := map[uint64]call{}
+	next := 0
+	lastPoll := time.Now()
+	for next < len(ids) || len(pending) > 0 {
+		for len(pending) < window && next < len(ids) {
+			if stop != nil && stop() {
+				next = len(ids)
+				break
+			}
+			id := ids[next]
+			next++
+			h := uint64(vcall(c.ugc, method, uintptr(id)))
+			if h == 0 {
+				done(id, errors.New("Steam no ha aceptado la petición"))
+				continue
+			}
+			pending[h] = call{id, time.Now()}
+		}
+		finished := c.completedCalls()
+		if time.Since(lastPoll) > 250*time.Millisecond {
+			// por si algún aviso de Steam se ha perdido
+			for h := range pending {
+				var failed uint8
+				if vbool(c.utils, uIsAPICallCompleted, uintptr(h), uintptr(unsafe.Pointer(&failed))) {
+					finished = append(finished, h)
+				}
+			}
+			lastPoll = time.Now()
+		}
+		for _, h := range finished {
+			cl, ok := pending[h]
+			if !ok {
+				continue
+			}
+			delete(pending, h)
+			done(cl.id, c.callResult(h, cb))
+		}
+		for h, cl := range pending {
+			if time.Since(cl.at) > 45*time.Second {
+				delete(pending, h)
+				done(cl.id, errors.New("Steam no ha respondido a tiempo"))
+			}
+		}
+		if len(finished) == 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+// completedCalls vacía la cola de avisos de Steam y devuelve las peticiones
+// que han terminado.
+func (c *Client) completedCalls() []uint64 {
+	var out []uint64
+	for i := 0; i < 500; i++ {
+		var msg [sizeCallbackMsg]byte
+		if call(c.pGetCallback, c.pipe, uintptr(unsafe.Pointer(&msg[0])))&0xff == 0 {
+			break
+		}
+		if int32(binary.LittleEndian.Uint32(msg[4:])) == cbAPICallCompleted {
+			var cc [16]byte
+			readMem(uintptr(unsafe.Pointer(&cc[0])), uintptr(binary.LittleEndian.Uint64(msg[8:])), len(cc))
+			out = append(out, binary.LittleEndian.Uint64(cc[:]))
+		}
+		call(c.pFreeCallback, c.pipe)
+	}
+	return out
+}
+
+// callResult lee la respuesta de una suscripción o baja ya terminada.
+func (c *Client) callResult(h uint64, cb int) error {
+	buf := make([]byte, sizeSubscribeResult)
+	var failed uint8
+	ok := call(c.pGetResult, c.pipe, uintptr(h), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), uintptr(cb), uintptr(unsafe.Pointer(&failed)))&0xff != 0
+	if !ok {
+		ok = vbool(c.utils, uGetAPICallResult, uintptr(h), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), uintptr(cb), uintptr(unsafe.Pointer(&failed)))
+	}
+	if !ok || failed != 0 {
+		return errors.New("Steam no tiene conexión con sus servidores")
+	}
+	return resultErr(int32(binary.LittleEndian.Uint32(buf)))
+}
+
 // Subscribed devuelve los mods de este juego a los que está suscrita la cuenta.
 func (c *Client) Subscribed() []uint64 {
 	n := uint32(vcall(c.ugc, gGetNumSubscribedItems))

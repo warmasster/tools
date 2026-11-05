@@ -1694,7 +1694,7 @@
     if (!ids.length) { toast("Ya estás suscrito"); return; }
     if (ids.length > 3) {
       const size = ids.reduce((s, id) => s + ((modById(id) || {}).size || 0), 0);
-      const r = await ask({ title: `¿Suscribirse a ${ids.length} mods?`, html: `<p>Steam los bajará${size ? ` (unos <b>${fmtBytes(size)}</b>)` : ""} ${modGame() && modGame().installed ? "en cuanto pueda" : "cuando instales el juego"}. Va de uno en uno, sin prisa.</p>`, ok: "Suscribirse" });
+      const r = await ask({ title: `¿Suscribirse a ${ids.length} mods?`, html: `<p>Steam los bajará${size ? ` (unos <b>${fmtBytes(size)}</b>)` : ""} ${modGame() && modGame().installed ? "en cuanto pueda" : "cuando instales el juego"}. Van varios a la vez.</p>`, ok: "Suscribirse" });
       if (!r.ok) return;
     }
     MS.checked.clear();
@@ -1739,7 +1739,7 @@
     const name = list.length === 1 ? `«${list[0].name}»` : `${list.length} presets juntos`;
     const html = `<div class="plan"><div class="fact"><b class="up">+${toSub.length}</b><span>suscribirse</span></div><div class="fact"><b class="down">−${toUnsub.length}</b><span>quitar</span></div><div class="fact"><b>${want.size - toSub.length}</b><span>ya los tienes</span></div></div>
       ${toUnsub.length ? "<p>Antes de quitar nada se guarda una <b>copia automática</b> en Presets con lo que tienes ahora.</p>" : ""}
-      <p>Steam bajará los nuevos ${g && g.installed ? "en cuanto pueda" : "cuando instales el juego"}${toUnsub.length ? " y borrará del disco los que quites" : ""}. Va de uno en uno, sin prisa: con muchos mods tarda un rato.</p>`;
+      <p>Steam bajará los nuevos ${g && g.installed ? "en cuanto pueda" : "cuando instales el juego"}${toUnsub.length ? " y borrará del disco los que quites" : ""}. Van varios a la vez: con cientos de mods tarda poco.</p>`;
     const r = await ask({ title: `¿Activar ${name}?`, html, ok: exclusive ? "Activar" : "Añadir", alt: exclusive && toUnsub.length && toSub.length ? "Solo añadir, sin quitar nada" : "" });
     if (r.alt) { changeMods(toSub, [], "Activando " + name); return; }
     if (r.ok) changeMods(toSub, toUnsub, "Activando " + name);

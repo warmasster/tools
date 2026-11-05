@@ -901,8 +901,9 @@ type ModFailure struct {
 }
 
 // ModsChange suscribe la cuenta abierta en Steam a unos mods y le quita otros,
-// de uno en uno y sin prisa (como lo haría una persona), contando el progreso
-// con el evento "mods-progress". Si va a quitar algo, antes guarda un preset
+// con varios a la vez en marcha (como hace el propio Steam con «cancelar todas
+// las suscripciones»), contando el progreso con el evento "mods-progress". Lo
+// que falle por algo pasajero se vuelve a intentar una vez. Si va a quitar algo, antes guarda un preset
 // automático con lo que había.
 func (a *App) ModsChange(appid uint32, subscribe, unsubscribe []uint64) (ModsChangeResult, error) {
 	r := ModsChangeResult{Failed: []ModFailure{}}
@@ -933,50 +934,96 @@ func (a *App) ModsChange(appid uint32, subscribe, unsubscribe []uint64) (ModsCha
 		}
 	}
 	done := 0
-	step := func(op string, id uint64) {
-		title := a.modFrom(id).Title
-		if title == "" {
-			title = "Mod " + strconv.FormatUint(id, 10)
+	title := func(id uint64) string {
+		if t := a.modFrom(id).Title; t != "" {
+			return t
 		}
-		a.emit("mods-progress", map[string]any{"appid": appid, "done": done, "total": total, "title": title, "op": op})
-		var err error
-		for try := 0; try < 2; try++ {
-			err = a.wsCall(appid, wsRequest{Op: op, IDs: []uint64{id}}, 40*time.Second, nil)
-			if err == nil || strings.Contains(err.Error(), "Steam ha dicho") || strings.Contains(err.Error(), "ya no existe") {
-				break
-			}
-			time.Sleep(time.Second)
-		}
-		if err != nil {
-			r.Failed = append(r.Failed, ModFailure{ID: id, Title: title, Error: err.Error()})
-		} else if op == "subscribe" {
-			r.Subscribed++
-		} else {
-			r.Unsubscribed++
-		}
-		done++
-		time.Sleep(150 * time.Millisecond)
+		return "Mod " + strconv.FormatUint(id, 10)
 	}
-	for _, id := range unsubscribe {
+	// batch manda una tanda al proceso del Workshop (varios mods a la vez en
+	// marcha) y devuelve los que han fallado por algo que puede ser pasajero
+	batch := func(sub bool, ids []uint64, last bool) []uint64 {
+		op := "unsubscribeMany"
+		if sub {
+			op = "subscribeMany"
+		}
+		seen := map[uint64]bool{}
+		var retry []uint64
+		finish := func(id uint64, errMsg string) {
+			if seen[id] {
+				return
+			}
+			seen[id] = true
+			transient := errMsg != "" && (strings.Contains(errMsg, "a tiempo") || strings.Contains(errMsg, "conexión") || strings.Contains(errMsg, "no ha aceptado"))
+			switch {
+			case errMsg == "":
+				if sub {
+					r.Subscribed++
+				} else {
+					r.Unsubscribed++
+				}
+			case transient && !last:
+				retry = append(retry, id)
+				return // se vuelve a intentar: todavía no cuenta
+			default:
+				r.Failed = append(r.Failed, ModFailure{ID: id, Title: title(id), Error: errMsg})
+			}
+			done++
+			a.emit("mods-progress", map[string]any{"appid": appid, "done": done, "total": total, "title": title(id), "op": strings.TrimSuffix(op, "Many")})
+		}
+		err := a.wsCallEx(appid, wsRequest{Op: op, IDs: ids}, 60*time.Second, nil, func(p wsProgress) { finish(p.ID, p.Error) }, a.modsCancel.Load)
 		if a.modsCancel.Load() {
 			r.Canceled = true
-			break
 		}
-		step("unsubscribe", id)
+		for _, id := range ids {
+			if seen[id] {
+				continue
+			}
+			switch {
+			case err != nil && !last:
+				retry = append(retry, id)
+			case err != nil:
+				finish(id, err.Error())
+			}
+			// sin error y sin respuesta: se paró antes de mandarlo
+		}
+		return retry
 	}
-	for _, id := range subscribe {
-		if a.modsCancel.Load() || r.Canceled {
-			r.Canceled = true
-			break
+	a.emit("mods-progress", map[string]any{"appid": appid, "done": 0, "total": total, "title": title(firstID(unsubscribe, subscribe)), "op": opName(len(unsubscribe) > 0)})
+	if len(unsubscribe) > 0 {
+		if again := batch(false, unsubscribe, false); len(again) > 0 && !r.Canceled {
+			time.Sleep(time.Second)
+			batch(false, again, true)
 		}
-		step("subscribe", id)
+	}
+	if len(subscribe) > 0 && !r.Canceled {
+		if again := batch(true, subscribe, false); len(again) > 0 && !r.Canceled {
+			time.Sleep(time.Second)
+			batch(true, again, true)
+		}
 	}
 	a.emit("mods-progress", map[string]any{"appid": appid, "done": total, "total": total, "finished": true})
 	return r, nil
 }
 
-// ModsCancel para un cambio de suscripciones en marcha (después del mod que
-// esté haciendo).
+func firstID(lists ...[]uint64) uint64 {
+	for _, l := range lists {
+		if len(l) > 0 {
+			return l[0]
+		}
+	}
+	return 0
+}
+
+func opName(unsub bool) string {
+	if unsub {
+		return "unsubscribe"
+	}
+	return "subscribe"
+}
+
+// ModsCancel para un cambio de suscripciones en marcha (no se mandan más; los
+// que ya van, terminan).
 func (a *App) ModsCancel() { a.modsCancel.Store(true) }
 
 func dedupe(ids []uint64) []uint64 {

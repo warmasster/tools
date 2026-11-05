@@ -55,6 +55,9 @@ func TestWebReal(t *testing.T) {
 // Workshop (lo lanza wsCall con --workshop, como hace TurboGAMES.exe).
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "--workshop" {
+		if os.Getenv("TURBOGAMES_FAKE_WS") != "" {
+			openWSClient = openFakeWS
+		}
 		os.Exit(workshopChild(os.Args[2:]))
 	}
 	os.Exit(m.Run())
