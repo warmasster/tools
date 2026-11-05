@@ -315,3 +315,10 @@ func TestPageGallery(t *testing.T) {
 		t.Fatal("comprobaciones de direcciones")
 	}
 }
+
+func TestSummary(t *testing.T) {
+	got := summary("[h1]Mi mod[/h1]\n[img]https://x/y.png[/img]Hace [b]cosas[/b]\n\n[list][*]una[*]dos[/list] [url=https://a.b]enlace[/url]")
+	if got != "Mi mod Hace cosas una dos enlace" {
+		t.Fatalf("%q", got)
+	}
+}

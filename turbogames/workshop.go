@@ -350,6 +350,7 @@ type Mod struct {
 	Collection    bool     `json:"collection"`
 	Known         bool     `json:"known"`   // tenemos sus datos
 	MyTags        []string `json:"myTags"`  // etiquetas que le has puesto tú
+	Summary       string   `json:"summary"` // el principio de la descripción, sin formato
 	Since         int64    `json:"since"`   // desde cuándo está suscrito (lo que ha visto TurboGAMES)
 	Removed       int64    `json:"removed"` // cuándo se quitó (en el historial)
 
@@ -389,6 +390,7 @@ func (a *App) modFrom(id uint64) Mod {
 		m.Subscriptions, m.Comments = it.Subscriptions, it.Comments
 		m.Missing, m.Banned, m.Collection = it.Missing, it.Banned, it.Collection
 		m.Author = a.wcache.author(it.Owner)
+		m.Summary = summary(it.Description)
 	}
 	if a.mstore != nil {
 		m.MyTags = a.mstore.tags(id)
@@ -1115,4 +1117,25 @@ func pageGallery(page string) []steamworks.Preview {
 		}
 	}
 	return out
+}
+
+var (
+	reBBTag   = regexp.MustCompile(`\[/?[a-zA-Z0-9*]+(=[^\]]*)?\]`)
+	reBBMedia = regexp.MustCompile(`(?is)\[(img|previewyoutube)[^\]]*\].*?\[/(img|previewyoutube)\]`)
+	reSpaces  = regexp.MustCompile(`\s+`)
+)
+
+// summary saca el principio de una descripción del Workshop (que viene con
+// BBCode), en texto plano, para enseñarlo en la lista.
+func summary(desc string) string {
+	if desc == "" {
+		return ""
+	}
+	if len(desc) > 4000 {
+		desc = desc[:4000]
+	}
+	t := reBBMedia.ReplaceAllString(desc, " ")
+	t = reBBTag.ReplaceAllString(t, " ")
+	t = strings.TrimSpace(reSpaces.ReplaceAllString(t, " "))
+	return clip(strings.ToValidUTF8(t, ""), 240)
 }
