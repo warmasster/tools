@@ -29,7 +29,7 @@ import (
 
 // Cuánto sigue vivo el proceso sin peticiones (cuanto menos, menos rato sale
 // «jugando a…»).
-const wsIdle = 20 * time.Second
+const wsIdle = 10 * time.Second
 
 type wsRequest struct {
 	ID     int      `json:"id"`
@@ -265,6 +265,29 @@ func (h *wsHost) forgetOwn() {
 	h.smu.Lock()
 	h.app, h.till = 0, time.Time{}
 	h.smu.Unlock()
+}
+
+// wsAlive dice si ya hay un proceso del Workshop abierto para ese juego (lo
+// que se pide en segundo plano solo lo usa si ya está: no se conecta solo).
+func (a *App) wsAlive(appid uint32) bool {
+	if !a.ws.mu.TryLock() {
+		return true // ocupado con otra petición: está vivo
+	}
+	defer a.ws.mu.Unlock()
+	p := a.ws.p
+	return p != nil && p.appid == appid && !p.exited.Load()
+}
+
+// WorkshopDisconnect cierra la conexión con Steam (la interfaz lo pide al
+// salir de la ventana, para que Steam no crea que el juego sigue abierto y
+// deje jugarlo). No hace nada si se están cambiando mods.
+func (a *App) WorkshopDisconnect() bool {
+	if !a.modsMu.TryLock() {
+		return false
+	}
+	defer a.modsMu.Unlock()
+	a.stopWorkshop()
+	return true
 }
 
 // stopWorkshop cierra el proceso del Workshop (antes de abrir un juego o cambiar

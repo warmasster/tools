@@ -1131,8 +1131,8 @@
   const MSIZES = [["", "Cualquiera"], ["s", "Menos de 100 MB"], ["m", "De 100 MB a 1 GB"], ["l", "Más de 1 GB"]];
   const MUPDS = [["", "Cuando sea"], ["1m", "Último mes"], ["6m", "Últimos 6 meses"], ["1y", "Último año"], ["old", "Hace más de un año"]];
   const MRATES = [["", "Cualquiera"], ["90", "90 % o más"], ["75", "75 % o más"], ["50", "50 % o más"], ["nov", "Sin votos"]];
-  const SSORTS = [["relevance", "Más parecidos al texto"], ["trend", "Populares"], ["votes", "Mejor valorados (de siempre)"], ["subs", "Más suscriptores (de siempre)"], ["recent", "Más nuevos"], ["updated", "Actualizados hace poco"]];
-  const SPERIODS = [[1, "de hoy"], [7, "de esta semana"], [30, "de este mes"], [90, "de los últimos 3 meses"], [180, "de los últimos 6 meses"], [365, "del último año"]];
+  const SSORTS = [["relevance", "Más parecidos"], ["trend", "Populares"], ["votes", "Mejor valorados"], ["subs", "Más suscriptores"], ["recent", "Más nuevos"], ["updated", "Actualizados"]];
+  const SPERIODS = [[1, "de hoy"], [7, "de esta semana"], [30, "de este mes"], [90, "de 3 meses"], [180, "de 6 meses"], [365, "del año"]];
   const LSORTS = [["name", "Nombre"], ["size", "Más grandes"], ["updated", "Actualizados hace poco"], ["votes", "Mejor valorados"], ["subs", "Más suscriptores"], ["since", "Suscritos hace poco"]];
   const HSORTS = [["recent", "Jugados hace poco"], ["mods", "Más mods"], ["size", "Más espacio en mods"], ["hours", "Más horas"], ["name", "Nombre"]];
   const PSORTS = [["recent", "Más recientes"], ["name", "Nombre"], ["mods", "Más mods"], ["have", "Los que más tengo"]];
@@ -1329,7 +1329,7 @@
       const sorts = SSORTS.filter(([v]) => v !== "relevance" || s.q);
       sb.innerHTML = `<span class="slabel">Ordenar</span>` + sel("ms-sort", sorts, s.sort, "Orden") + (s.sort === "trend" ? sel("ms-days", SPERIODS, s.days, "De qué periodo") : "");
       st.innerHTML = s.loading ? `<span class="spinner xs"></span>buscando…` : s.total ? `<b>${nf0.format(s.total)}</b> mods` : "";
-      acts.innerHTML = `<button class="btn ghost sm" data-mact="workshop-web" title="Abrir el Workshop de este juego en el navegador">${ic("globe")}</button>`;
+      acts.innerHTML = `<button class="ibtn" data-mact="search-menu" title="Más opciones">${ic("more")}</button>`;
     }
     const vbox = $("#mod-views");
     vbox.hidden = MS.home || MS.tab === "presets";
@@ -2184,6 +2184,14 @@
         ], r.right - 260, r.bottom + 4);
         break;
       }
+      case "search-menu": {
+        const r = el.getBoundingClientRect();
+        showMenu([{ head: "Workshop" },
+          { icon: "globe", label: "Abrir el Workshop en el navegador", fn: () => rt.BrowserOpenURL("https://steamcommunity.com/app/" + MS.app + "/workshop/") },
+          { icon: "refresh", label: "Volver a buscar", fn: () => runSearch() },
+        ], r.right - 270, r.bottom + 4);
+        break;
+      }
       case "new-menu": {
         const r = el.getBoundingClientRect();
         showMenu([{ head: "Nuevo preset" },
@@ -2357,6 +2365,22 @@
       patchPreset(p, { tags: [...(p.tags || []), t] }, true).then(() => { const i = $("#pd-tag"); if (i) i.focus(); });
     }
   });
+  // al salir de la ventana (para ir a Steam a jugar, por ejemplo) se suelta la
+  // conexión con Steam: mientras está, Steam cree que el juego está abierto
+  let dropTimer = null;
+  function dropSteamSoon() {
+    clearTimeout(dropTimer);
+    dropTimer = setTimeout(async () => {
+      if (document.hasFocus() || MS.busy || !MS.list || !MS.list.live) return;
+      let ok = false;
+      try { ok = await api.WorkshopDisconnect(); } catch { }
+      if (ok && MS.list && MS.list.live) { MS.list.live = false; MS.list.liveError = ""; if (S.view === "mods") renderModTop(); }
+    }, 1500);
+  }
+  window.addEventListener("blur", dropSteamSoon);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) dropSteamSoon(); });
+  window.addEventListener("focus", () => clearTimeout(dropTimer));
+
   // los datos de los mods (y los nombres de los autores) llegan después, por
   // tandas: se juntan con lo que hay y se vuelve a dibujar, sin pedir nada más
   const metaQueue = new Set();
@@ -3334,6 +3358,7 @@
         return { subscribed: sub.length, unsubscribed: unsub.length, failed: [], canceled: false, backup };
       },
       async ModsCancel() { },
+      async WorkshopDisconnect() { return true; },
       async OpenModInSteam() { },
       async Presets() { return presets.map((p) => ({ ...p, mods: [...p.mods], tags: [...p.tags] })).sort((a, b) => b.updated - a.updated); },
       async SavePreset(p) { if (!p.name) throw "Ponle un nombre al preset"; const n = { ...p, updated: Math.floor(Date.now() / 1000) }; if (!n.id) { n.id = "p" + Date.now(); n.created = n.updated; presets.push(n); } else presets = presets.map((x) => x.id === n.id ? n : x); return n; },

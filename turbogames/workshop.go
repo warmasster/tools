@@ -483,7 +483,7 @@ func (a *App) fillDetails(appid uint32, ids []uint64, live bool) int {
 			chunk := todo[:n]
 			todo = todo[n:]
 			got := false
-			if live {
+			if live && a.wsAlive(appid) {
 				var items []steamworks.Item
 				if a.wsCall(appid, wsRequest{Op: "details", IDs: chunk}, 60*time.Second, &items) == nil {
 					a.wcache.put(items, true)
