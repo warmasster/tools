@@ -119,6 +119,7 @@ func (in *Install) Installed() []InstalledApp {
 type UserApp struct {
 	LastPlayed int64 `json:"lastPlayed"`
 	Minutes    int64 `json:"minutes"`
+	Minutes2w  int64 `json:"minutes2w"` // en las últimas dos semanas
 }
 
 // UserApps lee userdata\<id>\config\localconfig.vdf: a qué ha jugado esa
@@ -142,6 +143,7 @@ func (in *Install) UserApps(accountID uint32) map[uint32]UserApp {
 		var ua UserApp
 		ua.LastPlayed, _ = strconv.ParseInt(a.Str("LastPlayed"), 10, 64)
 		ua.Minutes, _ = strconv.ParseInt(a.Str("Playtime"), 10, 64)
+		ua.Minutes2w, _ = strconv.ParseInt(a.Str("Playtime2wks"), 10, 64)
 		if ua.LastPlayed == 0 && ua.Minutes == 0 {
 			continue
 		}

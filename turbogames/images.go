@@ -1,8 +1,10 @@
 package main
 
 import (
+	"hash/fnv"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -78,6 +80,19 @@ func (s *imageServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		serveFile(w, r, p, "max-age=86400")
+	case parts[1] == "mod" && len(parts) == 3:
+		id, err := strconv.ParseUint(parts[2], 10, 64)
+		if err != nil || id == 0 {
+			http.NotFound(w, r)
+			return
+		}
+		p := s.findMod(id)
+		if p == "" {
+			w.Header().Set("Cache-Control", "max-age=600")
+			http.NotFound(w, r)
+			return
+		}
+		serveFile(w, r, p, "max-age=86400")
 	default:
 		http.NotFound(w, r)
 	}
@@ -97,6 +112,8 @@ func serveFile(w http.ResponseWriter, r *http.Request, p, cache string) {
 		w.Header().Set("Content-Type", "image/jpeg")
 	case ".webp":
 		w.Header().Set("Content-Type", "image/webp")
+	case ".gif":
+		w.Header().Set("Content-Type", "image/gif")
 	}
 	w.Header().Set("Cache-Control", cache)
 	io.Copy(w, f)
@@ -200,5 +217,109 @@ func (s *imageServer) download(appid uint32, kind string, meta steam.AppMeta, ke
 		}
 		os.Remove(tmp)
 	}
+	return ""
+}
+
+// modImageHost: las imágenes de los mods solo se bajan de los servidores de
+// imágenes de Steam, por https.
+func modImageHost(u *url.URL) bool {
+	h := u.Hostname()
+	return u.Scheme == "https" && (strings.HasSuffix(h, ".steamusercontent.com") || strings.HasSuffix(h, ".steamstatic.com") || h == "steamuserimages-a.akamaihd.net")
+}
+
+var modImageClient = &http.Client{Timeout: 20 * time.Second,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 || !modImageHost(req.URL) {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}}
+
+// findMod devuelve la imagen de un mod, bajándola la primera vez. La clave
+// lleva un resumen de su dirección: si el autor cambia la imagen, se baja la nueva.
+func (s *imageServer) findMod(id uint64) string {
+	raw := s.app.modPreviewURL(id)
+	u, err := url.Parse(raw)
+	if raw == "" || err != nil || !modImageHost(u) {
+		return ""
+	}
+	h := fnv.New32a()
+	h.Write([]byte(raw))
+	key := "mod_" + strconv.FormatUint(id, 10) + "_" + strconv.FormatUint(uint64(h.Sum32()), 36)
+	for _, ext := range []string{".jpg", ".png", ".gif", ".webp"} {
+		p := filepath.Join(s.dir, key+ext)
+		if fi, err := os.Stat(p); err == nil && fi.Size() > 0 {
+			return p
+		}
+	}
+	s.mu.Lock()
+	if t, ok := s.missing[key]; ok && time.Since(t) < 30*time.Minute {
+		s.mu.Unlock()
+		return ""
+	}
+	if wg, ok := s.inflight[key]; ok {
+		s.mu.Unlock()
+		wg.Wait()
+		return s.findModCached(key)
+	}
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	s.inflight[key] = wg
+	s.mu.Unlock()
+
+	p := s.downloadMod(raw, key)
+
+	s.mu.Lock()
+	delete(s.inflight, key)
+	if p == "" {
+		s.missing[key] = time.Now()
+	}
+	s.mu.Unlock()
+	wg.Done()
+	return p
+}
+
+func (s *imageServer) findModCached(key string) string {
+	for _, ext := range []string{".jpg", ".png", ".gif", ".webp"} {
+		p := filepath.Join(s.dir, key+ext)
+		if fi, err := os.Stat(p); err == nil && fi.Size() > 0 {
+			return p
+		}
+	}
+	return ""
+}
+
+func (s *imageServer) downloadMod(raw, key string) string {
+	s.sem <- struct{}{}
+	defer func() { <-s.sem }()
+	resp, err := modImageClient.Get(raw)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	ct := resp.Header.Get("Content-Type")
+	if resp.StatusCode != 200 || !strings.HasPrefix(ct, "image/") {
+		return ""
+	}
+	ext := ".jpg"
+	switch {
+	case strings.Contains(ct, "png"):
+		ext = ".png"
+	case strings.Contains(ct, "gif"):
+		ext = ".gif"
+	case strings.Contains(ct, "webp"):
+		ext = ".webp"
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	_ = os.MkdirAll(s.dir, 0o755)
+	p := filepath.Join(s.dir, key+ext)
+	tmp := p + ".tmp"
+	if os.WriteFile(tmp, data, 0o644) == nil && os.Rename(tmp, p) == nil {
+		return p
+	}
+	os.Remove(tmp)
 	return ""
 }

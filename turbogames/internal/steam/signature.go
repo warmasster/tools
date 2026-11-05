@@ -70,6 +70,13 @@ func (in *Install) checkSigned() error { return checkSignedHook(in.Exe) }
 // CheckSigned: steam.exe está firmado por Valve (antes de empezar un cambio de cuenta).
 func (in *Install) CheckSigned() error { return in.checkSigned() }
 
+// SignedByValve dice si un archivo (steamclient64.dll, por ejemplo) lleva una
+// firma válida de Valve.
+func SignedByValve(path string) bool {
+	name, err := verifiedSigner(path)
+	return err == nil && strings.HasPrefix(name, "Valve Corp")
+}
+
 // verifiedSigner valida la firma Authenticode de un archivo y devuelve el nombre
 // del firmante (el certificado que Windows ha validado, no otro de los que lleve).
 func verifiedSigner(path string) (string, error) {

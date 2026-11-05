@@ -2,8 +2,10 @@ package main
 
 import (
 	"os"
+	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/windows"
 
@@ -17,28 +19,35 @@ type GamePlayer struct {
 	Persona    string `json:"persona"`
 	SteamID    string `json:"steamId"`
 	Minutes    int64  `json:"minutes"`
+	Minutes2w  int64  `json:"minutes2w"`
 	LastPlayed int64  `json:"lastPlayed"`
 }
 
 // Game es un juego de la biblioteca.
 type Game struct {
-	AppID      uint32       `json:"appid"`
-	Name       string       `json:"name"`
-	Type       string       `json:"type"`
-	Installed  bool         `json:"installed"`
-	State      string       `json:"state"` // instalado: ok, update, updating, incomplete, missing
-	Dir        string       `json:"dir"`
-	Library    string       `json:"library"`
-	Size       int64        `json:"size"`
-	Updated    int64        `json:"updated"`
-	LastPlayed int64        `json:"lastPlayed"`
-	Minutes    int64        `json:"minutes"`
-	Owner      string       `json:"owner"` // SteamID64 de quien lo instaló
-	OwnerKey   string       `json:"ownerKey"`
-	Players    []GamePlayer `json:"players"`
-	InLibrary  []string     `json:"inLibrary"` // SteamID64 de las cuentas que lo tienen en su biblioteca sin haberlo jugado aquí
-	Running    bool         `json:"running"`
-	Released   int64        `json:"released"`
+	AppID       uint32       `json:"appid"`
+	Name        string       `json:"name"`
+	Type        string       `json:"type"`
+	Installed   bool         `json:"installed"`
+	State       string       `json:"state"` // instalado: ok, update, updating, incomplete, missing
+	Dir         string       `json:"dir"`
+	Library     string       `json:"library"`
+	Size        int64        `json:"size"`
+	Updated     int64        `json:"updated"`
+	LastPlayed  int64        `json:"lastPlayed"`
+	Minutes     int64        `json:"minutes"`
+	Owner       string       `json:"owner"` // SteamID64 de quien lo instaló
+	OwnerKey    string       `json:"ownerKey"`
+	Players     []GamePlayer `json:"players"`
+	InLibrary   []string     `json:"inLibrary"` // SteamID64 de las cuentas que lo tienen en su biblioteca sin haberlo jugado aquí
+	Running     bool         `json:"running"`
+	Released    int64        `json:"released"`
+	Minutes2w   int64        `json:"minutes2w"`   // jugado en las últimas dos semanas
+	Tags        []string     `json:"tags"`        // etiquetas puestas en TurboGAMES
+	Collections []string     `json:"collections"` // colecciones de la biblioteca de Steam
+	Workshop    bool         `json:"workshop"`    // tiene Workshop
+	Mods        int          `json:"mods"`        // mods del Workshop en este PC
+	ModsSize    int64        `json:"modsSize"`
 }
 
 // LibraryInfo es una carpeta de juegos con el espacio de su disco.
@@ -136,7 +145,7 @@ func (a *App) Games() (GamesData, error) {
 		g := games[id]
 		if g == nil {
 			m := meta[id]
-			g = &Game{AppID: id, Name: m.Name, Type: m.Type, Released: m.Released, Players: []GamePlayer{}, InLibrary: []string{}}
+			g = &Game{AppID: id, Name: m.Name, Type: m.Type, Released: m.Released, Workshop: m.Workshop, Players: []GamePlayer{}, InLibrary: []string{}, Tags: []string{}, Collections: []string{}}
 			games[id] = g
 		}
 		return g
@@ -185,9 +194,30 @@ func (a *App) Games() (GamesData, error) {
 				continue // sin nombre o que no es un juego (configuraciones, herramientas)
 			}
 			g := get(appid)
-			g.Players = append(g.Players, GamePlayer{Key: w.key, Name: w.name, Persona: w.persona, SteamID: w.steamID, Minutes: ua.Minutes, LastPlayed: ua.LastPlayed})
+			// Steam solo pone al día las horas de las dos últimas semanas cuando se
+			// juega: si la última partida es más antigua, ya son 0
+			m2w := ua.Minutes2w
+			if ua.LastPlayed > 0 && time.Since(time.Unix(ua.LastPlayed, 0)) > 14*24*time.Hour {
+				m2w = 0
+			}
+			g.Players = append(g.Players, GamePlayer{Key: w.key, Name: w.name, Persona: w.persona, SteamID: w.steamID, Minutes: ua.Minutes, Minutes2w: m2w, LastPlayed: ua.LastPlayed})
 			g.Minutes += ua.Minutes
+			g.Minutes2w += m2w
 			g.LastPlayed = max(g.LastPlayed, ua.LastPlayed)
+		}
+		// sus colecciones de la biblioteca de Steam
+		for name, apps := range in.UserCollections(id) {
+			for _, appid := range apps {
+				if _, ok := meta[appid]; !ok {
+					continue
+				}
+				if g := games[appid]; g != nil || isPlayable(meta[appid].Type) {
+					g = get(appid)
+					if !slices.Contains(g.Collections, name) {
+						g.Collections = append(g.Collections, name)
+					}
+				}
+			}
 		}
 		// los que tiene en su biblioteca sin haberlos jugado aquí (recién comprados…)
 		for _, appid := range in.UserLibraryApps(id) {
@@ -200,9 +230,16 @@ func (a *App) Games() (GamesData, error) {
 		}
 	}
 
+	ws := in.Workshop()
 	for _, g := range games {
 		if g.Name == "" {
 			continue
+		}
+		g.Tags = a.gmeta.tags(g.AppID)
+		sort.Strings(g.Collections)
+		if w := ws[g.AppID]; w != nil {
+			g.Mods, g.ModsSize = len(w.Items), w.Size
+			g.Workshop = true
 		}
 		g.Running = st.RunningApp != 0 && st.RunningApp == g.AppID
 		sort.Slice(g.Players, func(i, j int) bool {

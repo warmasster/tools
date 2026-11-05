@@ -51,7 +51,7 @@
       "name": "TurboGAMES",
       "kind": "app",
       "dir": "turbogames",
-      "summary": "Todas tus cuentas de Steam a un clic, con sus contraseñas en una bóveda cifrada, y tus juegos con sus portadas y quién los ha jugado.",
+      "summary": "Todas tus cuentas de Steam a un clic, con sus contraseñas en una bóveda cifrada, tus juegos con sus portadas y quién los ha jugado, y los mods del Workshop con presets para compartir.",
       "build": "turbogames/build.ps1",
       "output": "turbogames/TurboGAMES.exe",
       "version": "turbogames/wails.json"

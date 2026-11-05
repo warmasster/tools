@@ -17,6 +17,7 @@
     <nav class="nav" id="nav">
       <button data-view="accounts" class="on"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Cuentas<span class="cnt" id="cnt-accounts"></span></button>
       <button data-view="games"><svg viewBox="0 0 24 24"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.32 5H6.68a4 4 0 0 0-3.98 3.59l-.7 6.94A3 3 0 0 0 5 19c1 0 1.5-.5 2-1l1.4-1.4A2 2 0 0 1 9.8 16h4.4a2 2 0 0 1 1.4.6L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3.47l-.7-6.94A4 4 0 0 0 17.32 5z"/></svg>Juegos<span class="cnt" id="cnt-games"></span></button>
+      <button data-view="mods"><svg viewBox="0 0 24 24"><path d="M19.44 13.11a2 2 0 0 0 0-2.22l-.88-1.32a2 2 0 0 1 .25-2.52l.36-.36a2 2 0 0 0 0-2.83l-.06-.06a2 2 0 0 0-2.83 0l-.36.36a2 2 0 0 1-2.52.25l-1.32-.88a2 2 0 0 0-2.22 0l-1.32.88a2 2 0 0 1-2.52-.25l-.36-.36a2 2 0 0 0-2.83 0"/><path d="M15 9h.01M9 15h.01"/><rect x="3" y="9" width="12" height="12" rx="2"/></svg>Mods<span class="cnt" id="cnt-mods"></span></button>
     </nav>
     <div class="pills" id="pills"></div>
     <div class="winbtns">
@@ -65,10 +66,12 @@
         </div>
         <div class="seg" id="game-filter"><button data-v="all" class="on">Todos</button><button data-v="installed">Instalados</button></div>
         <select class="fsel" id="game-acc" title="Cuenta"></select>
+        <select class="fsel" id="game-tag" title="Etiquetas, colecciones y más jugados"></select>
         <select class="fsel" id="game-sort" title="Orden">
           <option value="recent">Recientes</option>
           <option value="name">Por nombre</option>
           <option value="hours">Más horas</option>
+          <option value="2w">Estas 2 semanas</option>
           <option value="size">Más espacio</option>
         </select>
         <span class="grow"></span>
@@ -77,6 +80,26 @@
       <div class="scroller" id="game-scroll"><div class="game-grid" id="game-grid"></div></div>
     </section>
     <aside class="detail" id="game-detail"></aside>
+  </main>
+
+  <!-- ===== mods ===== -->
+  <main class="view split" id="v-mods">
+    <section class="main">
+      <div class="toolbar">
+        <select class="fsel game-pick" id="mod-game" title="Juego"></select>
+        <div class="seg" id="mod-tab"><button data-v="subs">Suscritos<small id="mod-n-subs"></small></button><button data-v="presets">Presets<small id="mod-n-presets"></small></button><button data-v="search">Workshop</button></div>
+        <div class="search" id="mod-search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="mod-q" placeholder="Filtrar (Ctrl+F)" spellcheck="false" autocomplete="off">
+          <button class="x" data-clear="mod-q" title="Borrar búsqueda"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
+        <span class="grow"></span>
+        <span id="mod-live"></span>
+      </div>
+      <div class="subbar" id="mod-bar"></div>
+      <div class="scroller" id="mod-scroll"><div id="mod-list"></div></div>
+    </section>
+    <aside class="detail" id="mod-detail"></aside>
   </main>
 
   <!-- ===== sin Steam ===== -->
@@ -214,6 +237,67 @@
     </div>
   </div>
 
+  <!-- pegar un preset -->
+  <div class="modal" id="m-paste" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Pegar un preset</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <p class="lead">Pega el texto que te han mandado: un preset de TurboGAMES, enlaces del Workshop (también de colecciones) o sus números, uno por línea.</p>
+        <textarea class="inp paste-area" id="mp-text" spellcheck="false" placeholder="Preset de TurboGAMES: «…»&#10;…&#10;TGP1:…"></textarea>
+        <div class="hint" id="mp-err"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost sm" id="mp-file" type="button">Abrir un archivo…</button>
+        <span class="grow"></span>
+        <button class="btn ghost sm" data-close>Cancelar</button>
+        <button class="btn primary sm" id="mp-go">Leer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- guardar / revisar un preset -->
+  <div class="modal" id="m-preset" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="mpr-title">Nuevo preset</h2>
+        <button class="wb" data-close><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <form class="modal-body" id="mpr-form" autocomplete="off">
+        <div id="mpr-sum"></div>
+        <label class="field"><span>Nombre</span><input id="mpr-name" maxlength="80" spellcheck="false"></label>
+        <div class="field-row">
+          <label class="field"><span>Lo hizo</span><input id="mpr-author" maxlength="64" spellcheck="false" placeholder="quien lo montó"></label>
+          <label class="field"><span>Te lo ha pasado</span><input id="mpr-from" maxlength="64" spellcheck="false" placeholder="vacío si es tuyo"></label>
+        </div>
+        <label class="field"><span>Etiquetas</span><input id="mpr-tags" maxlength="200" spellcheck="false" placeholder="coop, milsim, ligero… (separadas por comas)"></label>
+        <label class="field"><span>Notas</span><textarea id="mpr-notes" rows="2" maxlength="4000" spellcheck="false" placeholder="Para qué es, en qué servidor se usa… (opcional)"></textarea></label>
+        <div id="mpr-mods"></div>
+      </form>
+      <div class="modal-foot">
+        <button class="btn ghost sm" data-close>Cancelar</button>
+        <button class="btn primary sm" type="submit" form="mpr-form" id="mpr-go">Guardar preset</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- progreso de suscripciones -->
+  <div class="modal" id="m-progress" hidden>
+    <div class="modal-card narrow">
+      <div class="modal-head"><h2 id="mg-title">Cambiando mods…</h2></div>
+      <div class="modal-body">
+        <p class="mtext" id="mg-text">Preparando…</p>
+        <div class="pbar"><i id="mg-bar"></i></div>
+        <div class="hint" id="mg-count"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost sm" id="mg-stop">Parar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ajustes -->
   <div class="modal" id="m-settings" hidden>
     <div class="modal-card">
@@ -226,6 +310,7 @@
           <div class="row-btns tight"><button class="btn ghost sm" id="s-dir-auto" hidden>Automática</button><button class="btn ghost sm" id="s-dir-pick">Cambiar…</button></div></div>
         <label class="row toggle"><div><b>Preguntar antes de cambiar de cuenta</b><span>Pide confirmación antes de cerrar Steam para entrar con otra cuenta. Si hay un juego abierto, pregunta siempre.</span></div><input type="checkbox" id="s-confirm"><i></i></label>
         <label class="row toggle"><div><b>Abrir Steam minimizado</b><span>Al cambiar de cuenta, Steam se abre directamente en la bandeja, sin ventana.</span></div><input type="checkbox" id="s-silent"><i></i></label>
+        <label class="row toggle"><div><b>Conectar con Steam al ver los mods</b><span>Para saber al momento a qué estás suscrito (aunque el juego no esté instalado). Mientras está conectado, tus amigos te ven «jugando» a ese juego. Si lo desactivas, se conecta solo al pulsar «Conectar» o al suscribirte.</span></div><input type="checkbox" id="s-wsauto"><i></i></label>
         <div class="row"><div><b>Después de cambiar de cuenta</b><span>Qué hace TurboGAMES cuando ya has entrado.</span></div>
           <div class="seg" id="s-after"><button data-v="nada">Nada</button><button data-v="minimizar">Minimizarse</button></div></div>
         <div class="row"><div><b>Cerrar la bóveda tras</b><span>Minutos sin usarla. Al cerrar TurboGAMES también se cierra.</span></div>

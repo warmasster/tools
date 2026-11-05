@@ -39,6 +39,7 @@ type AppMeta struct {
 	Parent   uint32 // demos y DLC: el juego principal
 	OSList   string
 	Released int64
+	Workshop bool // tiene Workshop (mods de la comunidad)
 }
 
 // ParseAppInfo lee appinfo.vdf y devuelve el bloque "common" de cada app.
@@ -255,6 +256,7 @@ func metaFrom(root *vdf.Node) (AppMeta, bool) {
 		m.Parent = uint32(p)
 	}
 	m.Released, _ = strconv.ParseInt(c.Str("steam_release_date"), 10, 64)
+	m.Workshop = c.Str("workshop_visible") == "1"
 	// rutas de las imágenes de la biblioteca (pueden llevar un hash delante)
 	if la := c.Get("library_assets_full"); la != nil {
 		m.Assets = map[string]string{}

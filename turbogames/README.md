@@ -1,9 +1,9 @@
 # TurboGAMES
 
-Todas tus cuentas de Steam a un clic, sin el límite del selector de Steam, con sus contraseñas guardadas cifradas si quieres. También enseña tus juegos con sus portadas, quién ha jugado a cada uno y cuánto, y los abre con la cuenta que toque.
+Todas tus cuentas de Steam a un clic, sin el límite del selector de Steam, con sus contraseñas guardadas cifradas si quieres. También enseña tus juegos con sus portadas, quién ha jugado a cada uno y cuánto, y los abre con la cuenta que toque. Y gestiona los mods del Workshop: suscribirte y quitarlos desde aquí, presets que se activan de golpe y se mandan por un chat.
 
 - **`TurboGAMES.exe`**: un único ejecutable. Se instala con [TurboSETUP](../installer/) o se descarga suelto de la [Release](https://github.com/warmasster/tools/releases/tag/apps); no necesita instalar nada.
-- No usa internet para las cuentas: lee y cambia lo que Steam guarda en tu PC. Solo baja de los servidores de imágenes de Steam las portadas que Steam no tenga ya guardadas.
+- No usa internet para las cuentas: lee y cambia lo que Steam guarda en tu PC. Solo baja de los servidores de imágenes de Steam las portadas que Steam no tenga ya guardadas, y de la web pública de Steam los datos de los mods (nombre, imagen, autor, valoración y comentarios).
 
 ## Cuentas
 
@@ -40,15 +40,39 @@ Todas tus cuentas de Steam a un clic, sin el límite del selector de Steam, con 
   - si Steam lo da por instalado pero falta su carpeta (te ofrece verificar los archivos) o la instalación está a medias;
   - si hay que cambiar de cuenta: siempre pregunta, y te deja jugar con la cuenta abierta si lo prefieres.
 - Cada juego dice si necesita actualizarse, se está actualizando, está incompleto o le falta la carpeta.
-- Por cada juego: horas, última partida, espacio en disco, carpeta, quién lo ha jugado (y qué cuentas lo tienen sin jugar), verlo en Steam, la tienda y verificar archivos.
+- Por cada juego: horas (y las de las últimas 2 semanas), última partida, espacio en disco, carpeta, quién lo ha jugado (y qué cuentas lo tienen sin jugar), verlo en Steam, la tienda, verificar archivos y sus mods.
+- **Etiquetas**: ponle a cada juego las tuyas (`#coop`, `#pendiente`…), guardadas en `juegos.json`. También salen las **colecciones de tu biblioteca de Steam** (Favoritos y las que hayas creado; las dinámicas no). Se filtra por ellas en el desplegable o escribiendo `#coop` en el buscador.
+- **Más jugados**: los 20 con más horas, los jugados en las últimas 2 semanas y el orden «Estas 2 semanas», todas las cuentas juntas o la que elijas. Salen de lo que Steam ya guarda de cada cuenta: no hace falta TurboMON.
+
+## Mods
+
+La pestaña **Mods** junta los juegos con Workshop. Por cada uno:
+
+- **Suscritos**: los mods con el nombre del Workshop (no el número de la carpeta), su imagen, autor, tamaño, cuándo se actualizó y el porcentaje de votos a favor. Dice si está bajando (y cuánto lleva), en cola, por actualizar o sin bajar todavía. También salen los que hay en el disco de otra cuenta del PC.
+- **Ficha de cada mod**: descripción, valoración en estrellas, suscriptores, los mods que necesita (con «Suscribirse a los que faltan»), los últimos comentarios (si el perfil del autor es público) y en qué presets está. Se abre en Steam, en el navegador o su carpeta.
+- **Suscribirse y quitar** desde aquí, uno o varios a la vez (con las casillas). Funciona aunque el juego no esté instalado: Steam los baja cuando lo instales. Si no se puede (Steam cerrado, la cuenta no tiene el juego…), ofrece abrir la página del mod en Steam.
+- **Workshop**: busca mods nuevos del juego, por texto o por populares, mejor valorados, más suscriptores, nuevos o actualizados hace poco.
+- **Quitar todo**: para empezar de cero (antes de reinstalar un juego, por ejemplo).
+
+Para saber a qué está suscrita la cuenta y cambiarlo, TurboGAMES habla con el Steam abierto como lo haría el juego desde su menú de mods: un proceso aparte (el propio `TurboGAMES.exe --workshop`) se presenta a Steam como ese juego. No abre el juego ni toca sus archivos ni su memoria, así que no tiene nada que ver con los antitrampas (VAC solo mira dentro del juego). Mientras está conectado, **tus amigos te ven «jugando» a ese juego** unos segundos (se cierra solo a los 20 s sin usarlo). No se conecta si tienes un juego abierto, y se cierra antes de jugar o de cambiar de cuenta. En Ajustes se puede hacer que solo conecte al pulsar «Conectar con Steam». Los cambios se hacen de uno en uno y sin prisa.
+
+### Presets
+
+Un preset es una lista de mods de un juego con su nombre, quién lo hizo, **quién te lo pasó**, etiquetas y notas (en `presets.json`).
+
+- **Activar**: te suscribe a sus mods y quita los demás, así solo ocupa lo que vas a jugar. **Añadir** solo suscribe los que faltan. Se pueden activar varios juntos (con las casillas). Antes de hacer nada enseña cuántos se suscriben, cuántos se quitan y cuántos ya tienes.
+- **Copia automática**: antes de quitar cualquier suscripción, TurboGAMES guarda lo que tenías como preset (las 5 últimas de cada juego). Así siempre puedes volver atrás.
+- **Compartir por texto**: «Copiar» deja un texto para cualquier chat con la lista de mods (nombre y enlace) y, al final, un código `TGP1:…` con todo el preset. Si el chat tiene poco espacio, «Copiar solo el código»; si son muchos, «Guardar como archivo».
+- **Pegar preset**: lee ese texto (aunque el chat haya partido el código en varias líneas), enlaces o números de mods del Workshop, colecciones del Workshop (se cambian por sus mods) y los presets exportados del lanzador de Arma 3 (`.html`). Detecta el juego, avisa de los mods que ya no existen o son de otro juego, y te deja poner quién te lo ha pasado y etiquetas antes de guardarlo. Guardarlo no cambia nada: activarlo es otro paso.
+- Se filtran por etiqueta y por quién te los pasó.
 
 ## Ajustes
 
-Carpeta de Steam (se busca sola), preguntar antes de cambiar de cuenta, abrir Steam minimizado al cambiar de cuenta, minimizar TurboGAMES al terminar, tiempo para cerrar la bóveda y tiempo para borrar el portapapeles. Todo en `%APPDATA%\TurboGAMES\ajustes.json`.
+Carpeta de Steam (se busca sola), preguntar antes de cambiar de cuenta, abrir Steam minimizado al cambiar de cuenta, conectar con Steam al ver los mods, minimizar TurboGAMES al terminar, tiempo para cerrar la bóveda y tiempo para borrar el portapapeles. Todo en `%APPDATA%\TurboGAMES\ajustes.json`.
 
 ## Teclado
 
-Ctrl+F buscar · Ctrl+1 cuentas · Ctrl+2 juegos · flechas para moverte · Intro entrar o jugar · Esc cerrar.
+Ctrl+F buscar · Ctrl+1 cuentas · Ctrl+2 juegos · Ctrl+3 mods · flechas para moverte · Intro entrar o jugar · Esc cerrar · Ctrl+Intro leer el preset pegado.
 
 ## Cómo funciona por dentro
 
@@ -64,6 +88,13 @@ Ctrl+F buscar · Ctrl+1 cuentas · Ctrl+2 juegos · flechas para moverte · Intr
 | Horas por cuenta | `userdata\<id>\config\localconfig.vdf` |
 | Juegos de la biblioteca sin jugar | `userdata\<id>\config\librarycache\<appid>.json` (Steam lo crea al abrir la ficha del juego; la lista completa de licencias, `licensecache`, va cifrada) |
 | Nombres y portadas | `appcache\appinfo.vdf` (binario, versiones 27 a 29) y `appcache\librarycache\<id>\` |
+| Horas de las últimas 2 semanas | `Playtime2wks` en `localconfig.vdf` (Steam solo lo pone al día al jugar: si la última partida es de hace más de 2 semanas, cuenta 0) |
+| Colecciones de la biblioteca | `userdata\<id>\config\cloudstorage\cloud-storage-namespace-1.json` (`user-collections.*`) |
+| Si un juego tiene Workshop | `workshop_visible` en `appinfo.vdf` |
+| Mods en el disco y quién se suscribió | `steamapps\workshop\appworkshop_<appid>.acf` de cada biblioteca (`subscribedby`) y `steamapps\workshop\content\<appid>\<id>\` |
+| Suscripciones de la cuenta, votos, dependencias y búsqueda | El Steam abierto, por `steamclient64.dll` (la que trae Steam, firmada por Valve): `ISteamUGC` (versión 020). Las posiciones de cada función salen de las cabeceras del SDK contando los métodos privados, que no salen en `steam_api.json` |
+| Nombre, imagen, tamaño y suscriptores de un mod | API pública `ISteamRemoteStorage/GetPublishedFileDetails` y `GetCollectionDetails` (sin clave) |
+| Valoración, mods que necesita y comentarios | La página pública del mod y `comment/PublishedFile_Public/render` |
 
 ## Compilar
 
@@ -79,6 +110,14 @@ Para leer el Steam de este PC sin cambiar nada:
 $env:TURBOGAMES_REAL = "1"; go test -run Real -v ./internal/steam/
 ```
 
+El Workshop con el Steam abierto, solo leyendo (no suscribe ni quita nada; mientras dura, Steam te enseña «jugando» a ese juego):
+
+```powershell
+$env:TURBOGAMES_WORKSHOP = "<appid de un juego con mods>"; go test -run Real -v ./internal/steamworks/
+$env:TURBOGAMES_WORKSHOP = "<appid>"; go test -run WorkshopReal -v .
+$env:TURBOGAMES_WEB = "1"; go test -run WebReal -v .     # la web pública de Steam
+```
+
 La interfaz abierta en un navegador (`frontend/index.html`) enseña datos de muestra; la contraseña maestra de muestra es `maestra123`. El icono se rehace con `go run dev/icons/genapp.go` a partir de `frontend/logo.svg`.
 
 | Archivo | Qué hace |
@@ -89,5 +128,10 @@ La interfaz abierta en un navegador (`frontend/index.html`) enseña datos de mue
 | `accounts.go` | Junta lo de Steam con las fichas de `cuentas.json`. |
 | `switching.go` | El cambio de cuenta paso a paso. |
 | `vaultapi.go`, `clipboard.go` | La bóveda vista desde la interfaz y el portapapeles que no deja rastro. |
-| `games.go`, `images.go` | La biblioteca y las imágenes (`/img/app/<id>/<cover\|header\|hero\|logo>`, `/img/avatar/<SteamID64>`). |
+| `games.go`, `images.go` | La biblioteca y las imágenes (`/img/app/<id>/<cover\|header\|hero\|logo>`, `/img/avatar/<SteamID64>`, `/img/mod/<id>`). |
+| `gamemeta.go` | Las etiquetas de cada juego (`juegos.json`). |
+| `internal/steamworks` | Habla con el Steam abierto por `steamclient64.dll`: suscripciones, estado de cada mod, datos con votos y búsqueda en el Workshop. |
+| `workshop_host.go` | El proceso aparte del Workshop (`--workshop`) y cómo se abre, se le pregunta y se cierra. |
+| `workshop.go` | La pestaña Mods: lista, ficha de cada mod, búsqueda, cambios por lotes y la caché `cache\workshop.json`. |
+| `presets.go` | Los presets: guardarlos, el texto y el código `TGP1` para compartirlos, leer lo pegado (también del lanzador de Arma 3) y las copias automáticas. |
 | `frontend/` | Interfaz (HTML, CSS y JS sin dependencias). |

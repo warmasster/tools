@@ -88,6 +88,7 @@ func (a *App) SwitchTo(r SwitchRequest) (SwitchResult, error) {
 	if !a.beginSwitch() {
 		return res, errors.New("Ya se está cambiando de cuenta")
 	}
+	a.stopWorkshop()
 	defer a.endSwitch()
 	a.emit("steam", a.Status())
 	defer func() { a.emit("steam", a.Status()) }()
@@ -245,6 +246,7 @@ func (a *App) nameOf(id uint32) string {
 // PlayGame abre un juego. Si se indica una cuenta y no es la que está abierta,
 // primero cambia a ella.
 func (a *App) PlayGame(appid uint32, account string) (SwitchResult, error) {
+	a.stopWorkshop()
 	in := a.steam()
 	if in == nil {
 		return SwitchResult{}, steam.ErrNotFound

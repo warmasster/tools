@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 	"turbogames/internal/vault"
 )
 
-const version = "1.0.4"
+const version = "1.1.0"
 
 type App struct {
 	ctx context.Context
@@ -44,6 +45,13 @@ type App struct {
 	waitCancel context.CancelFunc
 
 	images *imageServer
+
+	ws         wsHost       // proceso del Workshop
+	wcache     *wsCache     // datos de los mods (nombres, imágenes, votos…)
+	presets    *presetStore // presets de mods
+	gmeta      *gameMetaStore
+	modsMu     sync.Mutex
+	modsCancel atomic.Bool
 }
 
 func NewApp() *App {
@@ -54,6 +62,9 @@ func NewApp() *App {
 	a.vault = vault.Open(filepath.Join(dataDir(), "boveda.dat"))
 	a.locate()
 	a.images = newImageServer(a)
+	a.wcache = loadWsCache(filepath.Join(dataDir(), "cache", "workshop.json"))
+	a.presets = loadPresetStore(filepath.Join(dataDir(), "presets.json"))
+	a.gmeta = loadGameMetaStore(filepath.Join(dataDir(), "juegos.json"))
 	return a
 }
 
@@ -154,6 +165,9 @@ func (a *App) Status() SteamState {
 	}
 	st := in.ReadStatus()
 	s := SteamState{Found: true, Dir: in.Dir, Running: st.Running, RunningApp: st.RunningApp, AutoLogin: st.AutoLogin}
+	if a.ws.ownRunning(st.RunningApp) {
+		s.RunningApp = 0 // es nuestro proceso del Workshop, no un juego de verdad
+	}
 	if st.ActiveUser != 0 {
 		s.ActiveID = steam.SteamID64(st.ActiveUser)
 	}
@@ -288,6 +302,7 @@ func (a *App) ForgetAccount(name string, o ForgetOptions) error {
 			return errors.New("Espera a que termine el cambio de cuenta")
 		}
 		defer a.endSwitch()
+		a.stopWorkshop()
 		wasRunning := in.Running()
 		prevAuto := in.ReadStatus().AutoLogin
 		if wasRunning {

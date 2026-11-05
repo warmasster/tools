@@ -15,6 +15,9 @@ type Settings struct {
 	AfterSwitch string `json:"afterSwitch"` // "nada" o "minimizar"
 	// ConfirmSwitch: preguntar antes de cerrar Steam para cambiar de cuenta
 	ConfirmSwitch bool `json:"confirmSwitch"`
+	// WorkshopManual: no conectar con Steam solo por abrir los mods de un juego
+	// (mientras está conectado, los amigos ven «jugando a…»)
+	WorkshopManual bool `json:"workshopManual"`
 }
 
 func defaultSettings() Settings {

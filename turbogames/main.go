@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"os"
 	"path/filepath"
 
 	"github.com/wailsapp/wails/v2"
@@ -17,6 +18,10 @@ import (
 var assets embed.FS
 
 func main() {
+	// proceso aparte del Workshop (ver workshop_host.go)
+	if len(os.Args) > 1 && os.Args[1] == "--workshop" {
+		os.Exit(workshopChild(os.Args[2:]))
+	}
 	app := NewApp()
 	err := wails.Run(&options.App{
 		Title:            "TurboGAMES",
@@ -28,7 +33,7 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 10, G: 11, B: 18, A: 255},
 		AssetServer:      &assetserver.Options{Assets: assets, Handler: app.images},
 		OnStartup:        app.startup,
-		OnShutdown:       func(context.Context) { app.shutdownClip() },
+		OnShutdown:       func(context.Context) { app.shutdownClip(); app.stopWorkshop() },
 		Bind:             []interface{}{app},
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "turbogames-7c1f3e52-cuentas",
