@@ -830,12 +830,31 @@ type ModPage struct {
 }
 
 var searchSorts = map[string]int{
-	"trend": steamworks.QueryByTrend, "votes": steamworks.QueryByVote, "subs": steamworks.QueryBySubscribers,
+	"relevance": steamworks.QueryByText,
+	"trend":     steamworks.QueryByTrend, "votes": steamworks.QueryByVote, "subs": steamworks.QueryBySubscribers,
 	"recent": steamworks.QueryByDate, "updated": steamworks.QueryByLastUpdated,
 }
 
+// SearchQuery son los filtros de una búsqueda en el Workshop.
+type SearchQuery struct {
+	Text    string   `json:"text"`
+	Sort    string   `json:"sort"` // relevance, trend, votes, subs, recent, updated
+	Days    int      `json:"days"` // para trend: populares de los últimos N días
+	Cursor  string   `json:"cursor"`
+	Tags    []string `json:"tags"`
+	Exclude []string `json:"exclude"`
+}
+
 // ModsSearch busca mods de un juego en el Workshop (necesita Steam abierto).
-func (a *App) ModsSearch(appid uint32, text, sortBy, cursor string, tags []string) (ModPage, error) {
+func (a *App) ModsSearch(appid uint32, q SearchQuery) (ModPage, error) {
+	text, sortBy, cursor, tags := q.Text, q.Sort, q.Cursor, q.Tags
+	if strings.TrimSpace(text) == "" && sortBy == "relevance" {
+		sortBy = "trend"
+	}
+	excl := q.Exclude
+	if len(excl) > 10 {
+		excl = excl[:10]
+	}
 	p := ModPage{Mods: []Mod{}}
 	s, ok := searchSorts[sortBy]
 	if !ok {
@@ -848,7 +867,7 @@ func (a *App) ModsSearch(appid uint32, text, sortBy, cursor string, tags []strin
 	for i := range tags {
 		tags[i] = clip(tags[i], 64)
 	}
-	if err := a.wsCall(appid, wsRequest{Op: "search", Text: clip(text, 200), Sort: s, Cursor: cursor, Tags: tags}, 45*time.Second, &page); err != nil {
+	if err := a.wsCall(appid, wsRequest{Op: "search", Text: clip(text, 200), Sort: s, Cursor: cursor, Tags: tags, Excl: excl, Days: q.Days}, 45*time.Second, &page); err != nil {
 		return p, err
 	}
 	a.wcache.put(page.Items, true)

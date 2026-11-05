@@ -894,10 +894,12 @@
     sel: null, selMod: null, // sel: { kind: "mod" | "preset", id }
     checked: new Set(), pchecked: new Set(),
     presets: null, info: new Map(), pmods: new Map(),
-    search: { q: "", sort: store.get("modSort", "trend"), tags: [], mods: [], cursor: "", total: 0, loading: false, done: false, err: "", app: 0 },
-    f: { state: "all", wtag: "", mytag: "", sort: store.get("modListSort", "name") }, // filtros de la lista
-    h: { filter: store.get("modHomeFilter", "mods"), tag: "", sort: store.get("modHomeSort", "recent") }, // filtros de la portada
-    pTag: "", pFrom: "", connect: new Set(), busy: false,
+    search: { q: "", sort: store.get("modSort", "trend"), days: store.get("modDays", 7), userSort: false, tags: [], exclude: [], hideMine: false, mods: [], cursor: "", total: 0, loading: false, done: false, err: "", app: 0 },
+    f: { state: "all", wtags: [], mytags: [], size: "", upd: "", rating: "", sort: store.get("modListSort", "name") }, // filtros de la lista
+    h: { filter: store.get("modHomeFilter", "mods"), tags: [], sort: store.get("modHomeSort", "recent") }, // filtros de la portada
+    p: { kind: "", from: "", tags: [], sort: store.get("modPresetSort", "recent") }, // filtros de los presets
+    fopen: store.get("modFiltersOpen", false), allTags: new Set(), // panel de filtros abierto, grupos con todas sus etiquetas
+    connect: new Set(), busy: false,
   };
 
   // juegos de la pestaña: los que tienen Workshop o mods en este PC, y los de
@@ -984,8 +986,9 @@
     store.set("modApp", appid);
     if (changed) {
       MS.sel = null; MS.selMod = null; MS.checked.clear(); MS.pchecked.clear(); MS.list = null;
-      MS.f = { ...MS.f, state: "all", wtag: "", mytag: "" };
-      MS.search = { ...MS.search, tags: [], mods: [], cursor: "", total: 0, done: false, err: "", app: 0 };
+      MS.f = { ...MS.f, state: "all", wtags: [], mytags: [], size: "", upd: "", rating: "" };
+      MS.p = { ...MS.p, kind: "", from: "", tags: [] };
+      MS.search = { ...MS.search, tags: [], exclude: [], hideMine: false, mods: [], cursor: "", total: 0, done: false, err: "", app: 0 };
     }
     clearModQ();
     if (tab) { MS.tab = tab; store.set("modTab", tab); }
@@ -1038,19 +1041,23 @@
       $("#mod-n-subs").textContent = MS.list && !MS.list.noGame ? MS.list.mods.filter((m) => m.subscribed).length : "";
       $("#mod-n-presets").textContent = gamePresets().filter((p) => !p.auto).length || "";
     }
-    $("#mod-q").placeholder = home ? "Buscar juegos (Ctrl+F)" : MS.tab === "search" ? "Buscar en el Workshop (Intro)" : MS.tab === "presets" ? "Filtrar presets (Ctrl+F)" : "Filtrar mods (Ctrl+F)";
+    $("#mod-q").placeholder = home ? "Buscar entre tus juegos" : MS.tab === "search" ? "Buscar en el Workshop y pulsar Intro" : MS.tab === "presets" ? "Buscar presets: nombre, quién lo pasó, notas…" : "Buscar por nombre, autor o etiqueta (#etiqueta)";
+    // estado de Steam, corto: la cuenta ya sale arriba, en la barra de título
     const lv = $("#mod-live"), l = MS.list;
-    if (home || !MS.app || !l || l.noGame) { lv.innerHTML = !home && MS.loading ? `<span class="livep"><span class="spinner" style="width:12px;height:12px;border-width:2px"></span>Leyendo…</span>` : ""; return; }
-    if (l.connecting) { lv.innerHTML = `<span class="livep"><span class="spinner" style="width:12px;height:12px;border-width:2px"></span>Conectando con Steam…</span>`; return; }
-    if (l.live) {
-      const a = S.accounts.find((x) => x.steamId === l.account);
-      lv.innerHTML = `<span class="livep" title="Los cambios se hacen con la cuenta que está abierta en Steam. Mientras está conectado, tus amigos te ven «jugando» a este juego.">${MS.loading ? `<span class="spinner" style="width:12px;height:12px;border-width:2px"></span>` : '<i class="dot ok"></i>'}Steam · <b>${esc(a ? display(a) : "cuenta abierta")}</b></span>`;
-    } else if (l.liveError) {
-      const own = notOwnedErr(l.liveError) ? ownersOf(MS.app)[0] : null;
-      lv.innerHTML = own
-        ? `<span class="livep warn" data-mact="switch-owner" title="La cuenta abierta en Steam no tiene este juego. Pulsa para cambiar a ${esc(display(own))}.">${ic("login")}<b>Cambiar a ${esc(display(own))}</b></span>`
-        : `<span class="livep warn" data-mact="connect" title="${esc(l.liveError)}. Pulsa para volver a intentarlo.">${ic("alert")}<b>${esc(l.liveError)}</b></span>`;
-    } else lv.innerHTML = `<span class="livep off" data-mact="connect" title="Para ver todas tus suscripciones (aunque el juego no esté instalado) y poder cambiarlas desde aquí">${ic("plug")}Conectar con Steam</span>`;
+    let h = "";
+    if (!home && MS.app && l && !l.noGame) {
+      if (l.connecting) h = `<span class="livep" title="Conectando con Steam…"><span class="spinner xs"></span>Conectando…</span>`;
+      else if (l.live) {
+        const a = S.accounts.find((x) => x.steamId === l.account);
+        h = `<span class="livep" title="Conectado con Steam${a ? " como " + esc(display(a)) : ""}: los cambios se hacen con esa cuenta. Mientras está conectado, tus amigos te ven «jugando» a este juego.">${MS.loading ? '<span class="spinner xs"></span>' : '<i class="dot ok"></i>'}Conectado</span>`;
+      } else if (l.liveError) {
+        const own = notOwnedErr(l.liveError) ? ownersOf(MS.app)[0] : null;
+        h = own
+          ? `<span class="livep warn" data-mact="switch-owner" title="La cuenta abierta en Steam no tiene este juego; ${esc(display(own))} sí. Pulsa para cambiar.">${ic("login")}Cambiar de cuenta</span>`
+          : `<span class="livep warn" data-mact="connect" title="${esc(l.liveError)}. Pulsa para volver a intentarlo.">${ic("alert")}Sin conexión</span>`;
+      } else h = `<span class="livep off" data-mact="connect" title="Conectar con Steam para ver todas tus suscripciones (aunque el juego no esté instalado) y poder cambiarlas">${ic("plug")}Conectar</span>`;
+    }
+    lv.innerHTML = h;
   }
 
   // ---------- portada: los juegos con mods ----------
@@ -1061,8 +1068,10 @@
       if (h.filter === "mods" && !g.mods && !presetsOf(g.appid).length) return false;
       if (h.filter === "presets" && !presetsOf(g.appid).length) return false;
       if (h.filter === "installed" && !g.installed) return false;
-      if (h.tag.startsWith("t:") && !(g.tags || []).some((t) => t.toLowerCase() === h.tag.slice(2).toLowerCase())) return false;
-      if (h.tag.startsWith("c:") && !(g.collections || []).includes(h.tag.slice(2))) return false;
+      for (const t of h.tags) {
+        if (t.startsWith("t:") && !(g.tags || []).some((x) => x.toLowerCase() === t.slice(2).toLowerCase())) return false;
+        if (t.startsWith("c:") && !(g.collections || []).includes(t.slice(2))) return false;
+      }
       const hay = norm([g.name, ...(g.tags || []), ...(g.collections || []), g.appid].join(" "));
       return !q || q.split(/\s+/).every((w) => hay.includes(w.replace(/^#/, "")));
     });
@@ -1075,19 +1084,7 @@
     }[h.sort] || (() => 0);
     return list.sort((x, y) => by(x, y) || x.name.localeCompare(y.name, "es", { sensitivity: "base" }));
   }
-  function renderHomeBar(bar) {
-    const all = modGames();
-    const n = { mods: all.filter((g) => g.mods || presetsOf(g.appid).length).length, all: all.length, presets: all.filter((g) => presetsOf(g.appid).length).length, installed: all.filter((g) => g.installed).length };
-    const tags = [...new Set(all.flatMap((g) => g.tags || []))].sort((a, b) => a.localeCompare(b, "es"));
-    const cols = [...new Set(all.flatMap((g) => g.collections || []))].sort((a, b) => a.localeCompare(b, "es"));
-    if (MS.h.tag && !tags.includes(MS.h.tag.slice(2)) && !cols.includes(MS.h.tag.slice(2))) MS.h.tag = "";
-    const o = (v, l, cur) => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(l)}</option>`;
-    const shown = homeGames();
-    bar.innerHTML = `<div class="seg" id="mh-filter">${[["mods", "Con mods", n.mods], ["presets", "Con presets", n.presets], ["installed", "Instalados", n.installed], ["all", "Con Workshop", n.all]].map(([v, l, c]) => `<button data-v="${v}" class="${MS.h.filter === v ? "on" : ""}">${l}<small>${c}</small></button>`).join("")}</div>
-      ${tags.length || cols.length ? `<select class="fsel${MS.h.tag ? " on" : ""}" id="mh-tag" title="Tus etiquetas y colecciones de Steam">${o("", "Etiquetas y colecciones", MS.h.tag)}${tags.length ? `<optgroup label="Tus etiquetas">${tags.map((t) => o("t:" + t, "#" + t, MS.h.tag)).join("")}</optgroup>` : ""}${cols.length ? `<optgroup label="Colecciones de Steam">${cols.map((c) => o("c:" + c, c, MS.h.tag)).join("")}</optgroup>` : ""}</select>` : ""}
-      <select class="fsel" id="mh-sort" title="Orden">${o("recent", "Jugados hace poco", MS.h.sort)}${o("mods", "Más mods", MS.h.sort)}${o("size", "Más espacio en mods", MS.h.sort)}${o("hours", "Más horas", MS.h.sort)}${o("name", "Por nombre", MS.h.sort)}</select>
-      <span class="grow"></span><span class="fstat"><b>${shown.length}</b> juegos</span>`;
-  }
+
   function renderHomeList(box) {
     if (!S.games) { box.innerHTML = spinnerBox("Leyendo tu biblioteca…"); return; }
     const list = homeGames();
@@ -1122,8 +1119,18 @@
       <div class="dfoot"><button class="btn ghost xs" data-mact="paste">${ic("paste")}Pegar un preset</button><button class="btn ghost xs" data-mact="import">${ic("file")}Abrir un archivo…</button></div>`;
   }
 
-  // ---------- barra de cada pestaña ----------
+  // ---------- filtros ----------
   const MSTATES = [["all", "Todos"], ["subs", "Suscritos"], ["installed", "En el disco"], ["notdl", "Sin bajar"], ["update", "Por actualizar"], ["downloading", "Bajando o en cola"], ["nosub", "Sin suscripción"], ["missing", "Ya no existen"], ["history", "Los que tuve antes"]];
+  const MSIZES = [["", "Cualquiera"], ["s", "Menos de 100 MB"], ["m", "De 100 MB a 1 GB"], ["l", "Más de 1 GB"]];
+  const MUPDS = [["", "Cuando sea"], ["1m", "Último mes"], ["6m", "Últimos 6 meses"], ["1y", "Último año"], ["old", "Hace más de un año"]];
+  const MRATES = [["", "Cualquiera"], ["90", "90 % o más"], ["75", "75 % o más"], ["50", "50 % o más"], ["nov", "Sin votos"]];
+  const SSORTS = [["relevance", "Más parecidos al texto"], ["trend", "Populares"], ["votes", "Mejor valorados (de siempre)"], ["subs", "Más suscriptores (de siempre)"], ["recent", "Más nuevos"], ["updated", "Actualizados hace poco"]];
+  const SPERIODS = [[1, "de hoy"], [7, "de esta semana"], [30, "de este mes"], [90, "de los últimos 3 meses"], [180, "de los últimos 6 meses"], [365, "del último año"]];
+  const LSORTS = [["name", "Nombre"], ["size", "Más grandes"], ["updated", "Actualizados hace poco"], ["votes", "Mejor valorados"], ["subs", "Más suscriptores"], ["since", "Suscritos hace poco"]];
+  const HSORTS = [["recent", "Jugados hace poco"], ["mods", "Más mods"], ["size", "Más espacio en mods"], ["hours", "Más horas"], ["name", "Nombre"]];
+  const PSORTS = [["recent", "Más recientes"], ["name", "Nombre"], ["mods", "Más mods"], ["have", "Los que más tengo"]];
+  const lbl = (list, v) => (list.find((x) => String(x[0]) === String(v)) || [v, v])[1];
+
   function stateMatch(m, st) {
     switch (st) {
       case "subs": return m.subscribed;
@@ -1137,18 +1144,30 @@
     return true;
   }
   const modMatch = (m, q) => !q || q.split(/\s+/).every((w) => w.startsWith("#") ? norm([...(m.tags || []), ...(m.myTags || [])].join(" ")).includes(w.slice(1)) : norm([m.title, m.author, (m.tags || []).join(" "), (m.myTags || []).join(" "), m.id].join(" ")).includes(w));
+  const modSize = (m) => m.diskSize || m.size || 0;
+  const score = (m) => { const t = (m.votesUp || 0) + (m.votesDown || 0); return t ? m.votesUp / t : -1; };
+  function sizeOk(m, v) { const s = modSize(m); return !v || (v === "s" ? s < 100e6 : v === "m" ? s >= 100e6 && s < 1e9 : s >= 1e9); }
+  function updOk(m, v) {
+    if (!v) return true;
+    const age = Date.now() / 1000 - (m.updated || 0);
+    return v === "old" ? age > 365 * 86400 : age <= ({ "1m": 30, "6m": 182, "1y": 365 }[v]) * 86400;
+  }
+  function rateOk(m, v) { if (!v) return true; const s = score(m); return v === "nov" ? s < 0 : s >= +v / 100; }
+
   function sourceMods() {
     if (!MS.list) return [];
     return MS.f.state === "history" ? (MS.list.history || []) : MS.list.mods;
   }
   // los mods que se ven ahora en la lista (con todos los filtros)
   function visibleMods() {
-    if (MS.tab === "search") return MS.search.mods;
+    if (MS.tab === "search") return MS.search.hideMine ? MS.search.mods.filter((m) => !m.subscribed) : MS.search.mods;
     const q = norm(MS.q.trim()), f = MS.f;
-    const list = sourceMods().filter((m) => (f.state === "history" || stateMatch(m, f.state)) && (!f.wtag || (m.tags || []).includes(f.wtag)) && (!f.mytag || (m.myTags || []).includes(f.mytag)) && modMatch(m, q));
+    const list = sourceMods().filter((m) => (f.state === "history" || stateMatch(m, f.state))
+      && f.wtags.every((t) => (m.tags || []).includes(t)) && f.mytags.every((t) => (m.myTags || []).includes(t))
+      && sizeOk(m, f.size) && updOk(m, f.upd) && rateOk(m, f.rating) && modMatch(m, q));
     const by = {
       name: (x, y) => x.title.localeCompare(y.title, "es", { sensitivity: "base" }),
-      size: (x, y) => ((y.diskSize || y.size || 0) - (x.diskSize || x.size || 0)),
+      size: (x, y) => modSize(y) - modSize(x),
       updated: (x, y) => ((y.updated || 0) - (x.updated || 0)),
       votes: (x, y) => (score(y) - score(x)) || ((y.votesUp || 0) - (x.votesUp || 0)),
       subs: (x, y) => ((y.subscriptions || 0) - (x.subscriptions || 0)),
@@ -1156,83 +1175,194 @@
     }[f.sort] || (() => 0);
     return list.sort((x, y) => by(x, y) || x.title.localeCompare(y.title, "es", { sensitivity: "base" }));
   }
-  const score = (m) => { const t = (m.votesUp || 0) + (m.votesDown || 0); return t ? m.votesUp / t : -1; };
   function tagCounts(mods, key) {
     const c = new Map();
     for (const m of mods) for (const t of m[key] || []) c.set(t, (c.get(t) || 0) + 1);
     return [...c.entries()].sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0], "es"));
   }
 
-  function renderModBar() {
-    const bar = $("#mod-bar");
-    if (MS.home) { renderHomeBar(bar); return; }
-    if (!MS.app) { bar.innerHTML = ""; return; }
-    const o = (v, l, cur) => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(l)}</option>`;
+  // filtros puestos ahora, como fichas que se quitan con la X: [etiqueta, clave para quitarla]
+  function activeFilters() {
+    const out = [];
+    if (MS.home) {
+      if (MS.h.filter !== "mods") out.push([lbl([["presets", "Con presets"], ["installed", "Instalados"], ["all", "Todos con Workshop"]], MS.h.filter), "h.filter"]);
+      for (const t of MS.h.tags) out.push([t.startsWith("t:") ? "#" + t.slice(2) : t.slice(2), "h.tags|" + t]);
+      return out;
+    }
     if (MS.tab === "subs") {
-      const l = MS.list, src = sourceMods(), f = MS.f;
-      const vis = visibleMods();
-      const allChecked = vis.length > 0 && vis.every((m) => MS.checked.has(m.id));
-      const wt = tagCounts(src, "tags"), mt = tagCounts([...(l ? l.mods : []), ...((l && l.history) || [])], "myTags");
-      if (f.wtag && !wt.some(([t]) => t === f.wtag)) f.wtag = "";
-      if (f.mytag && !mt.some(([t]) => t === f.mytag)) f.mytag = "";
-      const subs = l ? l.mods.filter((m) => m.subscribed) : [];
-      let h = `<label class="chk all-chk" title="Elegir todos los que se ven"><input type="checkbox" data-mact="check-all"${allChecked ? " checked" : ""}${vis.length ? "" : " disabled"}></label>
-        <select class="fsel${f.state !== "all" ? " on" : ""}" id="mf-state" title="Estado">${MSTATES.map(([v, t]) => o(v, t + (v === "history" ? ` (${(l && l.history || []).length})` : ""), f.state)).join("")}</select>
-        ${wt.length ? `<select class="fsel${f.wtag ? " on" : ""}" id="mf-wtag" title="Etiquetas que les ha puesto su autor en el Workshop">${o("", "Etiquetas del Workshop", f.wtag)}${wt.map(([t, n]) => o(t, `${t} (${n})`, f.wtag)).join("")}</select>` : ""}
-        ${mt.length ? `<select class="fsel${f.mytag ? " on" : ""}" id="mf-mytag" title="Tus etiquetas">${o("", "Tus etiquetas", f.mytag)}${mt.map(([t, n]) => o(t, `#${t} (${n})`, f.mytag)).join("")}</select>` : ""}
-        <select class="fsel" id="mf-sort" title="Orden">${o("name", "Por nombre", f.sort)}${o("size", "Más grandes", f.sort)}${o("updated", "Actualizados hace poco", f.sort)}${o("votes", "Mejor valorados", f.sort)}${o("subs", "Más suscriptores", f.sort)}${o("since", f.state === "history" ? "Quitados hace poco" : "Suscritos hace poco", f.sort)}</select>
-        <span class="fstat"><b>${vis.length}</b> de ${src.length}${f.state !== "history" && l && l.diskSize ? " · " + fmtBytes(l.diskSize) + " en el disco" : ""}${l && l.pending ? ` · <span class="spinner"></span>trayendo datos de ${l.pending}` : ""}</span>
-        <span class="grow"></span>`;
-      if (MS.checked.size) h += bulkBar();
-      else h += `<button class="btn ghost xs" data-mact="save-all"${subs.length ? "" : " disabled"} title="Un preset con todo lo que tienes suscrito">${ic("save")}Guardar como preset</button>
-          <button class="btn ghost xs" data-mact="paste">${ic("paste")}Pegar preset</button>
-          <button class="btn ghost xs danger-txt" data-mact="unsub-all"${subs.length ? "" : " disabled"} title="Quitar todas las suscripciones de este juego (antes se guarda una copia)">${ic("trash")}Quitar todo…</button>
-          <button class="ibtn" data-mact="reload" title="Volver a leer">${ic("refresh")}</button>`;
-      bar.innerHTML = h;
+      const f = MS.f;
+      if (f.state !== "all") out.push([lbl(MSTATES, f.state), "f.state"]);
+      for (const t of f.wtags) out.push([t, "f.wtags|" + t]);
+      for (const t of f.mytags) out.push(["#" + t, "f.mytags|" + t]);
+      if (f.size) out.push([lbl(MSIZES, f.size), "f.size"]);
+      if (f.upd) out.push(["Actualizado: " + lbl(MUPDS, f.upd).toLowerCase(), "f.upd"]);
+      if (f.rating) out.push(["Votos: " + lbl(MRATES, f.rating), "f.rating"]);
     } else if (MS.tab === "presets") {
-      const ps = gamePresets();
-      const tags = [...new Set(ps.flatMap((p) => p.tags || []))].sort((a, b) => a.localeCompare(b, "es"));
-      const froms = [...new Set(ps.map((p) => p.from).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
-      if (MS.pTag && !tags.includes(MS.pTag)) MS.pTag = "";
-      if (MS.pFrom && MS.pFrom !== "__mine" && !froms.includes(MS.pFrom)) MS.pFrom = "";
-      let h = `<button class="btn primary xs" data-mact="new-preset"${subscribedIds().length ? "" : " disabled"} title="Un preset con los mods a los que estás suscrito ahora">${ic("plus")}Nuevo con lo suscrito</button>
-        <button class="btn ghost xs" data-mact="paste">${ic("paste")}Pegar preset</button>
-        <button class="btn ghost xs" data-mact="import">${ic("file")}Abrir archivo…</button>`;
-      if (MS.pchecked.size > 1) h += `<span class="sep"></span><button class="btn go xs" data-mact="activate-checked">${ic("layers")}Activar los ${MS.pchecked.size} juntos</button><button class="btn ghost xs" data-mact="puncheck">Deseleccionar</button>`;
-      h += `<span class="grow"></span>`;
-      if (froms.length) h += `<select class="fsel${MS.pFrom ? " on" : ""}" id="mod-pfrom" title="Quién te lo pasó"><option value="">De cualquiera</option><option value="__mine"${MS.pFrom === "__mine" ? " selected" : ""}>Solo los míos</option>${froms.map((f) => `<option value="${esc(f)}"${f === MS.pFrom ? " selected" : ""}>De ${esc(f)}</option>`).join("")}</select>`;
-      if (tags.length) h += `<select class="fsel${MS.pTag ? " on" : ""}" id="mod-ptag" title="Etiqueta"><option value="">Todas las etiquetas</option>${tags.map((t) => `<option value="${esc(t)}"${t === MS.pTag ? " selected" : ""}>#${esc(t)}</option>`).join("")}</select>`;
-      bar.innerHTML = h;
+      const p = MS.p;
+      if (p.kind) out.push([lbl([["mine", "Solo los míos"], ["received", "Los que me han pasado"], ["auto", "Copias automáticas"]], p.kind), "p.kind"]);
+      if (p.from) out.push(["De " + p.from, "p.from"]);
+      for (const t of p.tags) out.push(["#" + t, "p.tags|" + t]);
     } else {
       const s = MS.search;
-      const sorts = [["trend", "Populares esta semana"], ["votes", "Mejor valorados"], ["subs", "Más suscriptores"], ["recent", "Más nuevos"], ["updated", "Actualizados hace poco"]];
-      const vis = s.mods;
-      const allChecked = vis.length > 0 && vis.every((m) => MS.checked.has(m.id));
-      // etiquetas para filtrar: las de los resultados y las de tus mods
-      const known = tagCounts([...s.mods, ...(MS.list ? MS.list.mods : [])], "tags").map(([t]) => t).filter((t) => !s.tags.includes(t)).slice(0, 40);
-      let h = `<label class="chk all-chk" title="Elegir todos los que se ven"><input type="checkbox" data-mact="check-all"${allChecked ? " checked" : ""}${vis.length ? "" : " disabled"}></label>
-        <select class="fsel" id="mod-sort" title="Orden"${s.q ? " disabled" : ""}>${sorts.map(([v, l]) => o(v, l, s.sort)).join("")}</select>
-        ${known.length ? `<select class="fsel" id="ms-addtag" title="Solo mods con esta etiqueta del Workshop">${o("", "+ Filtrar por etiqueta", "")}${known.map((t) => o(t, t, "")).join("")}</select>` : ""}
-        ${s.tags.map((t) => `<span class="chip tag">${esc(t)}<button data-stag="${esc(t)}" title="Quitar este filtro">${ic("x")}</button></span>`).join("")}
-        ${s.q ? `<span class="fstat">«<b>${esc(s.q)}</b>»</span><button class="btn ghost xs" data-mact="search-clear">${ic("x")}Quitar búsqueda</button>` : ""}
-        <span class="grow"></span>`;
-      h += MS.checked.size ? bulkBar() : `<span class="fstat">${s.total ? `<b>${nf0.format(s.total)}</b> mods` : ""}</span>`;
-      bar.innerHTML = h;
+      for (const t of s.tags) out.push([t, "s.tags|" + t]);
+      for (const t of s.exclude) out.push(["Sin " + t, "s.exclude|" + t]);
+      if (s.hideMine) out.push(["Sin los que ya tengo", "s.hideMine"]);
     }
+    return out;
+  }
+  function removeFilter(key) {
+    const [k, v] = key.split("|");
+    const [obj, field] = k.split(".");
+    const o = { h: MS.h, f: MS.f, p: MS.p, s: MS.search }[obj];
+    if (!o) return;
+    if (Array.isArray(o[field])) o[field] = o[field].filter((x) => x !== v);
+    else o[field] = field === "filter" ? "mods" : field === "state" ? "all" : field === "hideMine" ? false : "";
+    if (obj === "s" && field !== "hideMine") runSearch(); else { renderModBar(); renderModList(); }
+  }
+  function clearFilters() {
+    if (MS.home) MS.h = { ...MS.h, filter: "mods", tags: [] };
+    else if (MS.tab === "subs") MS.f = { ...MS.f, state: "all", wtags: [], mytags: [], size: "", upd: "", rating: "" };
+    else if (MS.tab === "presets") MS.p = { ...MS.p, kind: "", from: "", tags: [] };
+    else { const had = MS.search.tags.length || MS.search.exclude.length; MS.search = { ...MS.search, tags: [], exclude: [], hideMine: false }; if (had) { runSearch(); return; } }
+    renderModBar(); renderModList();
   }
 
-  // acciones sobre los mods elegidos con las casillas
-  function bulkBar() {
+  // un grupo de fichas del panel de filtros. multi: varias a la vez (todas
+  // tienen que cumplirse)
+  function chipGroup(title, key, opts, cur, multi, note) {
+    const on = (v) => multi ? cur.includes(v) : String(cur) === String(v);
+    return `<div class="fgroup"><div class="fg-h">${esc(title)}${note ? `<span>${esc(note)}</span>` : ""}</div><div class="fg-c">${opts.map(([v, l, n]) => `<button class="fchip${on(v) ? " on" : ""}" data-fk="${key}" data-fv="${esc(v)}">${esc(l)}${n != null ? `<small>${n}</small>` : ""}</button>`).join("")}</div></div>`;
+  }
+  function tagGroup(title, key, counts, cur, note, prefix) {
+    if (!counts.length) return "";
+    const all = MS.allTags.has(key);
+    const shown = all ? counts : counts.slice(0, 24);
+    const opts = shown.map(([t, n]) => [t, (prefix || "") + t, n]);
+    // las elegidas siempre se ven aunque estén más abajo
+    for (const t of cur) if (!shown.some(([x]) => x === t)) opts.unshift([t, (prefix || "") + t, null]);
+    return chipGroup(title, key, opts, cur, true, note) .replace(/<\/div><\/div>$/, (counts.length > 24 ? `<button class="fchip more" data-mact="all-tags" data-k="${key}">${all ? "Ver menos" : `Ver todas (${counts.length})`}</button>` : "") + "</div></div>");
+  }
+
+  function renderFilterPanel(box) {
+    let h = "";
+    if (MS.home) {
+      const all = modGames();
+      const n = { mods: all.filter((g) => g.mods || presetsOf(g.appid).length).length, presets: all.filter((g) => presetsOf(g.appid).length).length, installed: all.filter((g) => g.installed).length, all: all.length };
+      h += chipGroup("Mostrar", "h.filter", [["mods", "Con mods o presets", n.mods], ["presets", "Con presets", n.presets], ["installed", "Instalados", n.installed], ["all", "Todos con Workshop", n.all]], MS.h.filter, false);
+      const tags = tagCounts(all, "tags").map(([t, c]) => ["t:" + t, "#" + t, c]);
+      const cols = tagCounts(all, "collections").map(([t, c]) => ["c:" + t, t, c]);
+      if (tags.length) h += chipGroup("Tus etiquetas", "h.tags", tags, MS.h.tags, true, "las pones en la ficha de cada juego");
+      if (cols.length) h += chipGroup("Colecciones de Steam", "h.tags", cols, MS.h.tags, true);
+    } else if (MS.tab === "subs") {
+      const l = MS.list, f = MS.f, mods = l ? l.mods : [];
+      const cnt = (st) => mods.filter((m) => stateMatch(m, st)).length;
+      h += chipGroup("Estado", "f.state", MSTATES.map(([v, t]) => [v, t, v === "history" ? ((l && l.history) || []).length : cnt(v)]), f.state, false);
+      const src = sourceMods();
+      h += tagGroup("Etiquetas del Workshop", "f.wtags", tagCounts(src, "tags"), f.wtags, "las que les puso su autor · si eliges varias, tienen que tenerlas todas");
+      h += tagGroup("Tus etiquetas", "f.mytags", tagCounts([...mods, ...((l && l.history) || [])], "myTags"), f.mytags, "se ponen en la ficha del mod o a varios a la vez con las casillas", "#");
+      h += `<div class="frow3">${chipGroup("Tamaño", "f.size", MSIZES, f.size, false)}${chipGroup("Actualizado", "f.upd", MUPDS, f.upd, false)}${chipGroup("Votos a favor", "f.rating", MRATES, f.rating, false)}</div>`;
+    } else if (MS.tab === "presets") {
+      const ps = gamePresets(), p = MS.p;
+      h += chipGroup("Cuáles", "p.kind", [["", "Todos", ps.length], ["mine", "Los míos", ps.filter((x) => !x.from && !x.auto).length], ["received", "Los que me han pasado", ps.filter((x) => x.from).length], ["auto", "Copias automáticas", ps.filter((x) => x.auto).length]], p.kind, false);
+      const froms = tagCounts(ps.map((x) => ({ f: x.from ? [x.from] : [] })), "f");
+      if (froms.length) h += chipGroup("Quién te lo pasó", "p.from", [["", "Cualquiera", null], ...froms.map(([t, c]) => [t, t, c])], p.from, false);
+      const tags = tagCounts(ps, "tags");
+      if (tags.length) h += tagGroup("Etiquetas", "p.tags", tags, p.tags, "", "#");
+    } else {
+      const s = MS.search;
+      const known = tagCounts([...s.mods, ...(MS.list ? MS.list.mods : [])], "tags");
+      for (const t of [...s.tags, ...s.exclude]) if (!known.some(([x]) => x === t)) known.unshift([t, 0]);
+      h += `<div class="fgroup"><div class="fg-h">Etiquetas del Workshop<span>pulsa una vez para pedirla, otra para quitar los que la tengan y otra para olvidarla</span></div><div class="fg-c">${known.slice(0, MS.allTags.has("s") ? 400 : 40).map(([t, n]) => { const inc = s.tags.includes(t), exc = s.exclude.includes(t); return `<button class="fchip${inc ? " on" : exc ? " ex" : ""}" data-fk="stag" data-fv="${esc(t)}" title="${inc ? "Solo los que la tienen" : exc ? "Sin los que la tienen" : "Pulsa para filtrar"}">${inc ? "+ " : exc ? "− " : ""}${esc(t)}${n ? `<small>${n}</small>` : ""}</button>`; }).join("")}${known.length > 40 ? `<button class="fchip more" data-mact="all-tags" data-k="s">${MS.allTags.has("s") ? "Ver menos" : `Ver todas (${known.length})`}</button>` : ""}<input class="tag-add" id="ms-tagin" maxlength="40" placeholder="+ otra etiqueta" spellcheck="false" title="Escribe una etiqueta del Workshop y pulsa Intro"></div></div>`;
+      h += chipGroup("Mostrar", "s.hideMine", [["", "Todos"], ["1", "Sin los que ya tengo"]], s.hideMine ? "1" : "", false);
+    }
+    h += `<div class="fpanel-foot"><button class="btn ghost xs" data-mact="clear-filters">Quitar los filtros</button><button class="btn primary xs" data-mact="close-filters">Listo</button></div>`;
+    box.innerHTML = h;
+  }
+
+  function onFilterChip(key, v) {
+    const [obj, field] = key.split(".");
+    if (key === "stag") {
+      const s = MS.search;
+      if (s.tags.includes(v)) { s.tags = s.tags.filter((x) => x !== v); s.exclude.push(v); }
+      else if (s.exclude.includes(v)) s.exclude = s.exclude.filter((x) => x !== v);
+      else s.tags.push(v);
+      runSearch();
+      return;
+    }
+    const o = { h: MS.h, f: MS.f, p: MS.p, s: MS.search }[obj];
+    if (Array.isArray(o[field])) o[field] = o[field].includes(v) ? o[field].filter((x) => x !== v) : [...o[field], v];
+    else if (field === "hideMine") o.hideMine = v === "1";
+    else o[field] = o[field] === v && field !== "state" && field !== "filter" && field !== "kind" ? "" : v;
+    if (key === "f.state") { MS.checked.clear(); if (v === "history" && MS.f.sort === "name") MS.f.sort = "since"; }
+    if (key === "h.filter") store.set("modHomeFilter", v);
+    renderModBar(); renderModList();
+  }
+
+  // ---------- fila del buscador, panel, fichas y barra de elegidos ----------
+  function renderModBar() {
+    if (S.view !== "mods") return;
+    const sel = (id, list, cur, title) => `<select class="fsel" id="${id}" title="${esc(title)}">${list.map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(cur) ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+    const sb = $("#mod-sortbox"), st = $("#mod-stat"), acts = $("#mod-actions");
+    const l = MS.list;
+    if (MS.home) {
+      sb.innerHTML = `<span class="slabel">Ordenar</span>` + sel("mh-sort", HSORTS, MS.h.sort, "Orden");
+      st.innerHTML = `<b>${homeGames().length}</b> juegos`;
+      acts.innerHTML = `<button class="btn ghost sm" data-mact="paste">${ic("paste")}Pegar preset</button>`;
+    } else if (MS.tab === "subs") {
+      sb.innerHTML = `<span class="slabel">Ordenar</span>` + sel("mf-sort", LSORTS.map(([v, t]) => [v, v === "since" && MS.f.state === "history" ? "Quitados hace poco" : t]), MS.f.sort, "Orden");
+      const vis = visibleMods(), src = sourceMods();
+      st.innerHTML = `<b>${vis.length}</b>${vis.length !== src.length ? " de " + src.length : ""} mods${MS.f.state !== "history" && l && l.diskSize ? " · " + fmtBytes(l.diskSize) : ""}${l && l.pending ? ` · <span class="spinner xs"></span>trayendo datos de ${l.pending}` : ""}`;
+      acts.innerHTML = `<button class="btn ghost sm" data-mact="subs-menu">${ic("more")}Acciones</button>`;
+    } else if (MS.tab === "presets") {
+      sb.innerHTML = `<span class="slabel">Ordenar</span>` + sel("mp-sort", PSORTS, MS.p.sort, "Orden");
+      st.innerHTML = `<b>${filteredPresets().length}</b> presets`;
+      acts.innerHTML = (MS.pchecked.size > 1 ? `<button class="btn go sm" data-mact="activate-checked">${ic("layers")}Activar los ${MS.pchecked.size} juntos</button>` : "") + `<button class="btn primary sm" data-mact="new-menu">${ic("plus")}Nuevo preset</button>`;
+    } else {
+      const s = MS.search;
+      const sorts = SSORTS.filter(([v]) => v !== "relevance" || s.q);
+      sb.innerHTML = `<span class="slabel">Ordenar</span>` + sel("ms-sort", sorts, s.sort, "Orden") + (s.sort === "trend" ? sel("ms-days", SPERIODS, s.days, "De qué periodo") : "");
+      st.innerHTML = s.loading ? `<span class="spinner xs"></span>buscando…` : s.total ? `<b>${nf0.format(s.total)}</b> mods` : "";
+      acts.innerHTML = `<button class="btn ghost sm" data-mact="workshop-web" title="Abrir el Workshop de este juego en el navegador">${ic("globe")}</button>`;
+    }
+    // filtros
+    const af = activeFilters();
+    const fb = $("#mod-fbtn");
+    fb.classList.toggle("on", MS.fopen);
+    $("#mod-fcount").textContent = af.length || "";
+    const panel = $("#mod-filters");
+    panel.hidden = !MS.fopen;
+    if (MS.fopen) renderFilterPanel(panel);
+    $("#mod-active").innerHTML = af.length && !MS.fopen ? af.map(([t, k]) => `<span class="chip afil">${esc(t)}<button data-rmf="${esc(k)}" title="Quitar este filtro">${ic("x")}</button></span>`).join("") + `<button class="btn ghost xs" data-mact="clear-filters">Quitar todos</button>` : "";
+    $("#mod-active").hidden = !af.length || MS.fopen;
+    renderBulk();
+  }
+
+  // barra de abajo con lo que se puede hacer con los mods elegidos
+  function renderBulk() {
+    const box = $("#mod-bulk");
+    const ok = !MS.home && (MS.tab === "subs" || MS.tab === "search") && MS.checked.size > 0;
+    box.hidden = !ok;
+    if (!ok) return;
     const ids = [...MS.checked];
     const ms = ids.map(modById).filter(Boolean);
     const toSub = ms.filter((m) => !m.subscribed).length, toUnsub = ms.filter((m) => m.subscribed).length;
-    return `<span class="fstat"><b>${ids.length}</b> elegidos</span>
-      ${toSub ? `<button class="btn go xs" data-mact="sub-checked">${ic("plus")}Suscribirse${toSub !== ids.length ? " a " + toSub : ""}</button>` : ""}
-      ${toUnsub ? `<button class="btn ghost xs danger-txt" data-mact="unsub-checked">${ic("minus")}Quitar${toUnsub !== ids.length ? " " + toUnsub : ""}</button>` : ""}
-      <button class="btn ghost xs" data-mact="save-checked">${ic("save")}Preset</button>
-      <input class="tag-add" id="mod-bulk-tag" maxlength="24" placeholder="+ etiqueta" spellcheck="false" title="Pon una etiqueta tuya a los elegidos (Intro)">
-      <button class="ibtn" data-mact="bulk-untag" title="Quitar una etiqueta tuya a los elegidos">${ic("x")}</button>
-      <button class="btn ghost xs" data-mact="uncheck">Ninguno</button>`;
+    const size = ms.reduce((s, m) => s + modSize(m), 0);
+    box.innerHTML = `<span class="bk-n"><b>${ids.length}</b> ${ids.length === 1 ? "elegido" : "elegidos"}${size ? " · " + fmtBytes(size) : ""}</span>
+      ${toSub ? `<button class="btn go sm" data-mact="sub-checked">${ic("plus")}Suscribirse${toSub !== ids.length ? " a " + toSub : ""}</button>` : ""}
+      ${toUnsub ? `<button class="btn ghost sm danger-txt" data-mact="unsub-checked">${ic("minus")}Quitar${toUnsub !== ids.length ? " " + toUnsub : ""}</button>` : ""}
+      <button class="btn ghost sm" data-mact="save-checked">${ic("save")}Hacer un preset</button>
+      <span class="sep"></span>
+      <input class="tag-add" id="mod-bulk-tag" maxlength="24" placeholder="+ etiqueta tuya" spellcheck="false" title="Escribe y pulsa Intro para ponérsela a todos los elegidos">
+      <button class="btn ghost sm" data-mact="bulk-untag">Quitar etiqueta…</button>
+      <span class="grow"></span>
+      <button class="btn ghost sm" data-mact="uncheck">Ninguno</button>`;
+  }
+
+  // encabezado de la lista: elegir todos los que se ven
+  function listHead(vis) {
+    if (!vis.length) return "";
+    const all = vis.every((m) => MS.checked.has(m.id));
+    return `<label class="lhead"><input type="checkbox" data-mact="check-all"${all ? " checked" : ""}><span>${all ? "Quitar la marca a todos" : `Elegir los ${vis.length} que se ven`}</span></label>`;
   }
 
   function renderModList() {
@@ -1318,6 +1448,7 @@
       return;
     }
     if (!vis.length) { box.innerHTML = h + `<div class="empty">${ic("search")}<b>Ningún mod coincide</b><p>Prueba con otro nombre o quita los filtros.</p><div class="row-btns"><button class="btn ghost sm" data-mact="clear-filters">Quitar los filtros</button></div></div>`; return; }
+    h += listHead(vis);
     if (MS.f.state === "all" && MS.f.sort === "name") {
       const subs = vis.filter((m) => m.subscribed), rest = vis.filter((m) => !m.subscribed);
       if (subs.length) h += (rest.length ? groupHead("Suscritos", subs.length) : "") + `<div class="mlist">${subs.map((m) => modRow(m)).join("")}</div>`;
@@ -1327,10 +1458,20 @@
   }
 
   function presetMatch(p, q) {
-    if (MS.pTag && !(p.tags || []).includes(MS.pTag)) return false;
-    if (MS.pFrom === "__mine" && p.from) return false;
-    if (MS.pFrom && MS.pFrom !== "__mine" && p.from !== MS.pFrom) return false;
+    const f = MS.p;
+    if (f.kind === "mine" && (p.from || p.auto)) return false;
+    if (f.kind === "received" && !p.from) return false;
+    if (f.kind === "auto" && !p.auto) return false;
+    if (f.from && p.from !== f.from) return false;
+    if (!f.tags.every((t) => (p.tags || []).includes(t))) return false;
     return !q || q.split(/\s+/).every((w) => norm([p.name, p.author, p.from, p.notes, (p.tags || []).join(" ")].join(" ")).includes(w.replace(/^#/, "")));
+  }
+  function filteredPresets() {
+    const q = norm(MS.q.trim());
+    const subs = new Set(subscribedIds());
+    const have = (p) => p.mods.length ? p.mods.filter((m) => subs.has(m.id)).length / p.mods.length : 0;
+    const by = { recent: (a, b) => b.updated - a.updated, name: (a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }), mods: (a, b) => b.mods.length - a.mods.length, have: (a, b) => have(b) - have(a) }[MS.p.sort] || (() => 0);
+    return gamePresets().filter((p) => presetMatch(p, q)).sort(by);
   }
   function presetCard(p, subs) {
     const have = p.mods.filter((m) => subs.has(m.id)).length;
@@ -1354,9 +1495,8 @@
   }
   function renderPresetList(box) {
     if (!MS.presets) { box.innerHTML = spinnerBox("Leyendo los presets…"); return; }
-    const q = norm(MS.q.trim());
     const all = gamePresets();
-    const ps = all.filter((p) => presetMatch(p, q));
+    const ps = filteredPresets();
     if (!all.length) {
       box.innerHTML = `<div class="empty">${ic("layers")}<b>Todavía no hay presets de este juego</b><p>Un preset es una lista de mods que activas de golpe: te suscribe a los suyos y quita los demás. Guarda lo que tienes ahora, o pega uno que te hayan pasado por un chat.</p><div class="row-btns"><button class="btn primary sm" data-mact="new-preset"${subscribedIds().length ? "" : " disabled"}>${ic("save")}Guardar lo suscrito</button><button class="btn ghost sm" data-mact="paste">${ic("paste")}Pegar preset</button><button class="btn ghost sm" data-mact="import">${ic("file")}Abrir archivo…</button></div></div>`;
       return;
@@ -1378,20 +1518,27 @@
       box.innerHTML = `<div class="empty">${ic("plug")}<b>${own ? "La cuenta abierta no tiene este juego" : "No se puede buscar ahora"}</b><p>${esc(s.err)}. Para buscar en el Workshop desde aquí, Steam tiene que estar abierto con una cuenta que tenga el juego.</p>${own ? switchOwnerHTML() : ""}<div class="row-btns"><button class="btn ${own ? "ghost" : "primary"} sm" data-mact="search-retry">${ic("refresh")}Reintentar</button><button class="btn ghost sm" data-mact="workshop-web">${ic("globe")}Abrir el Workshop en el navegador</button></div></div>`;
       return;
     }
-    if (!s.mods.length) { box.innerHTML = s.loading ? spinnerBox("Buscando en el Workshop…") : (s.app === MS.app ? `<div class="empty">${ic("search")}<b>Nada por aquí</b><p>Prueba con otras palabras o quita las etiquetas.</p></div>` : ""); return; }
-    box.innerHTML = `<div class="mlist">${s.mods.map((m) => modRow(m, "search")).join("")}</div>` +
+    const vis = visibleMods();
+    if (!vis.length) { box.innerHTML = s.loading ? spinnerBox("Buscando en el Workshop…") : (s.app === MS.app ? `<div class="empty">${ic("search")}<b>Nada por aquí</b><p>${s.mods.length ? "Ya tienes todos los de esta página: carga más o quita «Sin los que ya tengo»." : "Prueba con otras palabras o quita algún filtro."}</p>${s.mods.length && !s.done ? `<div class="row-btns"><button class="btn ghost sm" data-mact="search-more">Cargar más</button></div>` : ""}</div>` : ""); return; }
+    box.innerHTML = listHead(vis) + `<div class="mlist">${vis.map((m) => modRow(m, "search")).join("")}</div>` +
       (s.loading ? spinnerBox("Buscando…") : !s.done ? `<div class="more-row"><button class="btn ghost sm" data-mact="search-more">Cargar más</button></div>` : "");
   }
 
   async function runSearch(more) {
     const s = MS.search, app = MS.app;
     if (!app || s.loading) return;
-    if (!more) { s.mods = []; s.cursor = ""; s.done = false; s.err = ""; s.total = 0; s.q = MS.tab === "search" ? MS.q.trim() : ""; MS.checked.clear(); }
+    if (!more) {
+      const q = MS.tab === "search" ? MS.q.trim() : "";
+      // con texto, lo normal es ordenar por parecido (si no se ha elegido otro orden)
+      if (q && !s.q && !s.userSort) s.sort = "relevance";
+      if (!q && s.sort === "relevance") s.sort = "trend";
+      s.mods = []; s.cursor = ""; s.done = false; s.err = ""; s.total = 0; s.q = q; MS.checked.clear();
+    }
     s.app = app;
     s.loading = true;
     renderModBar(); renderModList();
     try {
-      const r = await api.ModsSearch(app, s.q, s.sort, more ? s.cursor : "", s.tags);
+      const r = await api.ModsSearch(app, { text: s.q, sort: s.sort, days: +s.days || 7, cursor: more ? s.cursor : "", tags: s.tags, exclude: s.exclude });
       if (MS.app !== app) return;
       const seen = new Set(s.mods.map((m) => m.id));
       s.mods = s.mods.concat((r.mods || []).filter((m) => !seen.has(m.id)));
@@ -1893,26 +2040,27 @@
       if (e.key === "Escape" && inp.value) { e.stopPropagation(); clearModQ(); if (!MS.home && MS.tab === "search") { if (MS.search.q) runSearch(); } else { renderModList(); renderModBar(); } }
     });
   }
-  $("#mod-bar").addEventListener("change", (e) => {
+  // selects del orden
+  $("#mod-sortbox").addEventListener("change", (e) => {
     const id = e.target.id, v = e.target.value;
-    if (id === "mod-sort") { MS.search.sort = v; store.set("modSort", v); runSearch(); }
-    else if (id === "ms-addtag") { if (v && !MS.search.tags.includes(v)) { MS.search.tags.push(v); runSearch(); } }
-    else if (id === "mod-ptag") { MS.pTag = v; renderModBar(); renderModList(); }
-    else if (id === "mod-pfrom") { MS.pFrom = v; renderModBar(); renderModList(); }
-    else if (id === "mf-state") { MS.f.state = v; if (v === "history") MS.f.sort = "since"; MS.checked.clear(); renderModBar(); renderModList(); }
-    else if (id === "mf-wtag") { MS.f.wtag = v; renderModBar(); renderModList(); }
-    else if (id === "mf-mytag") { MS.f.mytag = v; renderModBar(); renderModList(); }
+    if (id === "ms-sort") { MS.search.sort = v; MS.search.userSort = true; store.set("modSort", v); runSearch(); }
+    else if (id === "ms-days") { MS.search.days = +v; store.set("modDays", +v); runSearch(); }
     else if (id === "mf-sort") { MS.f.sort = v; store.set("modListSort", v); renderModBar(); renderModList(); }
-    else if (id === "mh-tag") { MS.h.tag = v; renderModBar(); renderModList(); }
     else if (id === "mh-sort") { MS.h.sort = v; store.set("modHomeSort", v); renderModBar(); renderModList(); }
+    else if (id === "mp-sort") { MS.p.sort = v; store.set("modPresetSort", v); renderModBar(); renderModList(); }
   });
-  $("#mod-bar").addEventListener("keydown", (e) => {
-    if (e.target.id !== "mod-bulk-tag" || (e.key !== "Enter" && e.key !== ",")) return;
+  $("#mod-fbtn").addEventListener("click", () => { MS.fopen = !MS.fopen; store.set("modFiltersOpen", MS.fopen); renderModBar(); });
+  // etiqueta a los elegidos, y etiqueta del Workshop escrita a mano en la búsqueda
+  document.addEventListener("keydown", (e) => {
+    const id = e.target && e.target.id;
+    if ((id !== "mod-bulk-tag" && id !== "ms-tagin") || (e.key !== "Enter" && e.key !== ",")) return;
     e.preventDefault();
     const t = e.target.value.replace(/^#+/, "").trim();
     if (!t) return;
+    if (id === "ms-tagin") { if (!MS.search.tags.includes(t)) MS.search.tags.push(t); runSearch(); return; }
     if (/[\s,#]/.test(t)) { toast("Sin espacios, comas ni #: usa una palabra o guiones", "error"); return; }
-    tagMods([...MS.checked], [t], []).then((ok) => { if (ok) toast(`#${t} puesta a ${plural(MS.checked.size, "mod", "mods")}`); });
+    const n = MS.checked.size;
+    tagMods([...MS.checked], [t], []).then((ok) => { if (ok) toast(`#${t} puesta a ${plural(n, "mod", "mods")}`); });
   });
 
   async function modAction(act, el) {
@@ -1945,7 +2093,30 @@
         showMenu([{ head: "Quitar a los elegidos…" }, ...tags.map((t) => ({ icon: "x", label: "#" + t, fn: () => tagMods(ids, [], [t]) }))], r.left - 160, r.bottom + 4);
         break;
       }
-      case "clear-filters": MS.f = { ...MS.f, state: "all", wtag: "", mytag: "" }; clearModQ(); renderModBar(); renderModList(); break;
+      case "clear-filters": clearFilters(); break;
+      case "close-filters": MS.fopen = false; store.set("modFiltersOpen", false); renderModBar(); break;
+      case "all-tags": { const k = el.dataset.k; if (MS.allTags.has(k)) MS.allTags.delete(k); else MS.allTags.add(k); renderModBar(); break; }
+      case "subs-menu": {
+        const r = el.getBoundingClientRect(), subs = subscribedIds();
+        showMenu([{ head: "Mods de este juego" },
+          { icon: "save", label: "Guardar lo suscrito como preset", fn: () => newPresetFrom(subscribedIds(), ""), disabled: !subs.length },
+          { icon: "paste", label: "Pegar un preset…", fn: openPaste },
+          { icon: "file", label: "Abrir un archivo de preset…", fn: () => readPaste(true) },
+          { icon: "refresh", label: "Volver a leer", fn: () => { MS.info.clear(); loadMods(); } },
+          "-",
+          { icon: "trash", label: `Quitar todas las suscripciones (${subs.length})…`, danger: true, fn: () => unsubscribeIds(subscribedIds(), true), disabled: !subs.length },
+        ], r.right - 260, r.bottom + 4);
+        break;
+      }
+      case "new-menu": {
+        const r = el.getBoundingClientRect();
+        showMenu([{ head: "Nuevo preset" },
+          { icon: "save", label: "Con lo que tengo suscrito", fn: () => newPresetFrom(subscribedIds(), ""), disabled: !subscribedIds().length },
+          { icon: "paste", label: "Pegar uno que me han pasado…", fn: openPaste },
+          { icon: "file", label: "Abrir un archivo (.txt o del lanzador de Arma 3)…", fn: () => readPaste(true) },
+        ], r.right - 300, r.bottom + 4);
+        break;
+      }
       case "unsub-all": unsubscribeIds(subscribedIds(), true); break;
       case "activate-checked": activatePresets([...MS.pchecked].map(presetById).filter(Boolean), true); break;
       case "puncheck": MS.pchecked.clear(); renderModBar(); renderModList(); break;
@@ -1976,8 +2147,10 @@
     if (hg) { openModGame(+hg.dataset.mgame); return; }
     const hp = t.closest("[data-home-preset]");
     if (hp) { const p = presetById(hp.dataset.homePreset); if (p) { openModGame(p.appid, "presets"); MS.sel = { kind: "preset", id: p.id }; setModTab("presets"); } return; }
-    const hf = t.closest("#mh-filter button");
-    if (hf) { MS.h.filter = hf.dataset.v; store.set("modHomeFilter", MS.h.filter); renderModBar(); renderModList(); return; }
+    const fc = t.closest("[data-fk]");
+    if (fc) { onFilterChip(fc.dataset.fk, fc.dataset.fv); return; }
+    const rf = t.closest("[data-rmf]");
+    if (rf) { removeFilter(rf.dataset.rmf); return; }
     const gal = t.closest("[data-gal]");
     if (gal) { const d = MS.sel && MS.info.get(MS.sel.id); if (d && d.gallery && d.gallery.length) openLightbox(d.gallery, +gal.dataset.gal); return; }
     const ck = t.closest("[data-check]");
@@ -2001,7 +2174,7 @@
     if (wtag) {
       const tg = wtag.dataset.wtag;
       if (MS.tab === "search") { if (!MS.search.tags.includes(tg)) { MS.search.tags.push(tg); runSearch(); } }
-      else { MS.f.wtag = tg; if (MS.f.state === "history") MS.f.state = "all"; renderModBar(); renderModList(); }
+      else { if (!MS.f.wtags.includes(tg)) MS.f.wtags.push(tg); if (MS.f.state === "history") MS.f.state = "all"; renderModBar(); renderModList(); }
       return;
     }
     const mun = t.closest("[data-muntag]");
@@ -2056,7 +2229,7 @@
     const card = t.closest("[data-preset]");
     if (card) { MS.sel = { kind: "preset", id: card.dataset.preset }; $$("#mod-list .pcard").forEach((el) => el.classList.toggle("sel", el === card)); renderModDetail(); $("#mod-detail").scrollTop = 0; }
   }
-  for (const id of ["#mod-list", "#mod-bar", "#mod-detail", "#mod-live"]) $(id).addEventListener("click", modClick);
+  for (const id of ["#mod-list", "#mod-detail", "#mod-live", "#mod-filters", "#mod-active", "#mod-actions", "#mod-bulk", "#mod-sortbox"]) $(id).addEventListener("click", modClick);
   $("#mod-list").addEventListener("contextmenu", (e) => {
     const row = e.target.closest("[data-mod]"), card = e.target.closest("[data-preset]");
     if (row) { e.preventDefault(); const m = modById(+row.dataset.mod); if (m) modMenu(m, e.clientX, e.clientY); }
@@ -2938,6 +3111,7 @@
     if (S.steam.found) ensureGames().then(() => renderAccDetail());
     // la primera pantalla ya está dibujada: fuera la de carga
     requestAnimationFrame(() => requestAnimationFrame(bootDone));
+    setTimeout(bootDone, 120); // por si la ventana no se está dibujando (minimizada…)
   }
   bootStep("Leyendo tus cuentas…");
   api.Init().then(applyInit).catch((e) => { bootDone(); toast(errText(e), "error"); });
@@ -3045,13 +3219,15 @@
         const m = allMods().find((x) => x.id === id) || { id, title: "Mod " + id, tags: [], children: [] };
         return { gallery: [{ video: "yHBGkPQ6tVk" }, { url: "https://images.steamusercontent.com/ugc/1/A/" }, { url: "https://images.steamusercontent.com/ugc/2/B/" }], mod: m, previewUrl: "", description: "[h1]" + m.title + "[/h1]\nUn mod de muestra con [b]negritas[/b] y un [url=https://example.com]enlace[/url].\n\n[list][*]Cosa uno[*]Cosa dos[/list]\n" + "Texto largo de relleno. ".repeat(60), required: (m.children || []).map((c) => ({ ...(allMods().find((x) => x.id === c) || { id: c, title: "Mod " + c }) })), stars: 4, ratings: 1234, commentsN: 56, commentList: [{ author: "Ana", text: "Va genial con la 1.5", time: now - 3600 * 5 }, { author: "Pablo", text: "¿Es compatible con Medieval Overhaul?\nGracias", time: now - 86400 * 2 }], pageError: "" };
       },
-      async ModsSearch(app, q, sort, cursor, tags) {
+      async ModsSearch(app, sq) {
+        const { text: q, cursor, tags, exclude } = sq;
         await wait(400);
         if (app === 107410 && status.activeId !== "76561198000000002") throw "La cuenta abierta en Steam no tiene este juego";
         const page = cursor ? +cursor : 0;
         const TG = ["Interfaz", "Animales", "Armas", "Clima", "Ropa", "Mapas"];
         let list = Array.from({ length: 12 }, (_, i) => mk(4000000000 + page * 12 + i, (q ? q + " " : "") + ["Mejor interfaz", "Más animales", "Armas medievales", "Clima realista", "Ropa nueva", "Mapas grandes"][i % 6] + " " + (page * 12 + i + 1), "autor" + i, (i + 1) * 3e6, { appid: app, sub: false, inst: false, subs: 90000 - i * 5000, tags: [TG[i % 6], i % 2 ? "1.5" : "1.4"] }));
         if (tags && tags.length) list = list.filter((m) => tags.every((t) => m.tags.includes(t)));
+        if (exclude && exclude.length) list = list.filter((m) => !exclude.some((t) => m.tags.includes(t)));
         for (const m of list) m.subscribed = (mods[app] || []).some((x) => x.id === m.id);
         return { mods: list, total: 340, cursor: page < 2 ? String(page + 1) : "" };
       },

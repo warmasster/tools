@@ -44,7 +44,7 @@ func (f *fakeWS) Details(ids []uint64) ([]steamworks.Item, error) {
 }
 func (f *fakeWS) Subscribe(id uint64) error   { return nil }
 func (f *fakeWS) Unsubscribe(id uint64) error { return nil }
-func (f *fakeWS) Search(string, int, string, []string) (steamworks.Page, error) {
+func (f *fakeWS) SearchEx(steamworks.SearchOptions) (steamworks.Page, error) {
 	return steamworks.Page{}, nil
 }
 func (f *fakeWS) Batch(sub bool, ids []uint64, window int, done func(uint64, error), stop func() bool) {

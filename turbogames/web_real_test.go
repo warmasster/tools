@@ -93,7 +93,7 @@ func TestWorkshopReal(t *testing.T) {
 	if st := a.Status(); st.RunningApp != 0 {
 		t.Errorf("el juego de mentira se ve como abierto: %d", st.RunningApp)
 	}
-	p, err := a.ModsSearch(appid, "", "votes", "", nil)
+	p, err := a.ModsSearch(appid, SearchQuery{Sort: "votes"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,6 +144,6 @@ func TestWorkshopRealInfo(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("%q: galería=%d estrellas=%d comentarios=%d", d.Mod.Title, len(d.Gallery), d.Stars, len(d.CommentList))
-	p, err := a.ModsSearch(uint32(appid64), "", "votes", "", []string{"Build 42"})
+	p, err := a.ModsSearch(uint32(appid64), SearchQuery{Sort: "trend", Days: 30, Tags: []string{"Build 42"}, Exclude: []string{"Build 41"}})
 	t.Logf("búsqueda con etiqueta: %v %d de %d", err, len(p.Mods), p.Total)
 }

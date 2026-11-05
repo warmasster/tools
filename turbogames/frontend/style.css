@@ -672,9 +672,53 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; scrollbar-widt
 .lb-nav.prev { left: 14px; }
 .lb-nav.next { right: 14px; }
 .lb-bar { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 0 18px; color: var(--muted); font-size: 13px; }
+/* buscador ancho, panel de filtros y barra de elegidos */
+.searchrow { display: flex; align-items: center; gap: 8px; padding-right: 12px; margin: -4px 0 12px; }
+.search.wide { flex: 1 1 360px; max-width: 520px; }
+.search.wide input { height: 38px; font-size: 13.5px; }
+.fbtn small { font-size: 11px; font-weight: 800; color: #fff; background: var(--i); border-radius: 99px; padding: 0 6px; line-height: 17px; }
+.fbtn small:empty { display: none; }
+.fbtn.on { border-color: rgba(129,140,248,.6); background: rgba(99,102,241,.16); }
+.sortbox { display: flex; align-items: center; gap: 6px; }
+.slabel { font-size: 12px; color: var(--dim); }
+.sortbox .fsel { height: 34px; max-width: 230px; }
+.fpanel { margin: -2px 12px 12px 0; padding: 14px 16px 12px; border-radius: 16px; background: rgba(255,255,255,.03); border: 1px solid var(--brd); display: flex; flex-direction: column; gap: 14px; max-height: 46vh; overflow-y: auto; scrollbar-width: thin; animation: enter .2s ease both; }
+.fgroup { min-width: 0; }
+.fg-h { font-size: 11.5px; text-transform: uppercase; letter-spacing: .7px; font-weight: 650; color: var(--muted); margin-bottom: 8px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.fg-h span { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--dim); font-size: 11.5px; }
+.fg-c { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fchip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 99px; border: 1px solid var(--brd); background: var(--panel); color: var(--muted); font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.fchip:hover { color: var(--txt); border-color: var(--brd2); }
+.fchip small { font-size: 11px; color: var(--dim); font-weight: 700; font-variant-numeric: tabular-nums; }
+.fchip.on { color: #fff; background: rgba(99,102,241,.3); border-color: rgba(129,140,248,.7); }
+.fchip.on small { color: #c7d2fe; }
+.fchip.ex { color: #fecdd3; background: rgba(244,63,94,.14); border-color: rgba(244,63,94,.45); text-decoration: line-through; }
+.fchip.more { border-style: dashed; color: var(--dim); }
+.frow3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.fpanel-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; border-top: 1px solid var(--brd); margin-top: -2px; padding-top: 10px; }
+.fpanel .tag-add { height: 28px; }
+.activef { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-right: 12px; margin: -4px 0 12px; }
+.chip.afil { color: #c7d2fe; background: rgba(99,102,241,.14); border-color: rgba(129,140,248,.4); padding-right: 4px; font-size: 12px; }
+.chip.afil button { border: 0; background: transparent; color: inherit; cursor: pointer; width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; padding: 0; opacity: .7; }
+.chip.afil button:hover { opacity: 1; background: rgba(255,255,255,.12); }
+.chip.afil button svg { width: 10px; height: 10px; }
+.lhead { display: flex; align-items: center; gap: 10px; padding: 2px 8px 10px; font-size: 12.5px; color: var(--muted); cursor: pointer; width: fit-content; }
+.lhead input { width: 16px; height: 16px; accent-color: var(--i); margin: 0; cursor: pointer; }
+.bulkbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 12px 12px 0; padding: 10px 12px; border-radius: 14px; background: #171a2a; border: 1px solid rgba(129,140,248,.45); box-shadow: 0 -10px 30px -12px rgba(0,0,0,.7); animation: enter .2s ease both; }
+.bk-n { font-size: 13px; color: var(--muted); margin-right: 4px; }
+.bk-n b { color: var(--txt); }
+.bulkbar .sep { width: 1px; height: 22px; background: var(--brd); margin: 0 2px; }
+.bulkbar .tag-add { height: 30px; width: 140px; }
+.spinner.xs { width: 11px; height: 11px; border-width: 2px; display: inline-block; vertical-align: -1px; margin-right: 6px; }
+.livep { max-width: 220px; }
 #game-tag { max-width: 190px; }
 @media (max-width: 1420px) {
   #game-stat { display: none; }
+}
+@media (max-width: 1240px) {
+  .slabel { display: none; }
+  .search.wide { flex-basis: 260px; }
+  .frow3 { grid-template-columns: 1fr; }
 }
 @media (max-width: 1180px) {
   .split.on { grid-template-columns: minmax(0, 1fr) 350px; }

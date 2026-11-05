@@ -39,6 +39,8 @@ type wsRequest struct {
 	Sort   int      `json:"sort,omitempty"`
 	Cursor string   `json:"cursor,omitempty"`
 	Tags   []string `json:"tags,omitempty"`
+	Excl   []string `json:"excl,omitempty"`
+	Days   int      `json:"days,omitempty"`
 }
 
 type wsReply struct {
@@ -154,7 +156,7 @@ type wsClient interface {
 	Details(ids []uint64) ([]steamworks.Item, error)
 	Subscribe(id uint64) error
 	Unsubscribe(id uint64) error
-	Search(text string, sort int, cursor string, tags []string) (steamworks.Page, error)
+	SearchEx(o steamworks.SearchOptions) (steamworks.Page, error)
 	Batch(sub bool, ids []uint64, window int, done func(id uint64, err error), stop func() bool)
 }
 
@@ -197,7 +199,7 @@ func wsHandle(c wsClient, r wsRequest) (any, error) {
 		}
 		return err == nil, err
 	case "search":
-		return c.Search(r.Text, r.Sort, r.Cursor, r.Tags)
+		return c.SearchEx(steamworks.SearchOptions{Text: r.Text, Sort: r.Sort, Days: r.Days, Cursor: r.Cursor, Tags: r.Tags, Exclude: r.Excl})
 	}
 	return nil, fmt.Errorf("orden desconocida %q", r.Op)
 }

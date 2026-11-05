@@ -96,17 +96,26 @@
         <button class="btn ghost sm" id="mod-back" title="Volver a todos los juegos" hidden><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>Juegos</button>
         <h2 class="mod-home-title" id="mod-home-title">Mods de tus juegos</h2>
         <select class="fsel game-pick" id="mod-game" title="Juego"></select>
-        <div class="seg" id="mod-tab"><button data-v="subs">Suscritos<small id="mod-n-subs"></small></button><button data-v="presets">Presets<small id="mod-n-presets"></small></button><button data-v="search">Workshop</button></div>
-        <div class="search" id="mod-search">
-          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          <input id="mod-q" placeholder="Filtrar (Ctrl+F)" spellcheck="false" autocomplete="off">
-          <button class="x" data-clear="mod-q" title="Borrar búsqueda"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-        </div>
+        <div class="seg" id="mod-tab"><button data-v="subs">Suscritos<small id="mod-n-subs"></small></button><button data-v="presets">Presets<small id="mod-n-presets"></small></button><button data-v="search">Buscar en el Workshop</button></div>
         <span class="grow"></span>
         <span id="mod-live"></span>
       </div>
-      <div class="subbar" id="mod-bar"></div>
+      <div class="searchrow">
+        <div class="search wide" id="mod-search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="mod-q" placeholder="Buscar (Ctrl+F)" spellcheck="false" autocomplete="off">
+          <button class="x" data-clear="mod-q" title="Borrar búsqueda"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
+        <button class="btn ghost sm fbtn" id="mod-fbtn" title="Filtrar"><svg viewBox="0 0 24 24"><path d="M3 6h18M7 12h10M10 18h4"/></svg>Filtros<small id="mod-fcount"></small></button>
+        <div class="sortbox" id="mod-sortbox"></div>
+        <span class="grow"></span>
+        <span class="fstat" id="mod-stat"></span>
+        <span id="mod-actions"></span>
+      </div>
+      <div class="fpanel" id="mod-filters" hidden></div>
+      <div class="activef" id="mod-active" hidden></div>
       <div class="scroller" id="mod-scroll"><div id="mod-list"></div></div>
+      <div class="bulkbar" id="mod-bulk" hidden></div>
     </section>
     <aside class="detail" id="mod-detail"></aside>
   </main>

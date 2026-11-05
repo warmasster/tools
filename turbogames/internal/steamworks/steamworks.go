@@ -75,6 +75,7 @@ const (
 	gGetQueryUGCNumPreviews         = 13 // GetQueryUGCNumAdditionalPreviews
 	gGetQueryUGCPreview             = 14 // GetQueryUGCAdditionalPreview
 	gAddRequiredTag                 = 22
+	gAddExcludedTag                 = 24
 	gSetReturnAdditionalPreviews    = 30
 	gReleaseQueryUGCRequest         = 21
 	gSetReturnLongDescription       = 27
@@ -738,10 +739,22 @@ func (c *Client) Details(ids []uint64) ([]Item, error) {
 // con texto se ordena por parecido. cursor "" es la primera página. tags son
 // etiquetas del Workshop que tienen que tener todos.
 func (c *Client) Search(text string, sort int, cursor string, tags []string) (Page, error) {
-	text = strings.TrimSpace(text)
-	if text != "" {
-		sort = QueryByText
-	}
+	return c.SearchEx(SearchOptions{Text: text, Sort: sort, Cursor: cursor, Tags: tags})
+}
+
+// SearchOptions son los filtros de una búsqueda en el Workshop.
+type SearchOptions struct {
+	Text    string
+	Sort    int      // uno de los Query*
+	Days    int      // para QueryByTrend: populares de los últimos N días
+	Cursor  string   // "" = primera página
+	Tags    []string // tienen que tener todas
+	Exclude []string // no pueden tener ninguna
+}
+
+// SearchEx busca con todos los filtros.
+func (c *Client) SearchEx(o SearchOptions) (Page, error) {
+	text, sort, cursor, tags := strings.TrimSpace(o.Text), o.Sort, o.Cursor, o.Tags
 	if cursor == "" {
 		cursor = "*"
 	}
@@ -753,7 +766,16 @@ func (c *Client) Search(text string, sort int, cursor string, tags []string) (Pa
 		vcall(c.ugc, gSetSearchText, uintptr(h), uintptr(unsafe.Pointer(cstr(text))))
 	}
 	if sort == QueryByTrend {
-		vcall(c.ugc, gSetRankedByTrendDays, uintptr(h), 7)
+		days := o.Days
+		if days <= 0 || days > 365 {
+			days = 7
+		}
+		vcall(c.ugc, gSetRankedByTrendDays, uintptr(h), uintptr(days))
+	}
+	for _, t := range o.Exclude {
+		if t = strings.TrimSpace(t); t != "" {
+			vcall(c.ugc, gAddExcludedTag, uintptr(h), uintptr(unsafe.Pointer(cstr(t))))
+		}
 	}
 	for _, t := range tags {
 		if t = strings.TrimSpace(t); t != "" {
