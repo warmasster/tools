@@ -247,15 +247,17 @@ func (a *App) nameOf(id uint32) string {
 // PlayGame abre un juego. Si se indica una cuenta y no es la que está abierta,
 // primero cambia a ella.
 func (a *App) PlayGame(appid uint32, account string) (SwitchResult, error) {
-	a.stopWorkshop()
-	a.ws.forgetOwn()
 	in := a.steam()
 	if in == nil {
+		a.stopWorkshop()
 		return SwitchResult{}, steam.ErrNotFound
 	}
 	if appid == 0 {
 		return SwitchResult{}, errors.New("falta el juego")
 	}
+	// si TurboGAMES acaba de estar conectado por los mods, Steam aún puede dar el
+	// juego por abierto: se espera a que lo suelte, o no dejaría abrirlo
+	a.releaseSteam(in)
 	if account == "" {
 		if a.busySwitching() {
 			return SwitchResult{}, errors.New("Espera a que termine el cambio de cuenta")

@@ -795,7 +795,8 @@
     }
     const pre = g.state === "updating" ? "Steam lo está actualizando: se abrirá cuando termine" : g.state === "update" ? "Steam lo actualizará antes de abrirlo" : "";
     const launch = async () => {
-      try { await api.PlayGame(g.appid, ""); toast(pre || `Abriendo ${g.name}…`); }
+      toast(pre || `Abriendo ${g.name}…`);
+      try { await api.PlayGame(g.appid, ""); }
       catch (e) { fail(e); }
     };
     if (!needSwitch) { launch(); return; }
@@ -900,6 +901,7 @@
     p: { kind: "", from: "", tags: [], sort: store.get("modPresetSort", "recent") }, // filtros de los presets
     fopen: store.get("modFiltersOpen", false), allTags: new Set(), // panel de filtros abierto, grupos con todas sus etiquetas
     connect: new Set(), busy: false,
+    link: { appid: 0, on: false }, // conexión con Steam abierta ahora mismo (solo dura lo que tarda cada cosa)
     view: store.get("modView", "list"), // list, details o grid
     picked: new Map(), pickOpen: false, pickQ: "", // lo elegido con las casillas (se guarda aunque cambie la búsqueda)
   };
@@ -930,6 +932,7 @@
   const spinnerBox = (t) => `<div class="empty"><div class="spinner"></div><b>${esc(t)}</b></div>`;
   const fail = (e) => toast(errText(e), "error");
   const notOwnedErr = (msg) => /no tiene este juego/i.test(String(msg || ""));
+  const gameOpenErr = (msg) => /^Tienes .+ abierto: ciérralo/i.test(String(msg || ""));
 
   // cuentas tuyas (que no son la abierta) que tienen el juego
   function ownersOf(appid) {
@@ -1054,9 +1057,14 @@
     let h = "";
     if (!home && MS.app && l && !l.noGame) {
       if (l.connecting) h = `<span class="livep" title="Conectando con Steam…"><span class="spinner xs"></span>Conectando…</span>`;
-      else if (l.live) {
+      else if (MS.link.on && MS.link.appid === MS.app) h = `<span class="livep" title="Hablando con Steam ahora mismo (mientras, tus amigos te ven «jugando» a este juego). Se desconecta solo en cuanto termina."><i class="dot ok pulse"></i>Conectado</span>`;
+      else if (!l.live && l.gameOpen) {
+        h = S.steam.runningApp === l.gameOpen
+          ? `<span class="livep warn" data-mact="connect" title="${esc(l.liveError)}. Pulsa para volver a mirar.">${ic("game")}Juego abierto</span>`
+          : `<span class="livep off" data-mact="connect" title="Ya está cerrado: pulsa para leer tus suscripciones de Steam">${ic("refresh")}Leer de Steam</span>`;
+      } else if (l.live) {
         const a = S.accounts.find((x) => x.steamId === l.account);
-        h = `<span class="livep" title="Conectado con Steam${a ? " como " + esc(display(a)) : ""}: los cambios se hacen con esa cuenta. Mientras está conectado, tus amigos te ven «jugando» a este juego.">${MS.loading ? '<span class="spinner xs"></span>' : '<i class="dot ok"></i>'}Conectado</span>`;
+        h = `<span class="livep off" data-mact="connect" title="Suscripciones leídas de Steam${a ? " con " + esc(display(a)) : ""}: los cambios se hacen con esa cuenta. TurboGAMES solo se conecta un momento para leer o cambiar tus mods y se desconecta solo, así puedes abrir el juego cuando quieras. Pulsa para volver a leerlas.">${MS.loading ? '<span class="spinner xs"></span>' : ic("check")}Al día</span>`;
       } else if (l.liveError) {
         const own = notOwnedErr(l.liveError) ? ownersOf(MS.app)[0] : null;
         h = own
@@ -1504,6 +1512,18 @@
     return `<div class="row-btns" style="justify-content:flex-start"><button class="btn primary sm" data-mact="switch-owner">${ic("login")}Cambiar a ${esc(display(own[0]))}</button>${own.length > 1 ? `<button class="btn ghost sm" data-mact="switch-owner-menu">Otra cuenta…</button>` : ""}</div>`;
   }
 
+  // aviso de que hay un juego abierto (y por eso no se conecta con Steam)
+  function gameOpenHTML(l) {
+    const g = modGame(), name = esc(l.gameOpenName || "un juego");
+    if (S.steam.runningApp !== l.gameOpen) {
+      return `<div class="warn-box">Ya has cerrado <b>${name}</b>: lee tus suscripciones de Steam para verlas todas y poder cambiarlas.<div class="row-btns" style="justify-content:flex-start"><button class="btn primary sm" data-mact="connect">${ic("refresh")}Leer de Steam</button></div></div>`;
+    }
+    const why = l.gameOpen === MS.app
+      ? "Mientras está abierto, TurboGAMES no se conecta con Steam para cambiar sus mods: Steam lo tomaría como abrir el juego otra vez."
+      : `Para cambiar los mods de ${esc(g ? g.name : "este juego")}, TurboGAMES se presenta a Steam como ese juego, y Steam no deja tener dos abiertos a la vez.`;
+    return `<div class="warn-box"><b>Tienes ${name} abierto.</b> ${why} Ciérralo y vuelve a mirar. Abajo sale lo que hay en este PC.<div class="row-btns" style="justify-content:flex-start"><button class="btn ghost sm" data-mact="connect">${ic("refresh")}Volver a mirar</button></div></div>`;
+  }
+
   function renderModSubs(box) {
     const l = MS.list;
     if (!l) { box.innerHTML = spinnerBox("Leyendo los mods…"); return; }
@@ -1514,7 +1534,8 @@
     }
     const vis = visibleMods();
     let h = "";
-    if (!l.live && notOwnedErr(l.liveError)) h += `<div class="warn-box"><b>La cuenta abierta en Steam no tiene ${esc(g ? g.name : "este juego")}.</b> Para ver y cambiar sus suscripciones, entra con una cuenta que lo tenga. Abajo sale lo que hay en este PC.${switchOwnerHTML()}</div>`;
+    if (!l.live && l.gameOpen) h += gameOpenHTML(l);
+    else if (!l.live && notOwnedErr(l.liveError)) h += `<div class="warn-box"><b>La cuenta abierta en Steam no tiene ${esc(g ? g.name : "este juego")}.</b> Para ver y cambiar sus suscripciones, entra con una cuenta que lo tenga. Abajo sale lo que hay en este PC.${switchOwnerHTML()}</div>`;
     else if (!l.live) h += `<div class="warn-box">${l.liveError ? esc(l.liveError) + ". " : ""}Esta lista sale de lo que Steam tiene en este PC: las suscripciones que aún no se han bajado no salen hasta que conectes con Steam.</div>`;
     if (!sourceMods().length) {
       if (MS.f.state === "history") { box.innerHTML = h + `<div class="empty">${ic("clock")}<b>Todavía no hay historial</b><p>Aquí saldrán los mods que quites de este juego (desde aquí o desde Steam), para poder volver a ponerlos. TurboGAMES lo apunta cada vez que conecta con Steam.</p></div>`; return; }
@@ -1589,8 +1610,8 @@
     const s = MS.search;
     if (MS.list && MS.list.noGame) { box.innerHTML = `<div class="empty">${ic("search")}<b>Necesitas tener el juego</b><p>Para buscar en su Workshop, entra en Steam con una cuenta que lo tenga.</p></div>`; return; }
     if (s.err && !s.mods.length) {
-      const own = notOwnedErr(s.err);
-      box.innerHTML = `<div class="empty">${ic("plug")}<b>${own ? "La cuenta abierta no tiene este juego" : "No se puede buscar ahora"}</b><p>${esc(s.err)}. Para buscar en el Workshop desde aquí, Steam tiene que estar abierto con una cuenta que tenga el juego.</p>${own ? switchOwnerHTML() : ""}<div class="row-btns"><button class="btn ${own ? "ghost" : "primary"} sm" data-mact="search-retry">${ic("refresh")}Reintentar</button><button class="btn ghost sm" data-mact="workshop-web">${ic("globe")}Abrir el Workshop en el navegador</button></div></div>`;
+      const own = notOwnedErr(s.err), open = gameOpenErr(s.err);
+      box.innerHTML = `<div class="empty">${ic(open ? "game" : "plug")}<b>${own ? "La cuenta abierta no tiene este juego" : open ? "Cierra el juego para buscar desde aquí" : "No se puede buscar ahora"}</b><p>${esc(s.err)}. ${open ? "Para buscar en el Workshop, TurboGAMES se conecta un momento con Steam como si fuera el juego." : "Para buscar en el Workshop desde aquí, Steam tiene que estar abierto con una cuenta que tenga el juego."}</p>${own ? switchOwnerHTML() : ""}<div class="row-btns"><button class="btn ${own ? "ghost" : "primary"} sm" data-mact="search-retry">${ic("refresh")}Reintentar</button><button class="btn ghost sm" data-mact="workshop-web">${ic("globe")}Abrir el Workshop en el navegador</button></div></div>`;
       return;
     }
     const vis = visibleMods();
@@ -1873,7 +1894,7 @@
     MS.busy = true;
     const total = sub.length + unsub.length;
     if (total > 2) showProgress(total, title);
-    let notOwned = false;
+    let notOwned = false, retry = false;
     try {
       const r = await api.ModsChange(app, sub, unsub);
       const parts = [];
@@ -1897,6 +1918,9 @@
           const r = await ask({ title: "Hay que cambiar de cuenta", html: `<p>La cuenta abierta en Steam no tiene <b>${esc(g ? g.name : "este juego")}</b>. <b>${esc(display(own[0]))}</b> sí lo tiene.</p><p>Steam se cerrará un momento, entrará con ella y después se hará lo que has pedido.</p>`, ok: `Cambiar a ${display(own[0])} y seguir` });
           if (r.ok) await switchToOwner(own[0], () => changeMods(sub, unsub, title));
         }
+      } else if (gameOpenErr(msg)) {
+        const r = await ask({ title: "Cierra el juego primero", html: `<p>${esc(msg)}.</p><p>En cuanto lo cierres se hace al momento: TurboGAMES se conecta solo para esto y se desconecta al terminar.</p>`, ok: "Ya lo he cerrado" });
+        retry = r.ok;
       } else if (total === 1) {
         const r = await ask({ title: "No se ha podido hacer desde aquí", html: `<p>${esc(msg)}.</p><p>Puedes hacerlo en la página del mod dentro de Steam.</p>`, ok: "Abrir en Steam" });
         if (r.ok) api.OpenModInSteam(sub[0] || unsub[0]).catch(fail);
@@ -1906,6 +1930,7 @@
       $("#m-progress").hidden = true;
     }
     if (notOwned) return;
+    if (retry) { changeMods(sub, unsub, title); return; }
     MS.connect.add(app);
     MS.info.clear();
     await loadMods({ live: true });
@@ -1948,7 +1973,8 @@
           if (r.ok) await switchToOwner(own, () => activatePresets(list, exclusive));
           return;
         }
-        toast((MS.list.liveError || "No se puede conectar con Steam") + ". Sin eso no se sabe a qué estás suscrito.", "error");
+        if (gameOpenErr(MS.list.liveError)) toast(MS.list.liveError, "error");
+        else toast((MS.list.liveError || "No se puede conectar con Steam") + ". Sin eso no se sabe a qué estás suscrito.", "error");
         return;
       }
     }
@@ -2370,16 +2396,19 @@
   let dropTimer = null;
   function dropSteamSoon() {
     clearTimeout(dropTimer);
-    dropTimer = setTimeout(async () => {
-      if (document.hasFocus() || MS.busy || !MS.list || !MS.list.live) return;
-      let ok = false;
-      try { ok = await api.WorkshopDisconnect(); } catch { }
-      if (ok && MS.list && MS.list.live) { MS.list.live = false; MS.list.liveError = ""; if (S.view === "mods") renderModTop(); }
+    dropTimer = setTimeout(() => {
+      if (document.hasFocus() || MS.busy || !MS.link.on) return;
+      api.WorkshopDisconnect().catch(() => { });
     }, 1500);
   }
   window.addEventListener("blur", dropSteamSoon);
   document.addEventListener("visibilitychange", () => { if (document.hidden) dropSteamSoon(); });
   window.addEventListener("focus", () => clearTimeout(dropTimer));
+  // la conexión con Steam se abre solo para lo que la necesita y se cierra sola al poco
+  rt.EventsOn("workshop-link", (l) => {
+    MS.link = l || { appid: 0, on: false };
+    if (S.view === "mods") renderModTop();
+  });
 
   // los datos de los mods (y los nombres de los autores) llegan después, por
   // tandas: se juntan con lo que hay y se vuelve a dibujar, sin pedir nada más
@@ -3186,6 +3215,7 @@
       if (S.view === "games") renderGames();
       if (!s.runningApp) S.gamesAt = 0; // al cerrar un juego cambian las horas
       if (s.runningApp) api.GameName(s.runningApp).then((n) => { S.runningName = n; renderPills(); }).catch(() => { });
+      if (S.view === "mods" && MS.list && MS.list.gameOpen) renderMods();
     }
   });
   rt.EventsOn("accounts", () => { loadAccountsSoon(); S.gamesAt = 0; });
@@ -3278,10 +3308,25 @@
     ];
     const secrets = { nightowl_99: { password: "correct-horse-battery", email: "night@example.com", recovery: "R12345" }, smurfito: { password: "smurf-pass-123" }, tradebot_eu: { password: "trade$$2026" } };
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-    const status = { found: true, dir: "C:\\Program Files (x86)\\Steam", running: true, activeId: "76561198000000001", runningApp: 0, autoLogin: "nightowl_99", switching: false };
+    const status = { found: true, dir: "C:\\Program Files (x86)\\Steam", running: true, activeId: "76561198000000001", runningApp: /[?&]abierto\b/.test(location.search) ? 294100 : 0, autoLogin: "nightowl_99", switching: false };
     const emit = (n, d) => (window.__mockHandlers[n] || []).forEach((f) => f(d));
     window.__mockHandlers = {};
     rt.EventsOn = (n, f) => { (window.__mockHandlers[n] = window.__mockHandlers[n] || []).push(f); };
+    // como el de verdad: «Tienes X abierto…» si hay un juego abierto, y si no, la
+    // conexión se abre para la petición y se cierra sola a los 2 s
+    let linkTimer = null;
+    const link = (app) => {
+      if (status.runningApp) {
+        const g = games.find((x) => x.appid === status.runningApp), name = g ? g.name : "un juego";
+        const w = games.find((x) => x.appid === app);
+        const e = new Error(status.runningApp === app ? `Tienes ${name} abierto: ciérralo para gestionar sus mods desde aquí` : `Tienes ${name} abierto: ciérralo para gestionar desde aquí los mods de ${w ? w.name : "este juego"} (Steam no deja tener dos juegos abiertos a la vez)`);
+        e.open = status.runningApp; e.openName = name;
+        throw e;
+      }
+      clearTimeout(linkTimer);
+      emit("workshop-link", { appid: app, on: true });
+      linkTimer = setTimeout(() => emit("workshop-link", { appid: app, on: false }), 2000);
+    };
     return {
       async Init() { return { version: "1.0 (muestra)", steam: status, settings: { lockMinutes: 5, clipSeconds: 20, afterSwitch: "nada", confirmSwitch: true, workshopManual: false }, vault, accounts }; },
       async Accounts() { return accounts.map((a) => ({ ...a, active: a.steamId && a.steamId === status.activeId })); },
@@ -3319,6 +3364,9 @@
         await wait(250);
         if (app === 107410 && status.activeId !== "76561198000000002") return { appid: app, mods: [], history: [], live: false, liveError: "La cuenta abierta en Steam no tiene este juego", notOwned: true, account: status.activeId, diskSize: 0 };
         const l = (mods[app] || []).map((m) => ({ ...m, myTags: myTags[m.id] || [] }));
+        if (live) {
+          try { link(app); } catch (e) { return { appid: app, mods: l, history: [], live: false, liveError: e.message, gameOpen: e.open, gameOpenName: e.openName, account: status.activeId, diskSize: l.reduce((s, m) => s + (m.diskSize || 0), 0) }; }
+        }
         const history = app === 294100 ? [mk(1541460369, "Rimfeller", "Oskar Potocki", 6e6, { sub: false, inst: false }), mk(1414302321, "Combat Extended", "N7Huntsman", 230e6, { sub: false, inst: false })].map((m, i) => ({ ...m, removed: now - 86400 * (3 + i * 20) })) : [];
         return { appid: app, mods: l, history, live: !!live, liveError: live ? "" : "", account: status.activeId, diskSize: l.reduce((s, m) => s + (m.diskSize || 0), 0) };
       },
@@ -3334,6 +3382,7 @@
         const { text: q, cursor, tags, exclude } = sq;
         await wait(400);
         if (app === 107410 && status.activeId !== "76561198000000002") throw "La cuenta abierta en Steam no tiene este juego";
+        try { link(app); } catch (e) { throw e.message; }
         const page = cursor ? +cursor : 0;
         const TG = ["Interfaz", "Animales", "Armas", "Clima", "Ropa", "Mapas"];
         let list = Array.from({ length: 12 }, (_, i) => mk(4000000000 + page * 12 + i, (q ? q + " " : "") + ["Mejor interfaz", "Más animales", "Armas medievales", "Clima realista", "Ropa nueva", "Mapas grandes"][i % 6] + " " + (page * 12 + i + 1), "autor" + i, (i + 1) * 3e6, { appid: app, sub: false, inst: false, subs: 90000 - i * 5000, tags: [TG[i % 6], i % 2 ? "1.5" : "1.4"] }));
@@ -3343,6 +3392,7 @@
         return { mods: list, total: 340, cursor: page < 2 ? String(page + 1) : "" };
       },
       async ModsChange(app, sub, unsub) {
+        try { link(app); } catch (e) { throw e.message; }
         const total = sub.length + unsub.length;
         let done = 0, backup = "";
         if (unsub.length) { backup = "Copia automática"; presets.push({ id: "a" + Date.now(), appid: app, game: (games.find((g) => g.appid === app) || {}).name, name: "Copia automática · ahora", author: "", from: "", tags: [], notes: "", mods: (mods[app] || []).filter((m) => m.subscribed).map((m) => ({ id: m.id, title: m.title })), created: Math.floor(Date.now() / 1000), updated: Math.floor(Date.now() / 1000), auto: true, source: "copia" }); }

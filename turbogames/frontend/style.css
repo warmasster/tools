@@ -86,6 +86,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .dot.wait { background: var(--warn); animation: blink 1s ease-in-out infinite; }
 .dot.idle { background: var(--warn); }
 .dot.bad { background: var(--bad); }
+.dot.pulse { animation: blink 1.2s ease-in-out infinite; }
 @keyframes blink { 50% { opacity: .35; } }
 
 .winbtns { --wails-draggable: no-drag; display: flex; align-items: center; gap: 2px; flex: none; }

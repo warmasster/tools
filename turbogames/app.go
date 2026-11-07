@@ -173,6 +173,7 @@ func (a *App) Status() SteamState {
 		return SteamState{}
 	}
 	st := in.ReadStatus()
+	a.ws.settle(st.RunningApp)
 	s := SteamState{Found: true, Dir: in.Dir, Running: st.Running, RunningApp: st.RunningApp, AutoLogin: st.AutoLogin}
 	if a.ws.ownRunning(st.RunningApp) {
 		s.RunningApp = 0 // es nuestro proceso del Workshop, no un juego de verdad

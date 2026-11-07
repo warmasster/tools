@@ -376,6 +376,9 @@ type ModList struct {
 	History   []Mod  `json:"history"` // los que tuvo antes esta cuenta y ya no
 	NotOwned  bool   `json:"notOwned"`
 	Pending   int    `json:"pending"` // mods cuyos datos se están pidiendo en segundo plano
+	// juego abierto que no deja conectar (puede ser este mismo u otro)
+	GameOpen     uint32 `json:"gameOpen"`
+	GameOpenName string `json:"gameOpenName"`
 }
 
 func (a *App) modFrom(id uint64) Mod {
@@ -483,9 +486,9 @@ func (a *App) fillDetails(appid uint32, ids []uint64, live bool) int {
 			chunk := todo[:n]
 			todo = todo[n:]
 			got := false
-			if live && a.wsAlive(appid) {
+			if live {
 				var items []steamworks.Item
-				if a.wsCall(appid, wsRequest{Op: "details", IDs: chunk}, 60*time.Second, &items) == nil {
+				if a.wsPeek(appid, wsRequest{Op: "details", IDs: chunk}, 60*time.Second, &items) == nil {
 					a.wcache.put(items, true)
 					got = true
 				}
@@ -548,6 +551,10 @@ func (a *App) Mods(appid uint32, live bool) (ModList, error) {
 		if err := a.wsCall(appid, wsRequest{Op: "subscribed"}, 30*time.Second, &states); err != nil {
 			l.LiveError = err.Error()
 			l.NotOwned = errors.Is(err, errNotOwned) || err.Error() == steamworks.ErrNotOwned.Error()
+			var open *errGameOpen
+			if errors.As(err, &open) {
+				l.GameOpen, l.GameOpenName = open.AppID, open.Name
+			}
 		} else {
 			l.Live = true
 			liveStates = map[uint64]steamworks.ItemState{}
@@ -726,8 +733,8 @@ func htmlText(s string) string {
 
 // ModInfo trae la ficha completa de un mod: descripción, mods que necesita,
 // valoración, imágenes y vídeos, y los últimos comentarios (de su página del
-// Workshop). Con live, primero se lo pregunta a Steam (si ya está conectado o
-// se puede conectar).
+// Workshop). Con live, primero se lo pregunta a Steam si ya está conectado (no
+// conecta solo para esto).
 func (a *App) ModInfo(appid uint32, id uint64, live bool) (ModInfoData, error) {
 	var d ModInfoData
 	if id == 0 {
@@ -736,7 +743,7 @@ func (a *App) ModInfo(appid uint32, id uint64, live bool) (ModInfoData, error) {
 	if live && appid != 0 {
 		if e, ok := a.wcache.get(id); !ok || !e.Item.HasPreviews || time.Now().Unix()-e.At > 3600 {
 			var items []steamworks.Item
-			if a.wsCall(appid, wsRequest{Op: "details", IDs: []uint64{id}}, 30*time.Second, &items) == nil {
+			if a.wsPeek(appid, wsRequest{Op: "details", IDs: []uint64{id}}, 30*time.Second, &items) == nil {
 				a.wcache.put(items, true)
 				a.wcache.save()
 			}
@@ -941,6 +948,8 @@ func (a *App) ModsChange(appid uint32, subscribe, unsubscribe []uint64) (ModsCha
 	if total > 5000 {
 		return r, errors.New("Demasiados mods de una vez")
 	}
+	// la conexión sigue abierta durante todo el cambio y se cierra al poco de acabar
+	defer a.wsKeep()()
 	var before []steamworks.ItemState
 	if err := a.wsCall(appid, wsRequest{Op: "subscribed"}, 30*time.Second, &before); err != nil {
 		return r, err
@@ -992,7 +1001,7 @@ func (a *App) ModsChange(appid uint32, subscribe, unsubscribe []uint64) (ModsCha
 			done++
 			a.emit("mods-progress", map[string]any{"appid": appid, "done": done, "total": total, "title": title(id), "op": strings.TrimSuffix(op, "Many")})
 		}
-		err := a.wsCallEx(appid, wsRequest{Op: op, IDs: ids}, 60*time.Second, nil, func(p wsProgress) { finish(p.ID, p.Error) }, a.modsCancel.Load)
+		err := a.wsDo(appid, wsRequest{Op: op, IDs: ids}, 60*time.Second, nil, wsOpts{progress: func(p wsProgress) { finish(p.ID, p.Error) }, cancel: a.modsCancel.Load})
 		if a.modsCancel.Load() {
 			r.Canceled = true
 		}
